@@ -1,18 +1,21 @@
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time as dt_time
+from zoneinfo import ZoneInfo
 
 import requests
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TD_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
-CHECK_INTERVAL = max(int(os.getenv("CHECK_INTERVAL_SECONDS", "900")), 900)
-COOLDOWN_MINUTES = max(int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "90")), 90)
+CHECK_INTERVAL = max(int(os.getenv("CHECK_INTERVAL_SECONDS", "300")), 300)
+COOLDOWN_MINUTES = max(int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60")), 60)
 SYMBOL = os.getenv("SYMBOL", "XAU/USD")
+LOCAL_TZ = ZoneInfo("Asia/Hebron")
+START_TIME = dt_time(4, 30)
+END_TIME = dt_time(23, 30)
 
 last_signal = {"side": None, "time": 0.0}
-pending_signal = {"side": None, "count": 0}
 
 
 def tg(method, **payload):
@@ -40,7 +43,12 @@ def send(text):
         return False
 
 
-def fetch_m15(outputsize=800):
+def in_trading_window():
+    now = datetime.now(LOCAL_TZ).time()
+    return START_TIME <= now <= END_TIME
+
+
+def fetch_m15(outputsize=240):
     if not TD_KEY:
         raise RuntimeError("TWELVE_DATA_API_KEY is missing")
     r = requests.get(
@@ -69,7 +77,7 @@ def fetch_m15(outputsize=800):
             "low": float(x["low"]),
             "close": float(x["close"]),
         })
-    if len(rows) < 800:
+    if len(rows) < 220:
         raise RuntimeError(f"Not enough market data: {len(rows)} bars")
     return rows
 
@@ -149,50 +157,50 @@ def analyze():
         raise RuntimeError(f"Stale data: {age:.1f} minutes")
 
     h1 = aggregate(m15, 4)
-    h4 = aggregate(m15, 16)
-    if len(h1) < 100 or len(h4) < 50:
-        raise RuntimeError("Not enough derived higher-timeframe data")
+    if len(h1) < 55:
+        raise RuntimeError("Not enough derived 1h data")
 
     c15 = [x["close"] for x in m15]
     c1h = [x["close"] for x in h1]
-    c4h = [x["close"] for x in h4]
     price = c15[-1]
     e20 = ema(c15, 20)[-1]
     e50 = ema(c15, 50)[-1]
     h1e20 = ema(c1h, 20)[-1]
     h1e50 = ema(c1h, 50)[-1]
-    h4e20 = ema(c4h, 20)[-1]
-    h4e50 = ema(c4h, 50)[-1]
     rv = rsi(c15)
     mhist = macd_hist(c15)
     av = atr(m15)
     candle = m15[-1]
     bullish_candle = candle["close"] > candle["open"]
     bearish_candle = candle["close"] < candle["open"]
-    not_extended = abs(price - e20) <= 1.25 * av
+    not_extended = abs(price - e20) <= 1.5 * av
 
     buy_checks = [
         e20 > e50,
         h1e20 > h1e50,
-        h4e20 > h4e50,
         mhist > 0,
-        53 <= rv <= 66,
+        51 <= rv <= 69,
         price > e20,
-        bullish_candle and not_extended,
+        bullish_candle,
+        not_extended,
     ]
     sell_checks = [
         e20 < e50,
         h1e20 < h1e50,
-        h4e20 < h4e50,
         mhist < 0,
-        34 <= rv <= 47,
+        31 <= rv <= 49,
         price < e20,
-        bearish_candle and not_extended,
+        bearish_candle,
+        not_extended,
     ]
 
     buy_passed = sum(buy_checks)
     sell_passed = sum(sell_checks)
-    side = "BUY" if buy_passed == 7 else "SELL" if sell_passed == 7 else "WAIT"
+
+    # Balanced mode: 6/7 is enough, but higher-timeframe trend is mandatory.
+    buy_core = buy_checks[0] and buy_checks[1] and buy_checks[4]
+    sell_core = sell_checks[0] and sell_checks[1] and sell_checks[4]
+    side = "BUY" if buy_passed >= 6 and buy_core else "SELL" if sell_passed >= 6 and sell_core else "WAIT"
 
     if side == "BUY":
         sl, tp1, tp2 = price - 1.4 * av, price + 1.8 * av, price + 2.6 * av
@@ -211,45 +219,32 @@ def analyze():
 def format_signal(a):
     emoji = "🟢" if a["side"] == "BUY" else "🔴"
     ar = "شراء" if a["side"] == "BUY" else "بيع"
+    passed = a["buy_passed"] if a["side"] == "BUY" else a["sell_passed"]
     return (
-        f"{emoji} <b>إشارة {ar} انتقائية جدًا — XAU/USD</b>\n"
+        f"{emoji} <b>إشارة {ar} قوية — XAU/USD</b>\n"
         f"الدخول التقريبي: <b>{a['price']:.2f}</b>\n"
         f"وقف الخسارة: <b>{a['sl']:.2f}</b>\n"
         f"TP1: <b>{a['tp1']:.2f}</b>\n"
         f"TP2: <b>{a['tp2']:.2f}</b>\n"
         f"RSI: {a['rsi']:.1f} | ATR: {a['atr']:.2f}\n"
-        "✅ توافق 15د + 1س + 4س، والشروط الفنية 7/7، وثبت الاتجاه في 3 فحوص متتالية.\n"
-        "⚠️ هذه فلترة عالية الثقة وليست ضمان ربح أو نسبة نجاح ثابتة."
+        f"✅ تحقق {passed}/7 مع توافق اتجاه 15د + 1س.\n"
+        "⚠️ فلترة قوية وليست ضمان ربح أو نسبة نجاح ثابتة."
     )
 
 
-def confirmed_signal(a):
-    if a["side"] == "WAIT":
-        pending_signal["side"] = None
-        pending_signal["count"] = 0
-        return False
-    if pending_signal["side"] == a["side"]:
-        pending_signal["count"] += 1
-    else:
-        pending_signal["side"] = a["side"]
-        pending_signal["count"] = 1
-    return pending_signal["count"] >= 3
-
-
 def should_send_signal(a):
-    if not confirmed_signal(a):
+    if a["side"] == "WAIT":
         return False
     now = time.time()
     if last_signal["side"] == a["side"] and now - last_signal["time"] < COOLDOWN_MINUTES * 60:
         return False
     last_signal["side"] = a["side"]
     last_signal["time"] = now
-    pending_signal["count"] = 0
     return True
 
 
 def main():
-    print("Laith Gold Bot ultra-selective monitor started", flush=True)
+    print("Laith Gold Bot balanced high-confidence monitor started", flush=True)
     if not (TOKEN and CHAT_ID and TD_KEY):
         missing = [k for k, v in {
             "TELEGRAM_BOT_TOKEN": TOKEN,
@@ -258,9 +253,12 @@ def main():
         }.items() if not v]
         raise RuntimeError("Missing Railway variables: " + ", ".join(missing))
 
-    send("✅ <b>بوت ليث جاهز</b>\nالوضع الانتقائي جدًا مفعل: 7/7 + توافق 15د/1س/4س + 3 تأكيدات متتالية. لن يرسل أي صفقة ناقصة الشروط.")
+    send("✅ <b>بوت ليث جاهز</b>\nالوضع المتوازن مفعل: فحص كل 5 دقائق، دخول من أول تحقق قوي، وساعات العمل 04:30–23:30 بتوقيت فلسطين.")
 
     while True:
+        if not in_trading_window():
+            time.sleep(60)
+            continue
         try:
             a = analyze()
             print("analysis", {"side": a["side"], "buy": a["buy_passed"], "sell": a["sell_passed"]}, flush=True)
