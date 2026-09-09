@@ -8,7 +8,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TD_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
 CHECK_INTERVAL = max(int(os.getenv("CHECK_INTERVAL_SECONDS", "900")), 900)
-COOLDOWN_MINUTES = int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60"))
+COOLDOWN_MINUTES = max(int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "90")), 90)
 SYMBOL = os.getenv("SYMBOL", "XAU/USD")
 
 last_signal = {"side": None, "time": 0.0}
@@ -26,17 +26,21 @@ def tg(method, **payload):
 
 def send(text):
     if not TOKEN or not CHAT_ID:
-        print("[telegram-disabled]", text, flush=True)
+        print("[telegram-disabled]", flush=True)
         return False
     try:
         tg("sendMessage", chat_id=CHAT_ID, text=text, parse_mode="HTML", disable_web_page_preview="true")
         return True
+    except requests.HTTPError as e:
+        code = getattr(e.response, "status_code", "unknown")
+        print(f"Telegram send HTTP error: {code}", flush=True)
+        return False
     except Exception as e:
-        print("Telegram send error:", repr(e), flush=True)
+        print(f"Telegram send error: {type(e).__name__}", flush=True)
         return False
 
 
-def fetch_m15(outputsize=240):
+def fetch_m15(outputsize=800):
     if not TD_KEY:
         raise RuntimeError("TWELVE_DATA_API_KEY is missing")
     r = requests.get(
@@ -51,7 +55,7 @@ def fetch_m15(outputsize=240):
         timeout=20,
     )
     if r.status_code == 429:
-        raise RuntimeError("Twelve Data rate limit reached; waiting for quota reset")
+        raise RuntimeError("Twelve Data quota/rate limit reached")
     r.raise_for_status()
     data = r.json()
     if data.get("status") == "error" or "values" not in data:
@@ -65,17 +69,17 @@ def fetch_m15(outputsize=240):
             "low": float(x["low"]),
             "close": float(x["close"]),
         })
-    if len(rows) < 220:
+    if len(rows) < 800:
         raise RuntimeError(f"Not enough market data: {len(rows)} bars")
     return rows
 
 
-def aggregate_h1(rows):
-    usable = len(rows) - (len(rows) % 4)
+def aggregate(rows, group_size):
+    usable = len(rows) - (len(rows) % group_size)
     rows = rows[-usable:]
     out = []
-    for i in range(0, len(rows), 4):
-        g = rows[i:i + 4]
+    for i in range(0, len(rows), group_size):
+        g = rows[i:i + group_size]
         out.append({
             "datetime": g[-1]["datetime"],
             "open": g[0]["open"],
@@ -122,7 +126,7 @@ def atr(rows, period=14):
     return a
 
 
-def macd(values):
+def macd_hist(values):
     e12 = ema(values, 12)
     e26 = ema(values, 26)
     line = [a - b for a, b in zip(e12, e26)]
@@ -144,32 +148,56 @@ def analyze():
     if not fresh:
         raise RuntimeError(f"Stale data: {age:.1f} minutes")
 
-    h1 = aggregate_h1(m15)
-    if len(h1) < 55:
-        raise RuntimeError("Not enough derived 1h data")
+    h1 = aggregate(m15, 4)
+    h4 = aggregate(m15, 16)
+    if len(h1) < 100 or len(h4) < 50:
+        raise RuntimeError("Not enough derived higher-timeframe data")
 
     c15 = [x["close"] for x in m15]
     c1h = [x["close"] for x in h1]
+    c4h = [x["close"] for x in h4]
     price = c15[-1]
     e20 = ema(c15, 20)[-1]
     e50 = ema(c15, 50)[-1]
-    h_e20 = ema(c1h, 20)[-1]
-    h_e50 = ema(c1h, 50)[-1]
+    h1e20 = ema(c1h, 20)[-1]
+    h1e50 = ema(c1h, 50)[-1]
+    h4e20 = ema(c4h, 20)[-1]
+    h4e50 = ema(c4h, 50)[-1]
     rv = rsi(c15)
-    mhist = macd(c15)
+    mhist = macd_hist(c15)
     av = atr(m15)
+    candle = m15[-1]
+    bullish_candle = candle["close"] > candle["open"]
+    bearish_candle = candle["close"] < candle["open"]
+    not_extended = abs(price - e20) <= 1.25 * av
 
-    buy_checks = [e20 > e50, h_e20 > h_e50, mhist > 0, 52 <= rv <= 68, price > e20]
-    sell_checks = [e20 < e50, h_e20 < h_e50, mhist < 0, 32 <= rv <= 48, price < e20]
+    buy_checks = [
+        e20 > e50,
+        h1e20 > h1e50,
+        h4e20 > h4e50,
+        mhist > 0,
+        53 <= rv <= 66,
+        price > e20,
+        bullish_candle and not_extended,
+    ]
+    sell_checks = [
+        e20 < e50,
+        h1e20 < h1e50,
+        h4e20 < h4e50,
+        mhist < 0,
+        34 <= rv <= 47,
+        price < e20,
+        bearish_candle and not_extended,
+    ]
 
     buy_passed = sum(buy_checks)
     sell_passed = sum(sell_checks)
-    side = "BUY" if buy_passed == 5 else "SELL" if sell_passed == 5 else "WAIT"
+    side = "BUY" if buy_passed == 7 else "SELL" if sell_passed == 7 else "WAIT"
 
     if side == "BUY":
-        sl, tp1, tp2 = price - 1.5 * av, price + 1.8 * av, price + 2.8 * av
+        sl, tp1, tp2 = price - 1.4 * av, price + 1.8 * av, price + 2.6 * av
     elif side == "SELL":
-        sl, tp1, tp2 = price + 1.5 * av, price - 1.8 * av, price - 2.8 * av
+        sl, tp1, tp2 = price + 1.4 * av, price - 1.8 * av, price - 2.6 * av
     else:
         sl = tp1 = tp2 = None
 
@@ -184,14 +212,14 @@ def format_signal(a):
     emoji = "🟢" if a["side"] == "BUY" else "🔴"
     ar = "شراء" if a["side"] == "BUY" else "بيع"
     return (
-        f"{emoji} <b>إشارة {ar} عالية الثقة — XAU/USD</b>\n"
+        f"{emoji} <b>إشارة {ar} انتقائية جدًا — XAU/USD</b>\n"
         f"الدخول التقريبي: <b>{a['price']:.2f}</b>\n"
         f"وقف الخسارة: <b>{a['sl']:.2f}</b>\n"
         f"TP1: <b>{a['tp1']:.2f}</b>\n"
         f"TP2: <b>{a['tp2']:.2f}</b>\n"
         f"RSI: {a['rsi']:.1f} | ATR: {a['atr']:.2f}\n"
-        "✅ الشروط الفنية 5/5 وثبت الاتجاه في فحصين متتاليين.\n"
-        "⚠️ لا توجد صفقة مضمونة؛ التزم بإدارة المخاطر."
+        "✅ توافق 15د + 1س + 4س، والشروط الفنية 7/7، وثبت الاتجاه في 3 فحوص متتالية.\n"
+        "⚠️ هذه فلترة عالية الثقة وليست ضمان ربح أو نسبة نجاح ثابتة."
     )
 
 
@@ -205,7 +233,7 @@ def confirmed_signal(a):
     else:
         pending_signal["side"] = a["side"]
         pending_signal["count"] = 1
-    return pending_signal["count"] >= 2
+    return pending_signal["count"] >= 3
 
 
 def should_send_signal(a):
@@ -221,7 +249,7 @@ def should_send_signal(a):
 
 
 def main():
-    print("Laith Gold Bot isolated high-confidence monitor started", flush=True)
+    print("Laith Gold Bot ultra-selective monitor started", flush=True)
     if not (TOKEN and CHAT_ID and TD_KEY):
         missing = [k for k, v in {
             "TELEGRAM_BOT_TOKEN": TOKEN,
@@ -230,16 +258,16 @@ def main():
         }.items() if not v]
         raise RuntimeError("Missing Railway variables: " + ", ".join(missing))
 
-    send("✅ <b>اختبار اتصال ناجح</b>\nبوت ليث الجديد شغال بشكل مستقل. لن يرسل صفقة إلا بعد تحقق شروط 5/5 مرتين متتاليتين.")
+    send("✅ <b>بوت ليث جاهز</b>\nالوضع الانتقائي جدًا مفعل: 7/7 + توافق 15د/1س/4س + 3 تأكيدات متتالية. لن يرسل أي صفقة ناقصة الشروط.")
 
     while True:
         try:
             a = analyze()
-            print("analysis", a, flush=True)
+            print("analysis", {"side": a["side"], "buy": a["buy_passed"], "sell": a["sell_passed"]}, flush=True)
             if should_send_signal(a):
                 send(format_signal(a))
         except Exception as e:
-            print("monitor error:", repr(e), flush=True)
+            print(f"monitor error: {type(e).__name__}: {e}", flush=True)
         time.sleep(CHECK_INTERVAL)
 
 
