@@ -1,6 +1,5 @@
 import os
 import time
-import math
 import threading
 from datetime import datetime, timezone
 
@@ -10,10 +9,11 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TD_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_SECONDS", "300"))
-COOLDOWN_MINUTES = int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "45"))
+COOLDOWN_MINUTES = int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60"))
 SYMBOL = os.getenv("SYMBOL", "XAU/USD")
 
 last_signal = {"side": None, "time": 0.0}
+pending_signal = {"side": None, "count": 0}
 stop_event = threading.Event()
 
 
@@ -37,20 +37,22 @@ def send(text, chat_id=None):
         print("Telegram send error:", repr(e), flush=True)
 
 
-def fetch_series(interval, outputsize=160):
+def fetch_m15(outputsize=320):
     if not TD_KEY:
         raise RuntimeError("TWELVE_DATA_API_KEY is missing")
     r = requests.get(
         "https://api.twelvedata.com/time_series",
         params={
             "symbol": SYMBOL,
-            "interval": interval,
+            "interval": "15min",
             "outputsize": outputsize,
             "apikey": TD_KEY,
             "format": "JSON",
         },
         timeout=25,
     )
+    if r.status_code == 429:
+        raise RuntimeError("Twelve Data rate limit reached")
     r.raise_for_status()
     data = r.json()
     if data.get("status") == "error" or "values" not in data:
@@ -64,9 +66,25 @@ def fetch_series(interval, outputsize=160):
             "low": float(x["low"]),
             "close": float(x["close"]),
         })
-    if len(rows) < 60:
+    if len(rows) < 240:
         raise RuntimeError(f"Not enough market data: {len(rows)} bars")
     return rows
+
+
+def aggregate_h1(rows):
+    usable = len(rows) - (len(rows) % 4)
+    rows = rows[-usable:]
+    out = []
+    for i in range(0, len(rows), 4):
+        g = rows[i:i+4]
+        out.append({
+            "datetime": g[-1]["datetime"],
+            "open": g[0]["open"],
+            "high": max(x["high"] for x in g),
+            "low": min(x["low"] for x in g),
+            "close": g[-1]["close"],
+        })
+    return out
 
 
 def ema(values, period):
@@ -117,7 +135,7 @@ def macd(values):
     return line[-1], signal[-1], line[-1] - signal[-1]
 
 
-def freshness_ok(rows, interval_minutes):
+def freshness_ok(rows, interval_minutes=15):
     try:
         dt = datetime.fromisoformat(rows[-1]["datetime"].replace("Z", "+00:00"))
         if dt.tzinfo is None:
@@ -129,12 +147,14 @@ def freshness_ok(rows, interval_minutes):
 
 
 def analyze():
-    m15 = fetch_series("15min")
-    h1 = fetch_series("1h")
+    m15 = fetch_m15()
     ok15, age15 = freshness_ok(m15, 15)
-    ok1h, age1h = freshness_ok(h1, 60)
-    if not ok15 or not ok1h:
-        raise RuntimeError(f"Stale data (15m={age15}, 1h={age1h} minutes)")
+    if not ok15:
+        raise RuntimeError(f"Stale data (15m={age15} minutes)")
+
+    h1 = aggregate_h1(m15)
+    if len(h1) < 55:
+        raise RuntimeError("Not enough 1h derived data")
 
     c15 = [x["close"] for x in m15]
     c1h = [x["close"] for x in h1]
@@ -144,95 +164,103 @@ def analyze():
     h_e20 = ema(c1h, 20)[-1]
     h_e50 = ema(c1h, 50)[-1]
     rv = rsi(c15)
-    mline, msignal, mhist = macd(c15)
+    _, _, mhist = macd(c15)
     av = atr(m15)
 
-    buy_score = 0
-    sell_score = 0
-    reasons = []
+    buy_checks = {
+        "اتجاه 15د صاعد": e20 > e50,
+        "اتجاه 1س صاعد": h_e20 > h_e50,
+        "MACD إيجابي": mhist > 0,
+        "RSI شراء صحي": 52 <= rv <= 68,
+        "السعر فوق EMA20": price > e20,
+    }
+    sell_checks = {
+        "اتجاه 15د هابط": e20 < e50,
+        "اتجاه 1س هابط": h_e20 < h_e50,
+        "MACD سلبي": mhist < 0,
+        "RSI بيع صحي": 32 <= rv <= 48,
+        "السعر تحت EMA20": price < e20,
+    }
 
-    if e20 > e50:
-        buy_score += 2; reasons.append("15د اتجاه صاعد")
-    else:
-        sell_score += 2; reasons.append("15د اتجاه هابط")
-    if h_e20 > h_e50:
-        buy_score += 3; reasons.append("1س داعم للصعود")
-    else:
-        sell_score += 3; reasons.append("1س داعم للهبوط")
-    if mhist > 0:
-        buy_score += 1
-    else:
-        sell_score += 1
-    if 52 <= rv <= 72:
-        buy_score += 1
-    elif 28 <= rv <= 48:
-        sell_score += 1
-    if price > e20:
-        buy_score += 1
-    else:
-        sell_score += 1
-
-    side = "WAIT"
-    if buy_score >= 6 and buy_score - sell_score >= 3:
-        side = "BUY"
-    elif sell_score >= 6 and sell_score - buy_score >= 3:
-        side = "SELL"
+    buy_ok = all(buy_checks.values())
+    sell_ok = all(sell_checks.values())
+    side = "BUY" if buy_ok else "SELL" if sell_ok else "WAIT"
 
     if side == "BUY":
-        sl = price - 1.6 * av
-        tp1 = price + 1.6 * av
-        tp2 = price + 2.6 * av
+        sl = price - 1.5 * av
+        tp1 = price + 1.8 * av
+        tp2 = price + 2.8 * av
     elif side == "SELL":
-        sl = price + 1.6 * av
-        tp1 = price - 1.6 * av
-        tp2 = price - 2.6 * av
+        sl = price + 1.5 * av
+        tp1 = price - 1.8 * av
+        tp2 = price - 2.8 * av
     else:
         sl = tp1 = tp2 = None
 
     return {
-        "side": side, "price": price, "rsi": rv, "atr": av,
-        "buy_score": buy_score, "sell_score": sell_score,
-        "sl": sl, "tp1": tp1, "tp2": tp2,
-        "reasons": reasons,
+        "side": side,
+        "price": price,
+        "rsi": rv,
+        "atr": av,
+        "sl": sl,
+        "tp1": tp1,
+        "tp2": tp2,
+        "buy_passed": sum(buy_checks.values()),
+        "sell_passed": sum(sell_checks.values()),
+        "required": 5,
     }
 
 
 def format_analysis(a, manual=False):
     if a["side"] == "WAIT":
         return (
-            f"🟡 <b>لا دخول الآن — XAU/USD</b>\n"
+            f"🟡 <b>لا دخول — XAU/USD</b>\n"
             f"السعر: <b>{a['price']:.2f}</b>\n"
             f"RSI: {a['rsi']:.1f}\n"
-            f"شراء {a['buy_score']} | بيع {a['sell_score']}\n"
-            "السبب: الإشارات غير متفقة بما يكفي."
+            f"تأكيد شراء {a['buy_passed']}/5 | بيع {a['sell_passed']}/5\n"
+            "البوت ينتظر تطابق جميع شروط الصفقة عالية الثقة."
         )
     emoji = "🟢" if a["side"] == "BUY" else "🔴"
     ar = "شراء" if a["side"] == "BUY" else "بيع"
     return (
-        f"{emoji} <b>إشارة {ar} — XAU/USD</b>\n"
+        f"{emoji} <b>إشارة {ar} عالية الثقة — XAU/USD</b>\n"
         f"الدخول التقريبي: <b>{a['price']:.2f}</b>\n"
         f"وقف الخسارة: <b>{a['sl']:.2f}</b>\n"
         f"TP1: <b>{a['tp1']:.2f}</b>\n"
         f"TP2: <b>{a['tp2']:.2f}</b>\n"
         f"RSI: {a['rsi']:.1f} | ATR: {a['atr']:.2f}\n"
-        f"قوة: شراء {a['buy_score']} | بيع {a['sell_score']}\n"
-        "⚠️ إدارة المخاطر إلزامية؛ الإشارة تحليل وليست ضمانًا."
+        "✅ الشروط الفنية 5/5، وتم تأكيد الاتجاه في دورتين متتاليتين.\n"
+        "⚠️ لا توجد صفقة مضمونة؛ خفّض المخاطرة والتزم بالستوب."
     )
 
 
-def should_send_signal(a):
+def confirmed_signal(a):
     if a["side"] == "WAIT":
+        pending_signal["side"] = None
+        pending_signal["count"] = 0
+        return False
+    if pending_signal["side"] == a["side"]:
+        pending_signal["count"] += 1
+    else:
+        pending_signal["side"] = a["side"]
+        pending_signal["count"] = 1
+    return pending_signal["count"] >= 2
+
+
+def should_send_signal(a):
+    if not confirmed_signal(a):
         return False
     now = time.time()
     if last_signal["side"] == a["side"] and now - last_signal["time"] < COOLDOWN_MINUTES * 60:
         return False
     last_signal["side"] = a["side"]
     last_signal["time"] = now
+    pending_signal["count"] = 0
     return True
 
 
 def monitor_loop():
-    print("Laith Gold Bot monitor started", flush=True)
+    print("Laith Gold Bot high-confidence monitor started", flush=True)
     while not stop_event.is_set():
         if not (TOKEN and CHAT_ID and TD_KEY):
             missing = [k for k, v in {
@@ -272,12 +300,12 @@ def polling_loop():
                 if not cid:
                     continue
                 if text in ("/start", "start"):
-                    send("🟡 <b>بوت ليث للذهب شغال</b>\nاكتب /status لتحليل فوري.", cid)
+                    send("🟡 <b>بوت ليث للذهب شغال — وضع الصفقات عالية الثقة فقط</b>\nاكتب /status لتحليل فوري.", cid)
                 elif text in ("/status", "/signal", "حلل", "تحليل"):
                     try:
                         send(format_analysis(analyze(), manual=True), cid)
                     except Exception as e:
-                        send(f"⚠️ تعذر جلب بيانات سليمة الآن: {e}", cid)
+                        send(f"⚠️ لا توجد بيانات سليمة كفاية الآن، لذلك لن أعطي صفقة: {e}", cid)
         except Exception as e:
             print("polling error:", repr(e), flush=True)
             time.sleep(5)
