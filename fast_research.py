@@ -17,7 +17,7 @@ def news_clear(now, events):
     return all(not -900 <= e['time']-now.timestamp() <= 1800 for e in events)
 
 
-def simulate_fast(bars, costs, events, start_from=None):
+def simulate_fast(bars, costs, events, start_from=None, analyzer=None, include_trades=False):
     if any(not isinstance(x, (int,float)) or x < 0 or not isfinite(x) for x in costs):
         raise ValueError('invalid_fast_cost')
     active = pending = None
@@ -38,7 +38,8 @@ def simulate_fast(bars, costs, events, start_from=None):
         if pending and bar.start > pending['decision_time']:
             # First FULL minute after the decision, not the minute already in flight.
             candidate = pending['decision']
-            if fast_window(bar.start) and news_clear(bar.start, events):
+            if (0 < (bar.start-pending['decision_time']).total_seconds() <= 120
+                    and fast_window(bar.start) and news_clear(bar.start, events)):
                 active = paper_fill(candidate, bar)
                 if active:
                     last_entry = bar.start.timestamp()
@@ -60,7 +61,7 @@ def simulate_fast(bars, costs, events, start_from=None):
         if daily.get(now.astimezone(LOCAL).date().isoformat(),0) <= -3:
             continue
         try:
-            d = analyze_fast(bars[max(0,i-599):i+1], now)
+            d = (analyzer or analyze_fast)(bars[max(0,i-599):i+1], now)
         except DataError:
             continue
         if d['side'] in ('BUY','SELL'):
@@ -70,7 +71,15 @@ def simulate_fast(bars, costs, events, start_from=None):
     result = {'signals':signals, 'closed':len(trades), 'skipped_fills':skipped,
               'open_at_end':int(active is not None), 'pending_at_end':int(pending is not None),
               'excluded':sum(t['r'] is None for t in trades), 'first_signal':first_signal, 'cost_scenarios':[]}
+    result['cost_scenarios'] = cost_summary(trades, costs)
+    if include_trades:
+        result['trades'] = trades
+    return result
+
+
+def cost_summary(trades, costs=COSTS):
     valid = [t for t in trades if t['r'] is not None]
+    scenarios = []
     for cost in costs:
         nets = [t['r']-cost/abs(t['entry']-t['initial_sl']) for t in valid]
         positive = sum(max(v,0) for v in nets)
@@ -80,11 +89,11 @@ def simulate_fast(bars, costs, events, start_from=None):
             equity += v
             peak = max(peak,equity)
             dd = max(dd,peak-equity)
-        result['cost_scenarios'].append({'round_trip_dollars_per_ounce':cost,
+        scenarios.append({'round_trip_dollars_per_ounce':cost,
             'measured':len(nets), 'wins':sum(v>0 for v in nets), 'losses':sum(v<0 for v in nets),
             'net_r':round(sum(nets),4), 'max_drawdown_r':round(dd,4),
             'profit_factor':round(positive/negative,4) if negative else None})
-    return result
+    return scenarios
 
 
 def evaluate(market, now, events):

@@ -21,7 +21,7 @@ from storage import Store
 from transport import Telegram, SecretFilter, dispatch
 from fast_service import start_worker, fast_status
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -319,10 +319,10 @@ def main():
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
         store.enqueue("release:" + VERSION, "service",
-            "✅ <b>بوت ليث 2.4 — تجهيز مسار الدقيقة التجريبي</b>\n"
-            "فحص الوصول إلى بيانات 1د وتقييم على أسعار تاريخية فعلية بتكاليف مفترضة، ثم متابعة ورقية بعد 8 مساءً. "
-            "لا تُرسل صفقات من المسار السريع قبل التحقق؛ /fast يعرض حالته ونتيجته.\n"
-            "تقارير المسار الحالي ومتابعة مستوياته تستمر. نتائج الاختبار ليست ضمان نجاح ولا ربح حسابك.", time.time())
+            "✅ <b>بوت ليث 2.5 — تجربة تأكيد الاتجاه وإعادة الاختبار</b>\n"
+            "قاعدة دخول جديدة تنتظر استئناف الحركة بعد التصحيح، وتؤكد كسر البنية قبل تبديل الجهة. "
+            "تُقارن بالطريقة السابقة على نفس الأسعار، ثم تُتابع الطريقتان ورقيًا كل دقيقة مساءً.\n"
+            "/fast يعرض المقارنة بعد تكاليف مفترضة. لا إشارات دخول من التجربة السريعة، ولا تفعيل تلقائي بناءً على الاختبار التاريخي.", time.time())
         running = True
 
         def stop(*_):

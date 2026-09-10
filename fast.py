@@ -79,9 +79,15 @@ def paper_fill(decision, bar):
         return None
     if abs(bar.open-decision['price']) > .5*decision['atr']:
         return None
+    risk = abs(bar.open-decision['sl'])
+    reward = direction*(decision['tp2']-bar.open)
+    if (risk > decision.get('max_fill_risk', float('inf')) or
+            reward/risk < decision.get('min_reward_risk', 0)):
+        return None
     filled = dict(decision, price=bar.open)
     trade = make_trade(filled, bar.start)
-    trade.update(status='active', announced=bar.start.timestamp(), rule='fast-v1')
+    trade.update(status='active', announced=bar.start.timestamp(), rule=decision.get('rule','fast-v1'),
+                 setup=decision.get('reason'), context=decision.get('context'))
     return trade
 
 
@@ -94,7 +100,7 @@ def advance_fast(original, bars):
             continue
         # Known in advance, evaluated at the first bar open after the 20m holding limit.
         if bar.start.timestamp() >= trade['announced'] + MAX_HOLD:
-            gap = trade['last_end'] is not None and bar.start.timestamp() > trade['last_end']
+            gap = bar.start.timestamp() > (trade['last_end'] or trade['announced'])
             risk = abs(trade['entry']-trade['initial_sl'])
             r = (1 if trade['side']=='BUY' else -1)*(bar.open-trade['entry'])/risk
             trade.update(status='closed', outcome='TIME_LIMIT', exit=bar.open,
@@ -102,7 +108,7 @@ def advance_fast(original, bars):
                          r=None if trade['data_gap'] or gap or trade['delivery_uncertain'] else r)
             break
         # Keep first-bar data-gap checking minute-aware without changing the slow engine.
-        if trade['last_end'] is None and bar.start.timestamp() > trade['announced']+60:
+        if trade['last_end'] is None and bar.start.timestamp() > trade['announced']:
             trade['data_gap'] = True
         trade, _ = advance_trade(trade, [bar])
     return trade
@@ -118,6 +124,8 @@ class MinuteMarket:
         params['end_date'] = (end or now).astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S')
         try:
             response = self.session.get('https://api.twelvedata.com/time_series', params=params, timeout=(5,25))
+            if response.status_code == 429:
+                raise DataError('minute_quota_reached')
             if response.status_code != 200:
                 raise DataError('minute_http_' + str(response.status_code))
             payload = response.json()
