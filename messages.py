@@ -91,4 +91,48 @@ def status(store):
                  f"المرجع {active['entry']:.2f} | الوقف {active['stop']:.2f}\n")
         if active["delivery_uncertain"]:
             text += "⚠️ وصول رسالة الدخول غير مؤكد؛ التحقق مطلوب قبل استئناف إشارات جديدة.\n"
+    watch = store.get("early_watch")
+    if watch:
+        text += f"🟠 متابعة مبكّرة: <code>{watch['id']}</code> {watch['side']}؛ خارج سجل النتائج\n"
+    text += "مراقبة الانعكاس كل 5د عند توفر بيانات سليمة؛ لا إغلاق آلي.\n"
     return text + "/stats النتائج | /pause إيقاف الدخول | /resume استئناف الدخول"
+
+
+CHECK_LABELS = ["اتجاه 15د", "اتجاه الساعة", "زخم MACD", "نطاق RSI",
+                "موضع السعر من المتوسط", "اتجاه شمعة 15د", "عدم ابتعاد السعر عن المتوسط"]
+
+
+def early(watch, d):
+    side = "شراء" if watch["side"] == "BUY" else "بيع"
+    move = "صعودًا" if watch["side"] == "BUY" else "نزولًا"
+    missing = "، ".join(label for label, ok in zip(CHECK_LABELS, d["checks"][watch["side"]]) if not ok)
+    return (f"🟠 <b>ليث — تنبيه {side} مبكّر، غير مضمون</b>\n"
+            f"مرجع المتابعة المبكّرة: <code>{watch['id']}</code>\n"
+            f"شروط الشراء {d['buy']}/7 | البيع {d['sell']}/7؛ ليست نسب نجاح.\n"
+            f"الشروط الناقصة: {escape(missing)}\n"
+            f"السعر المرجعي {watch['entry']:.2f}\n"
+            f"هدف محتمل أول {watch['tp1']:.2f} — {abs(watch['tp1']-watch['entry']):.2f}$ {move}\n"
+            f"هدف محتمل ثانٍ {watch['tp2']:.2f} — {abs(watch['tp2']-watch['entry']):.2f}$ {move}\n"
+            f"مستوى إلغاء السيناريو {watch['stop']:.2f} — مسافة {abs(watch['entry']-watch['stop']):.2f}$\n"
+            f"وقت الرصد {local_time(watch['created'])} فلسطين.\n"
+            "المسافات محسوبة من ATR؛ ليست تنبؤًا بمقدار الحركة أو توقيتها. "
+            "الدولار فرق بسعر الأونصة، وليس ربح حسابك.\n"
+            "شروط الدخول الكاملة لم تتحقق؛ هذا سيناريو مراقبة. المرجع صالح دقيقتين. "
+            "تستمر مراقبته كل 5د حتى بلوغ مستوى الإلغاء/الهدف الثاني أو مرور 4 ساعات، "
+            "ويُستبدل عند إرسال إشارة دخول مكتملة. لا يدخل سجل نتائج الصفقات.")
+
+
+def emergency(watch, d, level, is_early=False):
+    opposite = "بيع" if watch["side"] == "BUY" else "شراء"
+    cause = (f"اكتملت شروط {opposite} المعاكسة لاتجاه المتابعة."
+             if level == "urgent" else
+             f"غلبت شروط {opposite} مع زخم وموضع سعر معاكسين على شمعتين مغلقتين متتاليتين.")
+    return ("🚨 <b>تحذير انعكاس — راجع الخروج الآن</b>\n"
+            + ("متابعة مبكّرة " if is_early else "إشارة ")
+            + f"<code>{watch['id']}</code>\n{cause}\n"
+            f"شراء {d['buy']}/7 | بيع {d['sell']}/7\n"
+            f"آخر سعر مغلق {d['price']:.2f} | {escape(d['price_time'])} UTC\n"
+            "إذا دخلت، راجع سعر وسيطك وفكّر بإغلاق الصفقة أو تقليل التعرض. "
+            "هذا إنذار تحليلي قد يخطئ، وليس أمر دخول عكسي. "
+            "البوت لا يغلق صفقتك ولا ينقل وقفك. المتابعة كل 5د وليست لحظية. "
+            "يبقى سجل البوت يتابع المستويات افتراضيًا؛ لا يفترض أنك خرجت.")

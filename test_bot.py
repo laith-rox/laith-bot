@@ -406,5 +406,160 @@ class NewsAndLoggingTests(unittest.TestCase):
         self.assertIsNone(record.exc_info)
 
 
+class AlertTests(unittest.TestCase):
+    setUp = StatefulTests.setUp
+    tearDown = StatefulTests.tearDown
+
+    def decision(self, side="SELL", full=False, stamp=None):
+        d = {"side": side if full else "WAIT", "price": 100., "atr": 2.,
+             "buy": 2 if side == "SELL" else 4, "sell": 4 if side == "SELL" else 2,
+             "checks": {"BUY": [False]*7, "SELL": [False]*7},
+             "price_time": (stamp or NOW+timedelta(minutes=5)).isoformat(),
+             "bar": NOW.isoformat(), "reason": "price_extended"}
+        d["checks"][side] = [True, True, True, False, True, False, False]
+        return d
+
+    def test_early_levels_both_directions_and_missing_data(self):
+        from alerts import early_candidate
+        for side in ("BUY", "SELL"):
+            d = early_candidate(self.decision(side))
+            direction = 1 if side == "BUY" else -1
+            self.assertAlmostEqual(direction*(d["tp1"]-d["price"]), 3.6)
+            self.assertAlmostEqual(direction*(d["price"]-d["sl"]), 2.8)
+        self.assertIsNone(early_candidate({"side":"WAIT"}))
+        self.assertIsNone(early_candidate(self.decision(full=True)))
+        self.assertIsNone(early_candidate(dict(self.decision(), buy=3)))
+
+    def test_early_delivery_monitored_separately_and_restart_dedup(self):
+        from alerts import early_candidate
+        watch = make_trade(early_candidate(self.decision()), NOW)
+        watch["id"] = "early-" + watch["id"]
+        self.assertTrue(self.store.prepare_early(watch, "test", NOW.timestamp()))
+        self.assertIsNone(self.store.get("early_watch"))
+        row = self.store.claim(NOW.timestamp())
+        self.store.finish(row["id"], "sent", NOW.timestamp(), message_id=1)
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertEqual(self.store.get("early_watch")["status"], "active")
+        self.assertIsNone(self.store.active())
+        self.assertEqual(self.store.stats()["closed"], 0)
+        self.assertFalse(self.store.prepare_early(watch, "test", NOW.timestamp()+900))
+
+    def test_early_pause_and_expiry_do_not_create_watch(self):
+        from alerts import early_candidate
+        watch = make_trade(early_candidate(self.decision()), NOW)
+        self.store.prepare_early(watch, "test", NOW.timestamp())
+        self.store.pause(True)
+        self.assertIsNone(self.store.claim(NOW.timestamp()))
+        self.assertIsNone(self.store.get("early_watch"))
+        self.store.pause(False)
+        self.store.prepare_early(watch, "test", NOW.timestamp()+3601)
+        self.assertIsNone(self.store.claim(NOW.timestamp()+3800))
+        self.assertIsNone(self.store.get("early_watch"))
+
+    def test_full_reversal_both_directions_immediate(self):
+        from alerts import reversal
+        for side, opposite in (("BUY", "SELL"), ("SELL", "BUY")):
+            level, _ = reversal(active_trade(side), self.decision(opposite, True))
+            self.assertEqual(level, "urgent")
+
+    def test_partial_reversal_needs_two_distinct_consecutive_closes(self):
+        from alerts import reversal
+        d = self.decision()
+        level, state = reversal(active_trade(), d)
+        self.assertIsNone(level)
+        level, repeated = reversal(active_trade(), d, state)
+        self.assertIsNone(level)
+        self.assertEqual(state, repeated)
+        d["price_time"] = (NOW+timedelta(minutes=10)).isoformat()
+        self.assertEqual(reversal(active_trade(), d, state)[0], "weak")
+        d["price_time"] = (NOW+timedelta(minutes=15)).isoformat()
+        self.assertIsNone(reversal(active_trade(), d, state)[0])
+
+    def test_reversal_no_data_or_aligned_or_predelivery_no_warning(self):
+        from alerts import reversal
+        for d in ({"side":"WAIT"}, self.decision("BUY", True), self.decision(stamp=NOW-timedelta(minutes=5))):
+            self.assertIsNone(reversal(active_trade(), d)[0])
+        d = self.decision()
+        d["checks"]["SELL"][2] = False
+        self.assertIsNone(reversal(active_trade(), d, {"count":5})[0])
+
+    def test_emergency_survives_pause_news_and_entry_cooldown(self):
+        trade = active_trade()
+        self.store.save_transition(trade, [], NOW.timestamp())
+        self.store.pause(True)
+        self.store.set("last_signal_at", NOW.timestamp())
+        market, news = Mock(), Mock()
+        market.fetch.return_value = [candle()]
+        news.check.return_value = False, "news_blackout", []
+        app = App(self.store, market, Mock(), news)
+        with patch("bot.analyze", return_value=self.decision(full=True)):
+            app.cycle(NOW+timedelta(minutes=5))
+            app.cycle(NOW+timedelta(minutes=5))
+        rows = self.store.db.execute("SELECT * FROM outbox WHERE kind='emergency'").fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.store.claim((NOW+timedelta(minutes=5)).timestamp())["kind"], "emergency")
+        self.assertEqual(self.store.active()["status"], "active")
+
+    def test_early_respects_entry_gates(self):
+        market, news = Mock(), Mock()
+        market.fetch.return_value = history()
+        news.check.return_value = False, "news_blackout", []
+        app = App(self.store, market, Mock(), news)
+        with patch("bot.analyze", return_value=self.decision()):
+            app.cycle(NOW)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='early'").fetchone()[0], 0)
+        self.store.set("evaluated_bar", None)
+        news.check.return_value = True, "calendar_clear", []
+        with patch("bot.analyze", return_value=self.decision()):
+            app.cycle(NOW)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='early'").fetchone()[0], 1)
+        self.assertIsNone(self.store.active())
+
+    def test_early_watch_gets_emergency_and_expires_without_trade_stats(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        watch = active_trade()
+        watch["id"] = "early-" + watch["id"]
+        self.store.set("early_watch", watch)
+        app.monitor_early([candle()], self.decision(full=True), NOW+timedelta(minutes=5))
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='emergency'").fetchone()[0], 1)
+        app.monitor_early([], {"side":"WAIT"}, NOW+timedelta(hours=4))
+        self.assertIsNone(self.store.get("early_watch"))
+        self.assertEqual(self.store.stats()["closed"], 0)
+
+    def test_early_level_completion_and_qualified_entry_supersedes(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        watch = active_trade()
+        self.store.set("early_watch", watch)
+        app.monitor_early([candle(l=89)], {"side":"WAIT"}, NOW+timedelta(minutes=5))
+        self.assertIsNone(self.store.get("early_watch"))
+        self.assertEqual(self.store.stats()["closed"], 0)
+        self.store.set("early_watch", watch)
+        pending = active_trade()
+        pending.update(status="pending", announced=None)
+        self.store.prepare_entry(pending, "test", NOW.timestamp()+400)
+        row = self.store.claim(NOW.timestamp()+400)
+        # Discard informational level notice before the entry acknowledgement.
+        if row["kind"] != "entry":
+            self.store.finish(row["id"], "sent", NOW.timestamp()+400, message_id=1)
+            row = self.store.claim(NOW.timestamp()+400)
+        self.store.finish(row["id"], "sent", NOW.timestamp()+400, message_id=2)
+        self.assertIsNone(self.store.get("early_watch"))
+
+    def test_warning_escalation_and_durable_dedup(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        watch = active_trade()
+        self.store.save_transition(watch, [], NOW.timestamp())
+        app.monitor_reversal(watch, self.decision(), NOW.timestamp()+300)
+        d = self.decision(stamp=NOW+timedelta(minutes=10))
+        app.monitor_reversal(watch, d, NOW.timestamp()+600)
+        app.monitor_reversal(watch, dict(d, side="SELL"), NOW.timestamp()+600)
+        self.store.close()
+        self.store = Store(self.path)
+        app.store = self.store
+        app.monitor_reversal(watch, dict(d, side="SELL"), NOW.timestamp()+601)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='emergency'").fetchone()[0], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

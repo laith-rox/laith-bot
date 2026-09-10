@@ -12,13 +12,14 @@ import sys
 import time
 
 from engine import analyze, make_trade, advance_trade
+from alerts import early_candidate, reversal
 from market import Market, DataError
-from messages import entry, transition, stats, status, local_time, LOCAL, REASONS
+from messages import entry, transition, stats, status, local_time, LOCAL, REASONS, early, emergency
 from news import NewsGuard
 from storage import Store
 from transport import Telegram, SecretFilter, dispatch
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -44,11 +45,47 @@ class App:
         self.cooldown = cooldown
         self.started = time.time()
 
+    def monitor_reversal(self, watch, decision, epoch, is_early=False):
+        key = "reversal:" + watch["id"]
+        level, state = reversal(watch, decision, self.store.get(key))
+        self.store.set(key, state)
+        if level:
+            # One warning per severity per watch, persisted across restarts.
+            self.store.enqueue(key + ":" + level, "emergency",
+                emergency(watch, decision, level, is_early), epoch,
+                signal_id=None if is_early else watch["id"], expires=epoch + 300)
+            LOG.info("reversal_detected id=%s level=%s early=%s", watch["id"], level, is_early)
+
+    def monitor_early(self, bars, decision, now):
+        watch = self.store.get("early_watch")
+        if not watch:
+            return
+        epoch = now.timestamp()
+        updated, events = advance_trade(watch, bars)
+        for event in events:
+            self.store.enqueue(watch["id"] + ":early:" + event["kind"], "review",
+                "🟠 <b>متابعة السيناريو المبكّر</b> <code>" + watch["id"] + "</code>\n" +
+                ("رُصد الهدف الأول؛ يقترح النموذج حماية عند المرجع الأصلي."
+                 if event["kind"] == "tp1" else
+                 "انتهت المتابعة: " + {"TP2": "رُصد الهدف الثاني", "STOP": "رُصد مستوى الإلغاء",
+                 "PROTECTED_STOP": "رُصد مستوى الحماية", "AMBIGUOUS": "لمسات مستويات غير محسومة"}[updated["outcome"]]) +
+                "\nهذه متابعة افتراضية خارج إحصاءات الصفقات؛ البوت لا ينفّذ عند الوسيط.", epoch,
+                expires=epoch + 3600)
+        if updated["status"] == "closed" or epoch - watch["announced"] >= 14400:
+            if updated["status"] != "closed":
+                self.store.enqueue(watch["id"] + ":early:expired", "review",
+                    "🟠 انتهت متابعة السيناريو المبكّر <code>" + watch["id"] +
+                    "</code> بعد 4 ساعات. راجع أي صفقة نفّذتها عند وسيطك.", epoch, expires=epoch + 3600)
+            self.store.set("early_watch", None)
+        else:
+            self.store.set("early_watch", updated)
+            self.monitor_reversal(updated, decision, epoch, is_early=True)
+
     def cycle(self, now):
         epoch = now.timestamp()
         self.store.set("heartbeat", epoch)
         active = self.store.active()
-        if not entry_window(now) and not active:
+        if not entry_window(now) and not active and not self.store.get("early_watch"):
             self.store.set("last_analysis", {"side": "WAIT", "reason": "outside_entry_window"})
             return
         try:
@@ -84,6 +121,11 @@ class App:
             decision = analyze(bars, now)
         except DataError as exc:
             decision = {"side": "WAIT", "reason": str(exc)}
+        # Exit warnings run before entry/news/pause gates and use only fresh analysis.
+        active = self.store.active()
+        if active and active["status"] != "pending":
+            self.monitor_reversal(active, decision, epoch)
+        self.monitor_early(bars, decision, now)
         allowed_news, news_reason, events = self.news.check(now)
         for event in events:
             if event["time"] >= epoch:
@@ -94,6 +136,7 @@ class App:
                     "متابعة الإشارة الموجودة تستمر. التصنيف لا يتنبأ باتجاه السعر.",
                     epoch, expires=event["time"] + 900)
 
+        candidate = early_candidate(decision)
         original_side = decision["side"]
         active = self.store.active()
         if self.store.get("paused", False):
@@ -134,6 +177,11 @@ class App:
             trade = make_trade(decision, now)
             if self.store.prepare_entry(trade, entry(trade, decision), epoch):
                 LOG.info("signal_prepared id=%s side=%s", trade["id"], trade["side"])
+        elif candidate and reason is None:
+            watch = make_trade(candidate, now)
+            watch["id"] = "early-" + watch["id"]
+            if self.store.prepare_early(watch, early(watch, candidate), epoch):
+                LOG.info("early_prepared id=%s side=%s", watch["id"], watch["side"])
         if reason == "daily_risk_limit":
             self.store.enqueue("risk:" + str(now.astimezone(LOCAL).date()), "risk",
                 "⏸️ بلغ نموذج الإشارات حد الخسارة اليومي 3R. "
@@ -242,10 +290,12 @@ def main():
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
         store.enqueue("release:" + VERSION, "service",
-            "✅ <b>تم تحديث بوت ليث</b>\nشموع مغلقة، حفظ دائم، متابعة أهداف ووقف، "
-            "وحماية حول الأخبار. /status للحالة و/stats للنتائج.\n"
-            "تبدأ المتابعة والسجلات بالإشارات الجديدة بعد التحديث.\n"
-            "المتابعة تحليلية كل 5د؛ البوت لا ينفّذ أوامر عند الوسيط.", time.time())
+            "✅ <b>بوت ليث 2.1 — تنبيهات مبكّرة وتحذير انعكاس</b>\n"
+            "تنبيه مبكّر منفصل مع أهداف محتملة بالدولار والشروط الناقصة، ومتابعة حتى 4 ساعات.\n"
+            "تحذير خروج عند تحقق الاتجاه المعاكس أو استمرار ضعفه على شمعتين مغلقتين. "
+            "يستمر التحذير أثناء /pause والأخبار متى توفرت بيانات سليمة.\n"
+            "المراقبة كل 5د، ليست لحظية ولا مضمونة؛ البوت لا يغلق صفقة عند الوسيط. "
+            "/status للحالة و/stats لسجل الإشارات المكتملة فقط.", time.time())
         running = True
 
         def stop(*_):

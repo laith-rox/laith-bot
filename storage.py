@@ -78,6 +78,18 @@ class Store:
             self._enqueue(trade["id"] + ":entry", "entry", message, now, trade["id"], now + 120)
         return True
 
+    def prepare_early(self, watch, message, now):
+        with self.db:
+            if self.active() or self.get("paused", False) or self.get("early_watch"):
+                return False
+            recent = self.db.execute("SELECT 1 FROM outbox WHERE kind='early' AND created>?",
+                                     (now - 3600,)).fetchone()
+            if recent:
+                return False
+            self._set("early_candidate", watch)
+            self._enqueue(watch["id"] + ":early", "early", message, now, expires=now + 120)
+        return True
+
     def save_transition(self, trade, messages, now):
         with self.db:
             self._save_trade(trade)
@@ -101,7 +113,7 @@ class Store:
                         trade["status"] = "undelivered"
                         self._save_trade(trade)
             row = self.db.execute("SELECT * FROM outbox WHERE status='pending' AND next_at<=? "
-                                  "ORDER BY created,id LIMIT 1", (now,)).fetchone()
+                                  "ORDER BY CASE WHEN kind='emergency' THEN 0 ELSE 1 END, created,id LIMIT 1", (now,)).fetchone()
             if row is None:
                 return None
             self.db.execute("UPDATE outbox SET status='inflight', attempts=attempts+1, last_attempt=? "
@@ -120,11 +132,18 @@ class Store:
             delay = max(retry_after, min(300, 5 * 2 ** (row["attempts"] - 1)))
             self.db.execute("UPDATE outbox SET status=?, message_id=?, error=?, next_at=? WHERE id=?",
                             (final, message_id, error, now + delay, event_id))
+            if row["kind"] == "early" and final in ("sent", "uncertain"):
+                watch = self.get("early_candidate")
+                if watch and row["id"] == watch["id"] + ":early":
+                    watch.update(status="active" if final == "sent" else "uncertain_delivery",
+                                 announced=now, delivery_uncertain=final == "uncertain")
+                    self._set("early_watch", watch)
             if row["kind"] == "entry":
                 trade = self.trade(row["signal_id"])
                 if final == "sent":
                     trade.update(status="active", announced=now, message_id=message_id)
                     self._set("last_signal_at", now)
+                    self._set("early_watch", None)
                 elif final == "uncertain":
                     trade.update(status="uncertain_delivery", announced=now, delivery_uncertain=True)
                     self._set("paused", True)
@@ -138,6 +157,7 @@ class Store:
             self._set("paused", paused)
             self._set("pause_reason", reason if paused else None)
             if paused:
+                self.db.execute("UPDATE outbox SET status='expired' WHERE kind='early' AND status='pending'")
                 active = self.active()
                 if active and active["status"] == "pending":
                     active["status"] = "undelivered"

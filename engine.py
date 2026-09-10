@@ -73,7 +73,8 @@ def analyze(bars, now):
     core = (0, 1, 3, 4, 6)
     side = "BUY" if sum(buy) >= 6 and all(buy[i] for i in core) else (
         "SELL" if sum(sell) >= 6 and all(sell[i] for i in core) else "WAIT")
-    result.update(side=side, price=price, atr=av, rsi=rv, buy=sum(buy), sell=sum(sell))
+    result.update(side=side, price=price, atr=av, rsi=rv, buy=sum(buy), sell=sum(sell),
+                  checks={"BUY": buy, "SELL": sell})
     if side != "WAIT":
         direction = 1 if side == "BUY" else -1
         result.update(sl=price - direction * 1.4 * av, tp1=price + direction * 1.8 * av,

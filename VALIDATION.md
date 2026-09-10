@@ -20,3 +20,10 @@ Verified cases:
 Historical evaluation tooling is included, but this release has **no measured live profitability claim or independently validated historical return**. Production deployment must separately confirm the persistent volume, bot identity, provider data and Telegram acknowledgement from runtime logs. Local tests do not prove those external services are available.
 
 Observational limits and assumptions are documented in README.md. The original `xau-signal-bot` repository and service are outside this change.
+
+
+## v2.1.0 — 2026-09-10
+
+54 اختبارات آلية ناجحة، منها 11 جديدة: مستويات الاتجاهين، تأكيد الشمعتين ومنع احتساب المكررة أو الفجوة، الاتجاه المعاكس الكامل، عزل الإحصاءات، تأكيد الإرسال، حفظ المتابعة بعد إعادة التشغيل، بوابات الأخبار والإيقاف، استمرار الطوارئ أثناء pause/news، أولوية الإنذار وتصعيده ومنع تكراره، انتهاء المتابعة المبكّرة واستبدالها بإشارة مكتملة.
+
+الأوامر: `python -m unittest -q test_bot`. البيانات صناعية والإرسال محاكًى؛ لا تدل النتائج على دقة مالية أو ربحية. لا اختبارات أداء سوقية جديدة، ولا تغيير لنموذج احتساب نتائج الإشارات المكتملة.
