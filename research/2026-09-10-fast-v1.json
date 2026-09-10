@@ -1,0 +1,104 @@
+{
+  "verified_deployment": "75a87531-09ca-4def-80d1-3f1efb764230",
+  "code_commit": "00a2986349c28a8bcd6dde98ac8509463e9dda25",
+  "observed_at": "2026-09-10T15:38:36.299398762Z",
+  "telegram_summary_message_id": 96,
+  "result": {
+    "rule": "fast-v1",
+    "mode": "RESEARCH_ONLY",
+    "source": "Twelve Data XAU/USD 1min",
+    "sample_start": "2026-09-06T04:00:00+00:00",
+    "sample_end": "2026-09-10T15:37:00+00:00",
+    "candles": 6441,
+    "holdout_from": "2026-09-09T07:08:00+00:00",
+    "hours": "20:00–23:30 Asia/Hebron weekdays",
+    "target_price_distance": 5,
+    "costs": "Hypothetical total round-trip costs; JustMarkets spread is NOT connected",
+    "news_filter": "Current-week scheduled USD High, -30/+15min; no unscheduled news",
+    "full": {
+      "signals": 34,
+      "closed": 28,
+      "skipped_fills": 6,
+      "open_at_end": 0,
+      "pending_at_end": 0,
+      "excluded": 0,
+      "first_signal": "2026-09-07T17:01:08+00:00",
+      "cost_scenarios": [
+        {
+          "round_trip_dollars_per_ounce": 0.2,
+          "measured": 28,
+          "wins": 13,
+          "losses": 15,
+          "net_r": 7.4421,
+          "max_drawdown_r": 3.5848,
+          "profit_factor": 1.6363
+        },
+        {
+          "round_trip_dollars_per_ounce": 0.5,
+          "measured": 28,
+          "wins": 13,
+          "losses": 15,
+          "net_r": 3.0049,
+          "max_drawdown_r": 4.3393,
+          "profit_factor": 1.2126
+        },
+        {
+          "round_trip_dollars_per_ounce": 1,
+          "measured": 28,
+          "wins": 11,
+          "losses": 17,
+          "net_r": -4.3903,
+          "max_drawdown_r": 6.0438,
+          "profit_factor": 0.7629
+        }
+      ]
+    },
+    "holdout": {
+      "signals": 14,
+      "closed": 12,
+      "skipped_fills": 2,
+      "open_at_end": 0,
+      "pending_at_end": 0,
+      "excluded": 0,
+      "first_signal": "2026-09-09T17:00:08+00:00",
+      "cost_scenarios": [
+        {
+          "round_trip_dollars_per_ounce": 0.2,
+          "measured": 12,
+          "wins": 4,
+          "losses": 8,
+          "net_r": 1.7305,
+          "max_drawdown_r": 3.5848,
+          "profit_factor": 1.2948
+        },
+        {
+          "round_trip_dollars_per_ounce": 0.5,
+          "measured": 12,
+          "wins": 4,
+          "losses": 8,
+          "net_r": -0.0117,
+          "max_drawdown_r": 4.3393,
+          "profit_factor": 0.9983
+        },
+        {
+          "round_trip_dollars_per_ounce": 1,
+          "measured": 12,
+          "wins": 4,
+          "losses": 8,
+          "net_r": -2.9155,
+          "max_drawdown_r": 6.0438,
+          "profit_factor": 0.6771
+        }
+      ]
+    },
+    "gate": "NOT_VALIDATED_FOR_SIGNALS"
+  },
+  "decision": "Keep fast-v1 research and paper only. No fast Telegram entry signals enabled.",
+  "limitations": [
+    "Only this week's data and current-week scheduled USD High news coverage.",
+    "The later chronological segment is small; it is not an independent future live sample.",
+    "Costs are assumed quote dollars per ounce, not measured JustMarkets spread or account P&L.",
+    "No Telegram execution delay or broker fills are simulated.",
+    "Unit tests validate software mechanics, not financial profitability."
+  ]
+}
