@@ -31,12 +31,21 @@ def early_candidate(d):
 def reversal(watch, d, previous=None):
     """Full opposite entry immediately; partial reversal on two distinct consecutive closes."""
     previous = previous or {}
-    if watch['status'] not in ('active', 'uncertain_delivery') or not leading_side(d):
+    if watch['status'] not in ('active', 'uncertain_delivery') or not all(
+            key in d for key in ('price_time', 'checks', 'price', 'buy', 'sell')):
         return None, {}
     opposite = 'SELL' if watch['side'] == 'BUY' else 'BUY'
     stamp = datetime.fromisoformat(d['price_time']).timestamp()
     if stamp <= (watch.get('announced') or watch['created']):
         return None, {}
+    context = d.get('context')
+    if context and context['trend'] == watch['side']:
+        if context['phase'] == 'trend_break':
+            return 'structure', {'stamp': stamp, 'count': 2}
+        if context['phase'] == 'conflict':
+            return 'pressure', {'stamp': stamp, 'count': 1}
+        if context['phase'] in ('pullback', 'unclear'):
+            return None, {}
     if d['side'] == opposite:
         return 'urgent', {'stamp': stamp, 'count': 2}
     checks = d['checks'][opposite]

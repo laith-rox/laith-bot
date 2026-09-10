@@ -665,5 +665,118 @@ class PeriodicTests(unittest.TestCase):
         self.assertEqual(self.store.stats()['closed'], 0)
 
 
+class ContextTests(unittest.TestCase):
+    def m15(self):
+        return [Bar(NOW-timedelta(minutes=15*(10-i)), 100, 105, 95, 101, 15) for i in range(10)]
+
+    def context(self, side="BUY", bars=None, **kwargs):
+        from context import market_context
+        config = dict(m15=bars or self.m15(), price=101 if side == "BUY" else 99, volatility=2,
+                      h20=102 if side == "BUY" else 98, h50=100,
+                      h20_before=101 if side == "BUY" else 99, e20=100,
+                      momentum=1 if side == "BUY" else -1)
+        config.update(kwargs)
+        return market_context(**config)
+
+    def test_bullish_pullback_not_sell_and_no_automatic_buy(self):
+        from reports import snapshot, report_message, progress
+        c = self.context(price=99, momentum=-1)
+        self.assertEqual(c['phase'], 'pullback')
+        d = AlertTests.decision(self)
+        d['context'] = c
+        s = snapshot(d, NOW)
+        self.assertEqual(s['side'], 'WAIT')
+        self.assertIsNone(s['watch'])
+        self.assertIn('تصحيح هابط محتمل', report_message(s, d))
+        self.assertNotIn('تغيّر الاتجاه الغالب إلى بيع', progress({'side':'BUY'}, d))
+
+    def test_bearish_bounce_not_buy(self):
+        from reports import snapshot
+        c = self.context('SELL', price=102, momentum=1)
+        self.assertEqual(c['phase'], 'pullback')
+        d = AlertTests.decision(self, 'BUY')
+        d['context'] = c
+        self.assertIsNone(snapshot(d, NOW)['watch'])
+
+    def test_thirty_dollar_rally_small_red_candle_vetoes_lagging_sell(self):
+        from context import recent_structure
+        from reports import snapshot
+        bars = [Bar(NOW-timedelta(minutes=5*(9-i)), 100+i*4,
+                    102+i*4, 99+i*4, 101+i*4) for i in range(9)]
+        last = bars[-1]
+        bars[-1] = Bar(last.start, 132, 134, 128, 129)
+        self.assertEqual(recent_structure(bars), 'BUY')
+        # Slow indicators still bearish and final candle red: veto, not another SELL.
+        c = self.context('SELL', price=129, e20=140, fast_bars=bars)
+        self.assertEqual(c['phase'], 'conflict')
+        d = AlertTests.decision(self, 'SELL', True)
+        d['context'] = c
+        self.assertEqual(snapshot(d, NOW)['side'], 'WAIT')
+        self.assertFalse(snapshot(d, NOW)['qualified'])
+
+    def test_structure_mirror_and_gap(self):
+        from context import recent_structure
+        bars = [Bar(NOW-timedelta(minutes=5*(9-i)), 150-i*4,
+                    151-i*4, 148-i*4, 149-i*4) for i in range(9)]
+        self.assertEqual(recent_structure(bars), 'SELL')
+        self.assertEqual(recent_structure(bars[:4]+bars[5:]), 'WAIT')
+
+    def test_break_needs_two_closed_bodies_not_wicks(self):
+        bars = self.m15()
+        b = bars[-1]
+        bars[-1] = Bar(b.start, 101, 105, 90, 100, 15)
+        self.assertNotEqual(self.context(bars=bars)['phase'], 'trend_break')
+        bars[-1] = Bar(b.start, 96, 97, 90, 94, 15)
+        self.assertNotEqual(self.context(bars=bars, price=94)['phase'], 'trend_break')
+        b = bars[-2]
+        bars[-2] = Bar(b.start, 96, 97, 90, 94, 15)
+        c = self.context(bars=bars, price=94)
+        self.assertEqual(c['phase'], 'trend_break')
+        self.assertFalse(c['entry_allowed'])
+        self.assertEqual(c['support'], 95)
+
+    def test_break_mirror_and_price_reclaim(self):
+        bars = self.m15()
+        for i in (-2,-1):
+            b = bars[i]
+            bars[i] = Bar(b.start, 104, 110, 103, 107, 15)
+        self.assertEqual(self.context('SELL', bars=bars, price=107)['phase'], 'trend_break')
+        self.assertNotEqual(self.context('SELL', bars=bars, price=100)['phase'], 'trend_break')
+
+    def test_trend_slope_disagreement_and_gap_are_wait(self):
+        self.assertEqual(self.context(h20_before=103)['phase'], 'unclear')
+        bars = self.m15()
+        b = bars[-1]
+        bars[-1] = Bar(b.start+timedelta(minutes=15), b.open, b.high, b.low, b.close, 15)
+        self.assertFalse(self.context(bars=bars)['entry_allowed'])
+
+    def test_analysis_blocks_entry_when_context_disallows(self):
+        with patch('engine.market_context', return_value={'entry_allowed':False,'phase':'conflict'}):
+            d = analyze(history(), NOW)
+        self.assertEqual(d['side'], 'WAIT')
+        self.assertNotIn('tp1', d)
+        self.assertEqual(d['reason'], 'context_conflict')
+
+    def test_emergency_distinguishes_pullback_pressure_and_break(self):
+        from alerts import reversal
+        d = AlertTests.decision(self)
+        d['context'] = self.context(price=99, momentum=-1)
+        self.assertIsNone(reversal(active_trade(), d, {'count':3})[0])
+        d['context'].update(phase='trend_break')
+        # Structural danger is independent of the majority score.
+        d.update(buy=3,sell=3)
+        self.assertEqual(reversal(active_trade(), d)[0], 'structure')
+        d['context'].update(phase='conflict', local_structure='SELL')
+        self.assertEqual(reversal(active_trade(), d)[0], 'pressure')
+
+    def test_aligned_context_cannot_be_outvoted_by_countertrend_score(self):
+        from reports import snapshot
+        d = AlertTests.decision(self, 'SELL', True)
+        d['context'] = self.context()
+        self.assertTrue(d['context']['entry_allowed'])
+        self.assertEqual(snapshot(d, NOW)['side'], 'WAIT')
+        self.assertIsNone(snapshot(d, NOW)['watch'])
+
+
 if __name__ == "__main__":
     unittest.main()

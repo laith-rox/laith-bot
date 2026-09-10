@@ -5,6 +5,7 @@ import hashlib
 import math
 
 from market import resample, require_fresh, DataError
+from context import market_context
 
 
 def ema(values, period):
@@ -64,6 +65,7 @@ def analyze(bars, now):
     rv, mh, av = rsi(c15), macd(c15), atr(m15)
     if not math.isfinite(av) or av <= 0:
         return dict(result, reason="invalid_volatility")
+    context = market_context(m15, price, av, h20, h50, ema(c1h, 20)[-4], e20, mh, bars)
     not_extended = abs(price - e20) <= 1.5 * av
     buy = [e20 > e50, h20 > h50, mh > 0, 51 <= rv <= 69,
            price > e20, m15[-1].close > m15[-1].open, not_extended]
@@ -73,7 +75,9 @@ def analyze(bars, now):
     core = (0, 1, 3, 4, 6)
     side = "BUY" if sum(buy) >= 6 and all(buy[i] for i in core) else (
         "SELL" if sum(sell) >= 6 and all(sell[i] for i in core) else "WAIT")
-    result.update(side=side, price=price, atr=av, rsi=rv, buy=sum(buy), sell=sum(sell),
+    if not context["entry_allowed"]:
+        side = "WAIT"
+    result.update(context=context, side=side, price=price, atr=av, rsi=rv, buy=sum(buy), sell=sum(sell),
                   checks={"BUY": buy, "SELL": sell})
     if side != "WAIT":
         direction = 1 if side == "BUY" else -1
@@ -83,6 +87,8 @@ def analyze(bars, now):
         result["reason"] = "price_extended"
     elif not 31 <= rv <= 69:
         result["reason"] = "rsi_extreme"
+    if not context["entry_allowed"]:
+        result["reason"] = "context_" + context["phase"]
     return result
 
 

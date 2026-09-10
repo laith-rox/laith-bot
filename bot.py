@@ -20,7 +20,7 @@ from news import NewsGuard
 from storage import Store
 from transport import Telegram, SecretFilter, dispatch
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -188,6 +188,11 @@ class App:
         LOG.info("analysis side=%s reason=%s buy=%s sell=%s closed_5m=%s last_close=%s",
                  decision["side"], decision["reason"], decision.get("buy"), decision.get("sell"),
                  len(bars), bars[-1].end.isoformat())
+        if raw_decision.get("context"):
+            context = raw_decision["context"]
+            LOG.info("market_context price=%.2f trend=%s structure=%s phase=%s support=%.2f resistance=%.2f",
+                     raw_decision["price"], context["trend"], context["local_structure"],
+                     context["phase"], context["support"], context["resistance"])
 
         if active and active["status"] != "pending" and epoch - self.store.get("last_hourly", 0) >= 3600:
             self.store.enqueue("hourly:" + active["id"] + ":" + str(int(epoch // 3600)), "review",
@@ -309,8 +314,8 @@ def main():
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
         store.enqueue("release:" + VERSION, "service",
-            "✅ <b>بوت ليث 2.2 — تقرير كل 15د ومتابعة كل 5د</b>\n"
-            "اتجاه غالب مع درجة خطر تقديرية وأهداف محتملة؛ الإشارة المستوفية للشروط مميّزة عن المبكّرة. "
+            "✅ <b>بوت ليث 2.3 — تمييز التصحيح المحتمل عن الانعكاس</b>\n"
+            "اتجاه الساعة ونطاق سابق يحددان السياق. التصحيح المحتمل يوقف اقتراح الدخول حتى تأكيد العودة، والكسر المؤكد يطلق تحذيرًا. "
             "لا صفقات مضمونة ولا نسب نجاح مختلقة. عند تعادل المؤشرات أو غياب البيانات يظهر ذلك بوضوح.\n"
             "التقارير خلال ساعات الدخول، والطوارئ لأي متابعة مفتوحة تستمر خارجها.\n"
             "تحذير خروج عند تحقق الاتجاه المعاكس أو استمرار ضعفه على شمعتين مغلقتين. "

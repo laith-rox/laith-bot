@@ -4,6 +4,7 @@ from datetime import datetime
 from html import escape
 
 from engine import make_trade
+from context import describe
 from messages import CHECK_LABELS, REASONS, local_time
 
 
@@ -12,7 +13,11 @@ def bias(d):
         return None
     if not all(math.isfinite(d[k]) and d[k] > 0 for k in ('price', 'atr')):
         return None
-    return 'BUY' if d['buy'] > d['sell'] else 'SELL' if d['sell'] > d['buy'] else 'WAIT'
+    side = 'BUY' if d['buy'] > d['sell'] else 'SELL' if d['sell'] > d['buy'] else 'WAIT'
+    context = d.get('context')
+    if context and (not context['entry_allowed'] or side != context['trend']):
+        return 'WAIT'
+    return side
 
 
 def risk_label(d, blocked=None):
@@ -32,7 +37,7 @@ def snapshot(d, now, blocked=None):
               'ends_at': (slot + 1)*900, 'side': side, 'price': d.get('price') if side else None,
               'buy': d.get('buy'), 'sell': d.get('sell'), 'blocked': blocked,
               'qualified': side in ('BUY', 'SELL') and d.get('side') == side and not blocked,
-              'risk': risk_label(d, blocked), 'watch': None}
+              'risk': risk_label(d, blocked), 'context': d.get('context'), 'watch': None}
     if side in ('BUY', 'SELL') and not blocked:
         direction = 1 if side == 'BUY' else -1
         p, a = d['price'], d['atr']
@@ -49,7 +54,9 @@ def progress(old, d):
     if side is None:
         return '⚠️ تعذّر تحديث الاتجاه؛ لا تعتمد على السعر السابق كأنه حي.'
     names = {'BUY': 'شراء', 'SELL': 'بيع', 'WAIT': 'متعادل'}
-    if old.get('side') not in ('BUY', 'SELL'):
+    if d.get('context') and (not d['context']['entry_allowed'] or side == 'WAIT'):
+        state = describe(d['context'])
+    elif old.get('side') not in ('BUY', 'SELL'):
         state = 'الاتجاه الحالي: ' + names[side]
     elif side == 'WAIT':
         state = '🟠 تلاشت الأفضلية؛ شروط الشراء والبيع متعادلة.'
@@ -67,13 +74,15 @@ def progress(old, d):
 
 
 def report_message(s, d, previous=None):
-    names = {'BUY': 'شراء', 'SELL': 'بيع', 'WAIT': 'متعادل — لا أفضلية', None: 'غير متاح'}
+    names = {'BUY': 'شراء', 'SELL': 'بيع', 'WAIT': 'انتظار — لا اقتراح دخول', None: 'غير متاح'}
     label = ('مستوفية شروط الدخول — غير مضمونة' if s['qualified'] else
              'إشارة مبكّرة — غير مضمونة' if s['side'] in ('BUY', 'SELL') and not s['blocked'] else
              'تحديث مراقبة — لا اقتراح دخول')
     text = (f"🕒 <b>ليث — تقرير 15 دقيقة</b> <code>{s['id']}</code>\n"
             f"<b>{label}</b>\nالاتجاه الغالب بالمؤشرات: <b>{names[s['side']]}</b>\n"
             f"درجة الخطر التقديرية: {s['risk']}\nنسبة احتمال الخسارة/النجاح غير مقاسة.\n")
+    if d.get('context'):
+        text += describe(d['context']) + '\n'
     if s['side'] is not None:
         text += f"شراء {d['buy']}/7 | بيع {d['sell']}/7؛ عدد الشروط ليس احتمال نجاح.\n"
         text += f"السعر المرجعي {d['price']:.2f} | وقت السعر {escape(d['price_time'])} UTC\n"

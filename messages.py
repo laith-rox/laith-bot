@@ -5,6 +5,10 @@ from zoneinfo import ZoneInfo
 LOCAL = ZoneInfo("Asia/Hebron")
 
 REASONS = {
+    "context_conflict": "تعارض حركة القمم والقيعان القصيرة مع اتجاه الساعة؛ لا دخول",
+    "context_pullback": "تصحيح محتمل؛ انتظار تأكيد عودة الاتجاه",
+    "context_trend_break": "كسر نطاق الاتجاه؛ انتظار تأكيد اتجاه جديد",
+    "context_unclear": "اتجاه غير محسوم أو فجوة بيانات؛ انتظار",
     "conditions_not_aligned": "شروط الدخول غير متوافقة",
     "entry_conditions_met": "شروط الدخول تحققت",
     "price_extended": "السعر بعيد عن متوسطه؛ انتظار فرصة أقرب",
@@ -128,6 +132,13 @@ def emergency(watch, d, level, is_early=False):
     cause = (f"اكتملت شروط {opposite} المعاكسة لاتجاه المتابعة."
              if level == "urgent" else
              f"غلبت شروط {opposite} مع زخم وموضع سعر معاكسين على شمعتين مغلقتين متتاليتين.")
+    if level == "structure":
+        cause = "كُسر نطاق سابق عكس اتجاه المتابعة بإغلاقين 15د؛ لم نعد نصنّف الحركة كتراجع تصحيحي فقط."
+    if level == "pressure":
+        return ("⚠️ <b>ضغط عكسي على المتابعة</b> <code>" + watch['id'] + "</code>\n"
+                "القمم والقيعان القصيرة تتحرك عكسها رغم تأخر مؤشرات الساعة. "
+                "هذا تعارض يحتاج مراجعة المخاطر، وليس انعكاسًا محسومًا أو إشارة دخول عكسية.\n"
+                f"آخر سعر مغلق {d['price']:.2f}. لا توسّع وقفك ولا تنتظر تحذيرًا آخر لتنفيذه عند وسيطك.")
     return ("🚨 <b>تحذير انعكاس — راجع الخروج الآن</b>\n"
             + ("متابعة مبكّرة " if is_early else "إشارة ")
             + f"<code>{watch['id']}</code>\n{cause}\n"
