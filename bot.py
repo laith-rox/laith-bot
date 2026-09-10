@@ -1,273 +1,286 @@
+"""Laith Gold Signals v2: persistent monitoring and Telegram alerts only."""
+import argparse
+import csv
+from datetime import datetime, time as wall_time, timezone
+import fcntl
+from html import escape
+import logging
 import os
+from pathlib import Path
+import signal
+import sys
 import time
-from datetime import datetime, timezone, time as dt_time
-from zoneinfo import ZoneInfo
 
-import requests
+from engine import analyze, make_trade, advance_trade
+from market import Market, DataError
+from messages import entry, transition, stats, status, local_time, LOCAL, REASONS
+from news import NewsGuard
+from storage import Store
+from transport import Telegram, SecretFilter, dispatch
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-TD_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
-CHECK_INTERVAL = max(int(os.getenv("CHECK_INTERVAL_SECONDS", "300")), 300)
-COOLDOWN_MINUTES = max(int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60")), 60)
-SYMBOL = os.getenv("SYMBOL", "XAU/USD")
-LOCAL_TZ = ZoneInfo("Asia/Hebron")
-START_TIME = dt_time(4, 30)
-END_TIME = dt_time(23, 30)
-
-last_signal = {"side": None, "time": 0.0}
+VERSION = "2.0.0"
+UTC = timezone.utc
+LOG = logging.getLogger("laith")
 
 
-def tg(method, **payload):
-    if not TOKEN:
-        return None
-    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
-    r = requests.post(url, data=payload, timeout=20)
-    r.raise_for_status()
-    return r.json()
+def entry_window(now):
+    local = now.astimezone(LOCAL)
+    return local.weekday() < 5 and wall_time(4, 30) <= local.time().replace(tzinfo=None) < wall_time(23, 30)
 
 
-def send(text):
-    if not TOKEN or not CHAT_ID:
-        print("[telegram-disabled]", flush=True)
-        return False
-    try:
-        tg("sendMessage", chat_id=CHAT_ID, text=text, parse_mode="HTML", disable_web_page_preview="true")
-        return True
-    except requests.HTTPError as e:
-        code = getattr(e.response, "status_code", "unknown")
-        print(f"Telegram send HTTP error: {code}", flush=True)
-        return False
-    except Exception as e:
-        print(f"Telegram send error: {type(e).__name__}", flush=True)
-        return False
+def daily_risk_blocked(store, now, limit=3.0):
+    today = now.astimezone(LOCAL).date()
+    total = 0.0
+    for trade in store.completed():
+        if datetime.fromtimestamp(trade["closed"], LOCAL).date() == today:
+            # Unmeasurable outcomes cannot evade the daily brake.
+            total += trade["r"] if trade.get("r") is not None else -1.0
+    return total <= -limit
 
 
-def in_trading_window():
-    now = datetime.now(LOCAL_TZ).time()
-    return START_TIME <= now <= END_TIME
+class App:
+    def __init__(self, store, market, telegram, news, cooldown=60):
+        self.store, self.market, self.telegram, self.news = store, market, telegram, news
+        self.cooldown = cooldown
+        self.started = time.time()
+
+    def cycle(self, now):
+        epoch = now.timestamp()
+        self.store.set("heartbeat", epoch)
+        active = self.store.active()
+        if not entry_window(now) and not active:
+            self.store.set("last_analysis", {"side": "WAIT", "reason": "outside_entry_window"})
+            return
+        try:
+            bars = self.market.fetch(now)
+        except DataError as exc:
+            reason = str(exc)
+            failures = self.store.get("data_failures", 0) + 1
+            self.store.set("data_failures", failures)
+            self.store.set("last_error", reason)
+            LOG.warning("market_unavailable reason=%s consecutive=%s", reason, failures)
+            last_alert = self.store.get("last_data_alert", 0)
+            if failures >= 3 and epoch - last_alert >= 3600:
+                self.store.enqueue("health:" + str(int(epoch // 3600)), "health",
+                    "⚠️ تعذّر تحديث أسعار بوت ليث. اقتراحات الدخول متوقفة حتى عودة بيانات سليمة. "
+                    "متابعة الوقف عند وسيطك ضرورية خلال الانقطاع.",
+                    epoch, expires=epoch + 3600)
+                self.store.set("last_data_alert", epoch)
+            return
+
+        # Position monitoring always precedes entry filters, including pause and news.
+        if active and active["status"] != "pending":
+            updated, events = advance_trade(active, bars)
+            self.store.save_transition(updated,
+                [(event["kind"], transition(updated, event["kind"])) for event in events], epoch)
+
+        if self.store.get("data_failures", 0) >= 3:
+            self.store.enqueue("recovery:" + str(int(epoch)), "health",
+                "✅ عادت بيانات أسعار بوت ليث. يُستأنف التحليل وفق شروط الدخول والحماية.", epoch,
+                expires=epoch + 3600)
+        self.store.set("data_failures", 0)
+        self.store.set("last_error", None)
+        try:
+            decision = analyze(bars, now)
+        except DataError as exc:
+            decision = {"side": "WAIT", "reason": str(exc)}
+        allowed_news, news_reason, events = self.news.check(now)
+        for event in events:
+            if event["time"] >= epoch:
+                self.store.enqueue("news:" + event["id"], "news",
+                    "🗓️ <b>حماية حول خبر أمريكي عالي التأثير</b>\n" +
+                    escape(event["title"]) + "\n" + local_time(event["time"]) +
+                    " فلسطين.\nإيقاف إشارات الدخول 30 دقيقة قبله و15 دقيقة بعده؛ "
+                    "متابعة الإشارة الموجودة تستمر. التصنيف لا يتنبأ باتجاه السعر.",
+                    epoch, expires=event["time"] + 900)
+
+        original_side = decision["side"]
+        active = self.store.active()
+        if self.store.get("paused", False):
+            reason = "paused"
+        elif active:
+            reason = "active_signal"
+        elif not entry_window(now):
+            reason = "outside_entry_window"
+        elif not allowed_news:
+            reason = news_reason
+        elif daily_risk_blocked(self.store, now):
+            reason = "daily_risk_limit"
+        elif epoch - self.store.get("last_signal_at", 0) < self.cooldown * 60:
+            reason = "cooldown"
+        elif decision.get("bar") and self.store.get("evaluated_bar") == decision["bar"]:
+            reason = "already_evaluated"
+        else:
+            reason = None
+
+        if decision.get("bar"):
+            self.store.set("evaluated_bar", decision["bar"])
+        if reason:
+            decision = dict(decision, model_side=original_side, side="WAIT", reason=reason)
+        self.store.record(now, decision, bars)
+        LOG.info("analysis side=%s reason=%s buy=%s sell=%s closed_5m=%s last_close=%s",
+                 decision["side"], decision["reason"], decision.get("buy"), decision.get("sell"),
+                 len(bars), bars[-1].end.isoformat())
+
+        if active and active["status"] != "pending" and epoch - self.store.get("last_hourly", 0) >= 3600:
+            self.store.enqueue("hourly:" + active["id"] + ":" + str(int(epoch // 3600)), "review",
+                "🔎 <b>مراجعة إشارة ليث</b> <code>" + active["id"] + "</code>\n"
+                + ("اتجاه النموذج الحالي يوافق الإشارة." if original_side == active["side"]
+                   else "شروط الدخول الحالية لا تؤكد اتجاه الإشارة؛ راقب وقفك.")
+                + "\nهذه مراجعة لنفس النموذج، وتستمر متابعة المستويات كل 5د.",
+                epoch, signal_id=active["id"], expires=epoch + 3600)
+            self.store.set("last_hourly", epoch)
+        if decision["side"] in ("BUY", "SELL"):
+            trade = make_trade(decision, now)
+            if self.store.prepare_entry(trade, entry(trade, decision), epoch):
+                LOG.info("signal_prepared id=%s side=%s", trade["id"], trade["side"])
+        if reason == "daily_risk_limit":
+            self.store.enqueue("risk:" + str(now.astimezone(LOCAL).date()), "risk",
+                "⏸️ بلغ نموذج الإشارات حد الخسارة اليومي 3R. "
+                "تتوقف اقتراحات الدخول لبقية اليوم بتوقيت فلسطين. "
+                "هذا الحد يخص سجل البوت الافتراضي، وليس حساب الوسيط.", epoch, expires=epoch + 86400)
+
+    def commands(self, now):
+        offset = self.store.get("update_offset", 0)
+        updates = self.telegram.read("getUpdates", offset=offset, timeout=0,
+                                     allowed_updates='["message"]', limit=20)
+        if not isinstance(updates, list):
+            raise RuntimeError("telegram_updates_invalid")
+        for update in updates:
+            update_id = update.get("update_id")
+            if not isinstance(update_id, int):
+                continue
+            message = update.get("message", {})
+            chat = message.get("chat", {})
+            sender = message.get("from", {})
+            authorized = (chat.get("type") == "private"
+                          and str(chat.get("id")) == self.telegram.chat_id
+                          and str(sender.get("id")) == self.telegram.chat_id)
+            recent = now.timestamp() - 300 <= message.get("date", 0) <= now.timestamp() + 30
+            words = message.get("text", "").split()
+            command = words[0].split("@")[0].lower() if words else ""
+            text = None
+            if authorized and recent:
+                if command in ("/start", "/help"):
+                    text = ("🥇 بوت ليث لإشارات الذهب ومتابعتها.\n"
+                            "/status حالة البوت والإشارة\n/stats سجل النتائج\n"
+                            "/pause إيقاف إشارات دخول جديدة مع استمرار متابعة الحالية\n"
+                            "/resume استئناف الدخول عند اجتياز شروط البيانات والأخبار والمخاطر")
+                elif command == "/status":
+                    text = status(self.store)
+                elif command == "/stats":
+                    text = stats(self.store)
+                elif command in ("/pause", "/resume"):
+                    self.store.pause(command == "/pause")
+                    text = ("⏸️ توقفت إشارات الدخول الجديدة. متابعة الإشارة الحالية مستمرة."
+                            if command == "/pause" else
+                            "▶️ استُؤنفت مراقبة فرص الدخول. شروط البيانات والأخبار وحد المخاطر ما زالت مطبّقة.")
+            if text:
+                self.store.enqueue("command:" + str(update_id), "command", text, now.timestamp(),
+                                   expires=now.timestamp() + 300)
+            self.store.set("update_offset", max(offset, update_id + 1))
+            offset = max(offset, update_id + 1)
 
 
-def fetch_m15(outputsize=240):
-    if not TD_KEY:
-        raise RuntimeError("TWELVE_DATA_API_KEY is missing")
-    r = requests.get(
-        "https://api.twelvedata.com/time_series",
-        params={
-            "symbol": SYMBOL,
-            "interval": "15min",
-            "outputsize": outputsize,
-            "apikey": TD_KEY,
-            "format": "JSON",
-        },
-        timeout=20,
-    )
-    if r.status_code == 429:
-        raise RuntimeError("Twelve Data quota/rate limit reached")
-    r.raise_for_status()
-    data = r.json()
-    if data.get("status") == "error" or "values" not in data:
-        raise RuntimeError(data.get("message") or "Bad Twelve Data response")
-    rows = []
-    for x in reversed(data["values"]):
-        rows.append({
-            "datetime": x["datetime"],
-            "open": float(x["open"]),
-            "high": float(x["high"]),
-            "low": float(x["low"]),
-            "close": float(x["close"]),
-        })
-    if len(rows) < 220:
-        raise RuntimeError(f"Not enough market data: {len(rows)} bars")
-    return rows
-
-
-def aggregate(rows, group_size):
-    usable = len(rows) - (len(rows) % group_size)
-    rows = rows[-usable:]
-    out = []
-    for i in range(0, len(rows), group_size):
-        g = rows[i:i + group_size]
-        out.append({
-            "datetime": g[-1]["datetime"],
-            "open": g[0]["open"],
-            "high": max(x["high"] for x in g),
-            "low": min(x["low"] for x in g),
-            "close": g[-1]["close"],
-        })
-    return out
-
-
-def ema(values, period):
-    k = 2.0 / (period + 1.0)
-    out = [values[0]]
-    for v in values[1:]:
-        out.append(v * k + out[-1] * (1 - k))
-    return out
-
-
-def rsi(values, period=14):
-    gains, losses = [], []
-    for i in range(1, len(values)):
-        d = values[i] - values[i - 1]
-        gains.append(max(d, 0.0))
-        losses.append(max(-d, 0.0))
-    ag = sum(gains[:period]) / period
-    al = sum(losses[:period]) / period
-    for i in range(period, len(gains)):
-        ag = (ag * (period - 1) + gains[i]) / period
-        al = (al * (period - 1) + losses[i]) / period
-    if al == 0:
-        return 100.0 if ag > 0 else 50.0
-    rs = ag / al
-    return 100.0 - 100.0 / (1.0 + rs)
-
-
-def atr(rows, period=14):
-    trs = []
-    for i in range(1, len(rows)):
-        h, l, pc = rows[i]["high"], rows[i]["low"], rows[i - 1]["close"]
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-    a = sum(trs[:period]) / period
-    for tr in trs[period:]:
-        a = (a * (period - 1) + tr) / period
-    return a
-
-
-def macd_hist(values):
-    e12 = ema(values, 12)
-    e26 = ema(values, 26)
-    line = [a - b for a, b in zip(e12, e26)]
-    signal = ema(line, 9)
-    return line[-1] - signal[-1]
-
-
-def freshness_ok(rows):
-    dt = datetime.fromisoformat(rows[-1]["datetime"].replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    age = (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 60.0
-    return age <= 45, age
-
-
-def analyze():
-    m15 = fetch_m15()
-    fresh, age = freshness_ok(m15)
-    if not fresh:
-        raise RuntimeError(f"Stale data: {age:.1f} minutes")
-
-    h1 = aggregate(m15, 4)
-    if len(h1) < 55:
-        raise RuntimeError("Not enough derived 1h data")
-
-    c15 = [x["close"] for x in m15]
-    c1h = [x["close"] for x in h1]
-    price = c15[-1]
-    e20 = ema(c15, 20)[-1]
-    e50 = ema(c15, 50)[-1]
-    h1e20 = ema(c1h, 20)[-1]
-    h1e50 = ema(c1h, 50)[-1]
-    rv = rsi(c15)
-    mhist = macd_hist(c15)
-    av = atr(m15)
-    candle = m15[-1]
-    bullish_candle = candle["close"] > candle["open"]
-    bearish_candle = candle["close"] < candle["open"]
-    not_extended = abs(price - e20) <= 1.5 * av
-
-    buy_checks = [
-        e20 > e50,
-        h1e20 > h1e50,
-        mhist > 0,
-        51 <= rv <= 69,
-        price > e20,
-        bullish_candle,
-        not_extended,
-    ]
-    sell_checks = [
-        e20 < e50,
-        h1e20 < h1e50,
-        mhist < 0,
-        31 <= rv <= 49,
-        price < e20,
-        bearish_candle,
-        not_extended,
-    ]
-
-    buy_passed = sum(buy_checks)
-    sell_passed = sum(sell_checks)
-
-    # Balanced mode: 6/7 is enough, but higher-timeframe trend is mandatory.
-    buy_core = buy_checks[0] and buy_checks[1] and buy_checks[4]
-    sell_core = sell_checks[0] and sell_checks[1] and sell_checks[4]
-    side = "BUY" if buy_passed >= 6 and buy_core else "SELL" if sell_passed >= 6 and sell_core else "WAIT"
-
-    if side == "BUY":
-        sl, tp1, tp2 = price - 1.4 * av, price + 1.8 * av, price + 2.6 * av
-    elif side == "SELL":
-        sl, tp1, tp2 = price + 1.4 * av, price - 1.8 * av, price - 2.6 * av
-    else:
-        sl = tp1 = tp2 = None
-
-    return {
-        "side": side, "price": price, "rsi": rv, "atr": av,
-        "sl": sl, "tp1": tp1, "tp2": tp2,
-        "buy_passed": buy_passed, "sell_passed": sell_passed,
-    }
-
-
-def format_signal(a):
-    emoji = "🟢" if a["side"] == "BUY" else "🔴"
-    ar = "شراء" if a["side"] == "BUY" else "بيع"
-    passed = a["buy_passed"] if a["side"] == "BUY" else a["sell_passed"]
-    return (
-        f"{emoji} <b>إشارة {ar} قوية — XAU/USD</b>\n"
-        f"الدخول التقريبي: <b>{a['price']:.2f}</b>\n"
-        f"وقف الخسارة: <b>{a['sl']:.2f}</b>\n"
-        f"TP1: <b>{a['tp1']:.2f}</b>\n"
-        f"TP2: <b>{a['tp2']:.2f}</b>\n"
-        f"RSI: {a['rsi']:.1f} | ATR: {a['atr']:.2f}\n"
-        f"✅ تحقق {passed}/7 مع توافق اتجاه 15د + 1س.\n"
-        "⚠️ فلترة قوية وليست ضمان ربح أو نسبة نجاح ثابتة."
-    )
-
-
-def should_send_signal(a):
-    if a["side"] == "WAIT":
-        return False
-    now = time.time()
-    if last_signal["side"] == a["side"] and now - last_signal["time"] < COOLDOWN_MINUTES * 60:
-        return False
-    last_signal["side"] = a["side"]
-    last_signal["time"] = now
-    return True
+def configure_logging(token, key):
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    handler.addFilter(SecretFilter((token, key)))
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
 
 
 def main():
-    print("Laith Gold Bot balanced high-confidence monitor started", flush=True)
-    if not (TOKEN and CHAT_ID and TD_KEY):
-        missing = [k for k, v in {
-            "TELEGRAM_BOT_TOKEN": TOKEN,
-            "TELEGRAM_CHAT_ID": CHAT_ID,
-            "TWELVE_DATA_API_KEY": TD_KEY,
-        }.items() if not v]
-        raise RuntimeError("Missing Railway variables: " + ", ".join(missing))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--once", action="store_true", help="Read-only market preview; never sends Telegram")
+    parser.add_argument("--stats", action="store_true", help="Print local signal statistics")
+    parser.add_argument("--export-csv", metavar="PATH", help="Export stored closed five-minute candles")
+    args = parser.parse_args()
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    key = os.getenv("TWELVE_DATA_API_KEY", "").strip()
+    configure_logging(token, key)
+    if os.getenv("SYMBOL", "XAU/USD").strip().upper() != "XAU/USD":
+        raise RuntimeError("this_bot_requires_XAU_USD")
+    mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "")
+    state_dir = Path(os.getenv("STATE_DIR", mount or "./data")).resolve()
+    if args.once:
+        if not key:
+            raise RuntimeError("missing_market_key")
+        now = datetime.now(UTC)
+        print(analyze(Market(key).fetch(now), now))
+        return
+    if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+        if not mount or not state_dir.is_relative_to(Path(mount).resolve()):
+            raise RuntimeError("persistent_volume_required")
+    state_dir.mkdir(parents=True, exist_ok=True)
+    lock = open(state_dir / "worker.lock", "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise RuntimeError("another_worker_owns_state") from None
+    store = Store(state_dir / "laith.sqlite3")
+    try:
+        if args.stats:
+            print(stats(store))
+            return
+        if args.export_csv:
+            with open(args.export_csv, "w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["datetime", "open", "high", "low", "close"])
+                for row in store.db.execute("SELECT * FROM bars ORDER BY time"):
+                    writer.writerow([datetime.fromtimestamp(row["time"], UTC).isoformat(),
+                                     row["open"], row["high"], row["low"], row["close"]])
+            return
+        if not (token and chat_id and key):
+            raise RuntimeError("missing_required_environment_variables")
+        telegram = Telegram(token, chat_id)
+        commands_enabled = telegram.verify(os.getenv("EXPECTED_BOT_USERNAME", "LaithGoldSignalsBot"))
+        store.recover_inflight(time.time())
+        app = App(store, Market(key), telegram, NewsGuard(store),
+                  cooldown=max(60, int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60"))))
+        interval = max(300, int(os.getenv("CHECK_INTERVAL_SECONDS", "300")))
+        LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
+                 VERSION, bool(mount), commands_enabled, interval)
+        store.enqueue("release:" + VERSION, "service",
+            "✅ <b>تم تحديث بوت ليث</b>\nشموع مغلقة، حفظ دائم، متابعة أهداف ووقف، "
+            "وحماية حول الأخبار. /status للحالة و/stats للنتائج.\n"
+            "تبدأ المتابعة والسجلات بالإشارات الجديدة بعد التحديث.\n"
+            "المتابعة تحليلية كل 5د؛ البوت لا ينفّذ أوامر عند الوسيط.", time.time())
+        running = True
 
-    send("✅ <b>بوت ليث جاهز</b>\nالوضع المتوازن مفعل: فحص كل 5 دقائق، دخول من أول تحقق قوي، وساعات العمل 04:30–23:30 بتوقيت فلسطين.")
+        def stop(*_):
+            nonlocal running
+            running = False
 
-    while True:
-        if not in_trading_window():
-            time.sleep(60)
-            continue
-        try:
-            a = analyze()
-            print("analysis", {"side": a["side"], "buy": a["buy_passed"], "sell": a["sell_passed"]}, flush=True)
-            if should_send_signal(a):
-                send(format_signal(a))
-        except Exception as e:
-            print(f"monitor error: {type(e).__name__}: {e}", flush=True)
-        time.sleep(CHECK_INTERVAL)
+        signal.signal(signal.SIGTERM, stop)
+        signal.signal(signal.SIGINT, stop)
+        next_market = next_commands = 0.0
+        while running:
+            now = datetime.now(UTC)
+            if commands_enabled and now.timestamp() >= next_commands:
+                try:
+                    app.commands(now)
+                except RuntimeError:
+                    LOG.warning("telegram_command_poll_unavailable")
+                next_commands = time.time() + 15
+            if now.timestamp() >= next_market:
+                app.cycle(now)
+                next_market = (int(time.time()) // interval + 1) * interval + 15
+            dispatch(store, telegram)
+            time.sleep(2)
+    finally:
+        store.close()
+        lock.close()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        # Never stringify unexpected exceptions: requests errors may include secret URLs.
+        known = {"persistent_volume_required", "another_worker_owns_state", "missing_market_key",
+                 "this_bot_requires_XAU_USD", "missing_required_environment_variables",
+                 "telegram_bot_identity_mismatch", "telegram_read_rejected", "telegram_read_failed"}
+        safe = str(exc) if isinstance(exc, DataError) or str(exc) in known else type(exc).__name__
+        LOG.error("fatal_stopped reason=%s", safe)
+        sys.exit(1)
