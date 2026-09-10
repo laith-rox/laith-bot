@@ -78,6 +78,16 @@ class Store:
             self._enqueue(trade["id"] + ":entry", "entry", message, now, trade["id"], now + 120)
         return True
 
+    def prepare_report(self, report, message, now):
+        with self.db:
+            if self.get("paused", False):
+                return False
+            if self.db.execute("SELECT 1 FROM outbox WHERE id=?", (report["id"],)).fetchone():
+                return False
+            self._set("report_candidate", report)
+            self._enqueue(report["id"], "report", message, now, expires=min(now + 120, report["ends_at"]))
+        return True
+
     def prepare_early(self, watch, message, now):
         with self.db:
             if self.active() or self.get("paused", False) or self.get("early_watch"):
@@ -132,6 +142,14 @@ class Store:
             delay = max(retry_after, min(300, 5 * 2 ** (row["attempts"] - 1)))
             self.db.execute("UPDATE outbox SET status=?, message_id=?, error=?, next_at=? WHERE id=?",
                             (final, message_id, error, now + delay, event_id))
+            if row["kind"] == "report" and final in ("sent", "uncertain"):
+                report = self.get("report_candidate")
+                if report and report["id"] == row["id"]:
+                    report["delivery_uncertain"] = final == "uncertain"
+                    if report.get("watch"):
+                        report["watch"].update(status="active" if final == "sent" else "uncertain_delivery",
+                                               announced=now, delivery_uncertain=final == "uncertain")
+                    self._set("current_report", report)
             if row["kind"] == "early" and final in ("sent", "uncertain"):
                 watch = self.get("early_candidate")
                 if watch and row["id"] == watch["id"] + ":early":
@@ -157,7 +175,7 @@ class Store:
             self._set("paused", paused)
             self._set("pause_reason", reason if paused else None)
             if paused:
-                self.db.execute("UPDATE outbox SET status='expired' WHERE kind='early' AND status='pending'")
+                self.db.execute("UPDATE outbox SET status='expired' WHERE kind IN ('early','report') AND status='pending'")
                 active = self.active()
                 if active and active["status"] == "pending":
                     active["status"] = "undelivered"

@@ -12,14 +12,15 @@ import sys
 import time
 
 from engine import analyze, make_trade, advance_trade
-from alerts import early_candidate, reversal
+from alerts import reversal
+from reports import snapshot, report_message, follow_message
 from market import Market, DataError
 from messages import entry, transition, stats, status, local_time, LOCAL, REASONS, early, emergency
 from news import NewsGuard
 from storage import Store
 from transport import Telegram, SecretFilter, dispatch
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -81,6 +82,26 @@ class App:
             self.store.set("early_watch", updated)
             self.monitor_reversal(updated, decision, epoch, is_early=True)
 
+    def periodic_reports(self, decision, bars, now, blocked=None):
+        epoch = now.timestamp()
+        current = self.store.get("current_report")
+        if current and current.get("watch") and epoch <= current["ends_at"] + 120:
+            watch, _ = advance_trade(current["watch"], bars)
+            current["watch"] = watch
+            self.store.set("current_report", current)
+            self.monitor_reversal(watch, decision, epoch, is_early=True)
+        slot = int(epoch // 900)
+        eligible = entry_window(now) and not self.store.get("paused", False)
+        if eligible and not self.store.db.execute("SELECT 1 FROM outbox WHERE id=?", ("report-" + str(slot),)).fetchone():
+            report = snapshot(decision, now, blocked)
+            if self.store.prepare_report(report, report_message(report, decision, current), epoch):
+                LOG.info("report_prepared id=%s side=%s qualified=%s", report["id"], report["side"], report["qualified"])
+            return
+        if current and current["slot"] == slot and int(epoch // 300) > int(current["created"] // 300):
+            self.store.enqueue(current["id"] + ":follow:" + str(int(epoch // 300)), "follow",
+                follow_message(current, decision, blocked), epoch,
+                expires=min(epoch + 120, current["ends_at"]))
+
     def cycle(self, now):
         epoch = now.timestamp()
         self.store.set("heartbeat", epoch)
@@ -103,6 +124,7 @@ class App:
                     "متابعة الوقف عند وسيطك ضرورية خلال الانقطاع.",
                     epoch, expires=epoch + 3600)
                 self.store.set("last_data_alert", epoch)
+            self.periodic_reports({"side": "WAIT", "reason": reason}, [], now, reason)
             return
 
         # Position monitoring always precedes entry filters, including pause and news.
@@ -136,7 +158,7 @@ class App:
                     "متابعة الإشارة الموجودة تستمر. التصنيف لا يتنبأ باتجاه السعر.",
                     epoch, expires=event["time"] + 900)
 
-        candidate = early_candidate(decision)
+        raw_decision = dict(decision)
         original_side = decision["side"]
         active = self.store.active()
         if self.store.get("paused", False):
@@ -156,6 +178,8 @@ class App:
         else:
             reason = None
 
+        report_block = reason if reason not in (None, "already_evaluated") else None
+        self.periodic_reports(raw_decision, bars, now, report_block)
         if decision.get("bar"):
             self.store.set("evaluated_bar", decision["bar"])
         if reason:
@@ -177,11 +201,6 @@ class App:
             trade = make_trade(decision, now)
             if self.store.prepare_entry(trade, entry(trade, decision), epoch):
                 LOG.info("signal_prepared id=%s side=%s", trade["id"], trade["side"])
-        elif candidate and reason is None:
-            watch = make_trade(candidate, now)
-            watch["id"] = "early-" + watch["id"]
-            if self.store.prepare_early(watch, early(watch, candidate), epoch):
-                LOG.info("early_prepared id=%s side=%s", watch["id"], watch["side"])
         if reason == "daily_risk_limit":
             self.store.enqueue("risk:" + str(now.astimezone(LOCAL).date()), "risk",
                 "⏸️ بلغ نموذج الإشارات حد الخسارة اليومي 3R. "
@@ -286,12 +305,14 @@ def main():
         store.recover_inflight(time.time())
         app = App(store, Market(key), telegram, NewsGuard(store),
                   cooldown=max(60, int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60"))))
-        interval = max(300, int(os.getenv("CHECK_INTERVAL_SECONDS", "300")))
+        interval = 300  # Required five-minute monitoring cadence.
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
         store.enqueue("release:" + VERSION, "service",
-            "✅ <b>بوت ليث 2.1 — تنبيهات مبكّرة وتحذير انعكاس</b>\n"
-            "تنبيه مبكّر منفصل مع أهداف محتملة بالدولار والشروط الناقصة، ومتابعة حتى 4 ساعات.\n"
+            "✅ <b>بوت ليث 2.2 — تقرير كل 15د ومتابعة كل 5د</b>\n"
+            "اتجاه غالب مع درجة خطر تقديرية وأهداف محتملة؛ الإشارة المستوفية للشروط مميّزة عن المبكّرة. "
+            "لا صفقات مضمونة ولا نسب نجاح مختلقة. عند تعادل المؤشرات أو غياب البيانات يظهر ذلك بوضوح.\n"
+            "التقارير خلال ساعات الدخول، والطوارئ لأي متابعة مفتوحة تستمر خارجها.\n"
             "تحذير خروج عند تحقق الاتجاه المعاكس أو استمرار ضعفه على شمعتين مغلقتين. "
             "يستمر التحذير أثناء /pause والأخبار متى توفرت بيانات سليمة.\n"
             "المراقبة كل 5د، ليست لحظية ولا مضمونة؛ البوت لا يغلق صفقة عند الوسيط. "

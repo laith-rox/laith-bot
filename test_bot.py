@@ -508,12 +508,13 @@ class AlertTests(unittest.TestCase):
         app = App(self.store, market, Mock(), news)
         with patch("bot.analyze", return_value=self.decision()):
             app.cycle(NOW)
-        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='early'").fetchone()[0], 0)
+        self.assertIsNone(self.store.get("report_candidate")["watch"])
+        self.assertEqual(self.store.get("report_candidate")["blocked"], "news_blackout")
         self.store.set("evaluated_bar", None)
         news.check.return_value = True, "calendar_clear", []
         with patch("bot.analyze", return_value=self.decision()):
-            app.cycle(NOW)
-        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='early'").fetchone()[0], 1)
+            app.cycle(NOW+timedelta(minutes=15))
+        self.assertIsNotNone(self.store.get("report_candidate")["watch"])
         self.assertIsNone(self.store.active())
 
     def test_early_watch_gets_emergency_and_expires_without_trade_stats(self):
@@ -559,6 +560,109 @@ class AlertTests(unittest.TestCase):
         app.store = self.store
         app.monitor_reversal(watch, dict(d, side="SELL"), NOW.timestamp()+601)
         self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='emergency'").fetchone()[0], 2)
+
+
+class PeriodicTests(unittest.TestCase):
+    setUp = StatefulTests.setUp
+    tearDown = StatefulTests.tearDown
+    decision = AlertTests.decision
+
+    def confirm(self, when):
+        while True:
+            row = self.store.claim(when.timestamp())
+            if row is None:
+                break
+            self.store.finish(row["id"], "sent", when.timestamp(), message_id=42)
+
+    def test_quarter_hour_and_five_minute_followups_with_restart(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        app.periodic_reports(self.decision(), [], NOW)
+        self.confirm(NOW)
+        for minutes in (5, 5, 10):
+            t = NOW+timedelta(minutes=minutes)
+            app.periodic_reports(self.decision(stamp=t), [], t)
+        self.store.close()
+        self.store = Store(self.path)
+        app.store = self.store
+        app.periodic_reports(self.decision(), [], NOW+timedelta(minutes=10))
+        app.periodic_reports(self.decision(), [], NOW+timedelta(minutes=15))
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='report'").fetchone()[0], 2)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='follow'").fetchone()[0], 2)
+        self.assertIsNone(self.store.active())
+        self.assertEqual(self.store.stats()["closed"], 0)
+
+    def test_failed_or_expired_report_has_no_orphan_followup(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        app.periodic_reports(self.decision(), [], NOW)
+        self.store.claim(NOW.timestamp()+121)
+        app.periodic_reports(self.decision(), [], NOW+timedelta(minutes=5))
+        self.assertIsNone(self.store.get("current_report"))
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='follow'").fetchone()[0], 0)
+
+    def test_data_failure_sends_unavailable_instead_of_direction(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        app.market.fetch.side_effect = DataError("market_connection_failed")
+        app.cycle(NOW)
+        candidate = self.store.get("report_candidate")
+        self.assertIsNone(candidate['side'])
+        self.assertIsNone(candidate['watch'])
+        row = self.store.db.execute("SELECT message FROM outbox WHERE kind='report'").fetchone()
+        self.assertIn('غير متاح', row[0])
+
+    def test_tie_and_weak_majority_are_not_fabricated_certainty(self):
+        from reports import snapshot, report_message
+        tied = snapshot(dict(self.decision(), buy=4, sell=4), NOW)
+        self.assertEqual(tied['side'], 'WAIT')
+        self.assertIsNone(tied['watch'])
+        weak = snapshot(dict(self.decision(), buy=3, sell=4), NOW)
+        self.assertEqual(weak['side'], 'SELL')
+        self.assertFalse(weak['qualified'])
+        self.assertIn('نسبة احتمال الخسارة/النجاح غير مقاسة', report_message(weak, self.decision()))
+
+    def test_complete_signal_still_qualified_unless_blocked(self):
+        from reports import snapshot, report_message
+        d = self.decision(full=True)
+        d.update(sell=7, checks={'BUY':[False]*7, 'SELL':[True]*7})
+        s = snapshot(d, NOW)
+        self.assertTrue(s['qualified'])
+        self.assertIn('مستوفية شروط الدخول — غير مضمونة', report_message(s, d))
+        for block in ('news_blackout', 'daily_risk_limit', 'active_signal', 'cooldown'):
+            s = snapshot(d, NOW, block)
+            self.assertFalse(s['qualified'])
+            self.assertIsNone(s['watch'])
+
+    def test_followup_reports_weakness_reversal_and_unavailability(self):
+        from reports import snapshot, follow_message
+        s = snapshot(self.decision(), NOW)
+        self.assertIn('ضعفت', follow_message(s, dict(self.decision(), sell=3)))
+        self.assertIn('تغيّر الاتجاه', follow_message(s, self.decision('BUY')))
+        self.assertIn('تعذّر تحديث', follow_message(s, {'side':'WAIT'}))
+
+    def test_pause_cancels_pending_report_but_keeps_sent_followup(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        app.periodic_reports(self.decision(), [], NOW)
+        self.confirm(NOW)
+        self.store.pause(True)
+        app.periodic_reports(self.decision(), [], NOW+timedelta(minutes=5), 'paused')
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='follow'").fetchone()[0], 1)
+        app.periodic_reports(self.decision(), [], NOW+timedelta(minutes=15), 'paused')
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='report'").fetchone()[0], 1)
+        self.store.pause(False)
+        app.periodic_reports(self.decision(), [], NOW+timedelta(minutes=15))
+        self.store.pause(True)
+        self.assertIsNone(self.store.claim(NOW.timestamp()+901))
+
+    def test_periodic_watch_emergency_and_levels_do_not_affect_stats(self):
+        app = App(self.store, Mock(), Mock(), Mock())
+        app.periodic_reports(self.decision('BUY'), [], NOW)
+        self.confirm(NOW)
+        # Post-delivery, opposite complete conditions trigger emergency even while paused.
+        self.store.pause(True)
+        app.periodic_reports(self.decision('SELL', True), [candle(l=99,h=101,c=100)], NOW+timedelta(minutes=5), 'paused')
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM outbox WHERE kind='emergency'").fetchone()[0], 1)
+        app.periodic_reports(self.decision(), [candle(l=90,h=100,c=95,offset=5)], NOW+timedelta(minutes=10), 'paused')
+        self.assertEqual(self.store.get('current_report')['watch']['status'], 'closed')
+        self.assertEqual(self.store.stats()['closed'], 0)
 
 
 if __name__ == "__main__":

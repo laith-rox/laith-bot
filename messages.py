@@ -33,7 +33,7 @@ def local_time(value):
 def entry(trade, decision):
     side = "شراء 🟢" if trade["side"] == "BUY" else "بيع 🔴"
     passed = decision["buy"] if trade["side"] == "BUY" else decision["sell"]
-    return (f"🥇 <b>ليث — إشارة {side} XAU/USD</b>\n"
+    return (f"🥇 <b>ليث — إشارة {side} XAU/USD</b>\nمستوفية شروط الدخول — غير مضمونة.\n"
             f"مرجع الإشارة: <code>{trade['id']}</code>\n"
             f"السعر المرجعي: <b>{trade['entry']:.2f}</b>\n"
             f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n"
@@ -94,6 +94,7 @@ def status(store):
     watch = store.get("early_watch")
     if watch:
         text += f"🟠 متابعة مبكّرة: <code>{watch['id']}</code> {watch['side']}؛ خارج سجل النتائج\n"
+    text += "تقرير اتجاه كل 15د ومتابعة كل 5د خلال ساعات الدخول. لا نسب نجاح مقاسة.\n"
     text += "مراقبة الانعكاس كل 5د عند توفر بيانات سليمة؛ لا إغلاق آلي.\n"
     return text + "/stats النتائج | /pause إيقاف الدخول | /resume استئناف الدخول"
 
