@@ -1,0 +1,253 @@
+{
+  "observed_at": "2026-09-10T23:24:48.181485398Z",
+  "deployment_id": "dc1ea649-5642-4280-8368-c481c112de89",
+  "code_commit": "e2afd072aec9063b3745d8355056f146b7678573",
+  "local_tests_passed": 97,
+  "server_predeploy_tests_passed": 72,
+  "telegram_release_ack": 161,
+  "telegram_comparison_ack": 162,
+  "result": {
+    "candidate_rule": "structure-retest-v1",
+    "mode": "DEVELOPMENT_COMPARISON_NOT_HOLDOUT",
+    "sample_start": "2026-09-06T04:00:00+00:00",
+    "sample_end": "2026-09-10T20:28:00+00:00",
+    "candles": 6732,
+    "later_segment_from": "2026-09-09T10:32:00+00:00",
+    "costs": "Hypothetical total spread/slippage; broker commission is unknown",
+    "periods": {
+      "baseline": {
+        "signals": 37,
+        "closed": 31,
+        "skipped_fills": 6,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-07T17:01:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 31,
+            "wins": 13,
+            "losses": 18,
+            "net_r": -0.679,
+            "max_drawdown_r": 5.7448,
+            "profit_factor": 0.9619
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 31,
+            "wins": 11,
+            "losses": 20,
+            "net_r": -8.7581,
+            "max_drawdown_r": 9.0917,
+            "profit_factor": 0.6174
+          }
+        ]
+      },
+      "candidate": {
+        "signals": 32,
+        "closed": 27,
+        "skipped_fills": 5,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-07T17:00:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 27,
+            "wins": 10,
+            "losses": 17,
+            "net_r": -1.9587,
+            "max_drawdown_r": 5.1332,
+            "profit_factor": 0.8642
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 27,
+            "wins": 10,
+            "losses": 17,
+            "net_r": -8.6545,
+            "max_drawdown_r": 11.402,
+            "profit_factor": 0.5411
+          }
+        ]
+      }
+    },
+    "later_segment": {
+      "baseline": {
+        "signals": 17,
+        "closed": 15,
+        "skipped_fills": 2,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-09T17:00:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 15,
+            "wins": 4,
+            "losses": 11,
+            "net_r": -3.6956,
+            "max_drawdown_r": 5.7448,
+            "profit_factor": 0.6559
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 15,
+            "wins": 4,
+            "losses": 11,
+            "net_r": -7.2832,
+            "max_drawdown_r": 9.0917,
+            "profit_factor": 0.4563
+          }
+        ]
+      },
+      "candidate": {
+        "signals": 17,
+        "closed": 13,
+        "skipped_fills": 4,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-09T17:16:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 13,
+            "wins": 5,
+            "losses": 8,
+            "net_r": -0.9333,
+            "max_drawdown_r": 4.057,
+            "profit_factor": 0.8924
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 13,
+            "wins": 5,
+            "losses": 8,
+            "net_r": -3.8188,
+            "max_drawdown_r": 6.5663,
+            "profit_factor": 0.631
+          }
+        ]
+      }
+    },
+    "recorded_paper_review": [
+      {
+        "id": "412d0b31ed0a",
+        "entry_side": "BUY",
+        "decision_bar": "2026-09-10T17:01:00+00:00",
+        "outcome": "STOP",
+        "gross_r": -1,
+        "candidate": {
+          "side": "WAIT",
+          "reason": "candidate_waiting_resumption",
+          "context": {
+            "bias": "SELL",
+            "phase": "trend",
+            "level": 4367.29719
+          }
+        }
+      },
+      {
+        "id": "127e1a073e84",
+        "entry_side": "BUY",
+        "decision_bar": "2026-09-10T17:12:00+00:00",
+        "outcome": "STOP",
+        "gross_r": -1,
+        "candidate": {
+          "side": "WAIT",
+          "reason": "candidate_waiting_resumption",
+          "context": {
+            "bias": "SELL",
+            "phase": "trend",
+            "level": 4367.29719
+          }
+        }
+      },
+      {
+        "id": "986036a67198",
+        "entry_side": "SELL",
+        "decision_bar": "2026-09-10T17:37:00+00:00",
+        "outcome": "TP2",
+        "gross_r": 2.721231343762903,
+        "candidate": {
+          "side": "SELL",
+          "reason": "candidate_retest_resumption",
+          "context": {
+            "bias": "SELL",
+            "phase": "trend",
+            "level": 4366.62154
+          }
+        }
+      },
+      {
+        "id": "2807207240e7",
+        "entry_side": "SELL",
+        "decision_bar": "2026-09-10T18:04:00+00:00",
+        "outcome": "TP2",
+        "gross_r": 1.5202217877400337,
+        "candidate": {
+          "side": "WAIT",
+          "reason": "candidate_price_extended",
+          "context": {
+            "bias": "SELL",
+            "phase": "trend",
+            "level": 4366.62154
+          }
+        }
+      },
+      {
+        "id": "999f256912d1",
+        "entry_side": "SELL",
+        "decision_bar": "2026-09-10T18:28:00+00:00",
+        "outcome": "TP2",
+        "gross_r": 2.2386769525249544,
+        "candidate": {
+          "side": "WAIT",
+          "reason": "candidate_structural_stop_too_wide",
+          "context": {
+            "bias": "SELL",
+            "phase": "trend",
+            "level": 4361.16272
+          }
+        }
+      },
+      {
+        "id": "29b2889f239a",
+        "entry_side": "SELL",
+        "decision_bar": "2026-09-10T18:35:00+00:00",
+        "outcome": "PROTECTED_STOP",
+        "gross_r": 0,
+        "candidate": {
+          "side": "WAIT",
+          "reason": "candidate_structural_stop_too_wide",
+          "context": {
+            "bias": "SELL",
+            "phase": "trend",
+            "level": 4361.16272
+          }
+        }
+      },
+      {
+        "id": "8027f6090f4f",
+        "entry_side": "SELL",
+        "decision_bar": "2026-09-10T20:05:00+00:00",
+        "outcome": "STOP",
+        "gross_r": -1,
+        "candidate": {
+          "side": "SELL",
+          "reason": "candidate_retest_resumption",
+          "context": {
+            "bias": "SELL",
+            "phase": "trend",
+            "level": 4331.06674
+          }
+        }
+      }
+    ],
+    "decision": "PAPER_COMPARISON_ONLY_NO_AUTOMATIC_ACTIVATION"
+  }
+}
