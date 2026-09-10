@@ -19,8 +19,9 @@ from messages import entry, transition, stats, status, local_time, LOCAL, REASON
 from news import NewsGuard
 from storage import Store
 from transport import Telegram, SecretFilter, dispatch
+from fast_service import start_worker, fast_status
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -235,11 +236,13 @@ class App:
             if authorized and recent:
                 if command in ("/start", "/help"):
                     text = ("🥇 بوت ليث لإشارات الذهب ومتابعتها.\n"
-                            "/status حالة البوت والإشارة\n/stats سجل النتائج\n"
+                            "/status حالة البوت والإشارة\n/stats سجل النتائج\n/fast فحص المسار السريع التجريبي\n"
                             "/pause إيقاف إشارات دخول جديدة مع استمرار متابعة الحالية\n"
                             "/resume استئناف الدخول عند اجتياز شروط البيانات والأخبار والمخاطر")
                 elif command == "/status":
                     text = status(self.store)
+                elif command == "/fast":
+                    text = fast_status(self.store)
                 elif command == "/stats":
                     text = stats(self.store)
                 elif command in ("/pause", "/resume"):
@@ -291,6 +294,7 @@ def main():
     except BlockingIOError:
         raise RuntimeError("another_worker_owns_state") from None
     store = Store(state_dir / "laith.sqlite3")
+    fast_stop = None
     try:
         if args.stats:
             print(stats(store))
@@ -310,18 +314,15 @@ def main():
         store.recover_inflight(time.time())
         app = App(store, Market(key), telegram, NewsGuard(store),
                   cooldown=max(60, int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60"))))
+        fast_stop = start_worker(store.path, key)
         interval = 300  # Required five-minute monitoring cadence.
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
         store.enqueue("release:" + VERSION, "service",
-            "✅ <b>بوت ليث 2.3 — تمييز التصحيح المحتمل عن الانعكاس</b>\n"
-            "اتجاه الساعة ونطاق سابق يحددان السياق. التصحيح المحتمل يوقف اقتراح الدخول حتى تأكيد العودة، والكسر المؤكد يطلق تحذيرًا. "
-            "لا صفقات مضمونة ولا نسب نجاح مختلقة. عند تعادل المؤشرات أو غياب البيانات يظهر ذلك بوضوح.\n"
-            "التقارير خلال ساعات الدخول، والطوارئ لأي متابعة مفتوحة تستمر خارجها.\n"
-            "تحذير خروج عند تحقق الاتجاه المعاكس أو استمرار ضعفه على شمعتين مغلقتين. "
-            "يستمر التحذير أثناء /pause والأخبار متى توفرت بيانات سليمة.\n"
-            "المراقبة كل 5د، ليست لحظية ولا مضمونة؛ البوت لا يغلق صفقة عند الوسيط. "
-            "/status للحالة و/stats لسجل الإشارات المكتملة فقط.", time.time())
+            "✅ <b>بوت ليث 2.4 — تجهيز مسار الدقيقة التجريبي</b>\n"
+            "فحص الوصول إلى بيانات 1د وتقييم على أسعار تاريخية فعلية بتكاليف مفترضة، ثم متابعة ورقية بعد 8 مساءً. "
+            "لا تُرسل صفقات من المسار السريع قبل التحقق؛ /fast يعرض حالته ونتيجته.\n"
+            "تقارير المسار الحالي ومتابعة مستوياته تستمر. نتائج الاختبار ليست ضمان نجاح ولا ربح حسابك.", time.time())
         running = True
 
         def stop(*_):
@@ -345,6 +346,8 @@ def main():
             dispatch(store, telegram)
             time.sleep(2)
     finally:
+        if fast_stop is not None:
+            fast_stop.set()
         store.close()
         lock.close()
 
