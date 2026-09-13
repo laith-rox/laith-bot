@@ -71,24 +71,35 @@ def analyze(bars, now):
            price > e20, m15[-1].close > m15[-1].open, not_extended]
     sell = [e20 < e50, h20 < h50, mh < 0, 31 <= rv <= 49,
             price < e20, m15[-1].close < m15[-1].open, not_extended]
-    # Trend, RSI, price position and anti-chasing guard cannot be outvoted.
+    # Preferred high-quality signal still uses the original strict gate.
     core = (0, 1, 3, 4, 6)
     side = "BUY" if sum(buy) >= 6 and all(buy[i] for i in core) else (
         "SELL" if sum(sell) >= 6 and all(sell[i] for i in core) else "WAIT")
-    if not context["entry_allowed"]:
-        side = "WAIT"
+    strict_signal = side != "WAIT" and context["entry_allowed"]
+
+    # User preference: when live/fresh data are valid but the strict setup is not
+    # confirmed, send the strongest directional bias instead of staying silent.
+    if strict_signal:
+        forced = False
+    else:
+        forced = True
+        if sum(buy) > sum(sell):
+            side = "BUY"
+        elif sum(sell) > sum(buy):
+            side = "SELL"
+        elif h20 != h50:
+            side = "BUY" if h20 > h50 else "SELL"
+        elif e20 != e50:
+            side = "BUY" if e20 > e50 else "SELL"
+        else:
+            side = "BUY" if mh >= 0 else "SELL"
+
     result.update(context=context, side=side, price=price, atr=av, rsi=rv, buy=sum(buy), sell=sum(sell),
-                  checks={"BUY": buy, "SELL": sell})
-    if side != "WAIT":
-        direction = 1 if side == "BUY" else -1
-        result.update(sl=price - direction * 1.4 * av, tp1=price + direction * 1.8 * av,
-                      tp2=price + direction * 2.6 * av, reason="entry_conditions_met")
-    elif not not_extended:
-        result["reason"] = "price_extended"
-    elif not 31 <= rv <= 69:
-        result["reason"] = "rsi_extreme"
-    if not context["entry_allowed"]:
-        result["reason"] = "context_" + context["phase"]
+                  checks={"BUY": buy, "SELL": sell}, forced=forced)
+    direction = 1 if side == "BUY" else -1
+    result.update(sl=price - direction * 1.4 * av, tp1=price + direction * 1.8 * av,
+                  tp2=price + direction * 2.6 * av,
+                  reason="best_available_bias" if forced else "entry_conditions_met")
     return result
 
 
