@@ -1,0 +1,144 @@
+{
+  "execution_model": "observed-clock-v1",
+  "candidate_rule": "structure-retest-v1",
+  "mode": "DEVELOPMENT_DELAY_SENSITIVITY_NOT_VALIDATION",
+  "calendar_week": "2026-09-06T00:00:00-04:00",
+  "calendar_snapshot_at": 1789157168.96216,
+  "calendar_limit": "Archived schedule snapshot; not a point-in-time news revision archive",
+  "sample_start": "2026-09-06T04:00:00+00:00",
+  "sample_end": "2026-09-11T20:39:00+00:00",
+  "candles": 7552,
+  "delays": "Fixed hypothetical observation delays, not measured broker latency",
+  "costs": "Hypothetical round-trip quote dollars per ounce; actual broker costs unknown",
+  "scenarios": {
+    "baseline": {
+      "8": {
+        "execution_model": "observed-clock-v1",
+        "observation_lag_seconds": 8,
+        "signals": 50,
+        "closed": 40,
+        "skipped_fills": 10,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-07T17:01:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 40,
+            "wins": 18,
+            "losses": 22,
+            "net_r": 4.6566,
+            "max_drawdown_r": 5.7448,
+            "profit_factor": 1.2248
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 40,
+            "wins": 15,
+            "losses": 25,
+            "net_r": -5.4508,
+            "max_drawdown_r": 9.449,
+            "profit_factor": 0.7966
+          }
+        ]
+      },
+      "68": {
+        "execution_model": "observed-clock-v1",
+        "observation_lag_seconds": 68,
+        "signals": 63,
+        "closed": 31,
+        "skipped_fills": 32,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-07T17:02:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 31,
+            "wins": 15,
+            "losses": 16,
+            "net_r": 13.8305,
+            "max_drawdown_r": 2.8284,
+            "profit_factor": 2.1409
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 31,
+            "wins": 15,
+            "losses": 16,
+            "net_r": 6.2324,
+            "max_drawdown_r": 5.2513,
+            "profit_factor": 1.3844
+          }
+        ]
+      }
+    },
+    "candidate": {
+      "8": {
+        "execution_model": "observed-clock-v1",
+        "observation_lag_seconds": 8,
+        "signals": 38,
+        "closed": 29,
+        "skipped_fills": 9,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-07T17:00:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 29,
+            "wins": 10,
+            "losses": 19,
+            "net_r": -5.1624,
+            "max_drawdown_r": 5.1624,
+            "profit_factor": 0.7072
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 29,
+            "wins": 10,
+            "losses": 19,
+            "net_r": -12.0618,
+            "max_drawdown_r": 12.0618,
+            "profit_factor": 0.4583
+          }
+        ]
+      },
+      "68": {
+        "execution_model": "observed-clock-v1",
+        "observation_lag_seconds": 68,
+        "signals": 53,
+        "closed": 19,
+        "skipped_fills": 34,
+        "open_at_end": 0,
+        "pending_at_end": 0,
+        "excluded": 0,
+        "first_signal": "2026-09-07T17:01:08+00:00",
+        "cost_scenarios": [
+          {
+            "round_trip_dollars_per_ounce": 0.5,
+            "measured": 19,
+            "wins": 4,
+            "losses": 15,
+            "net_r": -3.3344,
+            "max_drawdown_r": 5.1236,
+            "profit_factor": 0.7068
+          },
+          {
+            "round_trip_dollars_per_ounce": 1,
+            "measured": 19,
+            "wins": 4,
+            "losses": 15,
+            "net_r": -7.9209,
+            "max_drawdown_r": 8.4358,
+            "profit_factor": 0.4685
+          }
+        ]
+      }
+    }
+  },
+  "decision": "PAPER_ONLY_NO_AUTOMATIC_ACTIVATION"
+}
