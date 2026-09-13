@@ -6,8 +6,9 @@ from math import isfinite
 from messages import LOCAL
 
 from fast import MinuteMarket, analyze_fast, paper_fill, advance_fast, fast_window
-from market import DataError, UTC
+from market import DataError, UTC, require_fresh
 from news import week_start
+from timing import EXECUTION_MODEL, decision_metadata
 
 LOG = logging.getLogger('laith')
 COSTS = (0.2, 0.5, 1.0)  # Total round-trip spread/slippage in quote dollars; NOT broker measurements.
@@ -17,9 +18,13 @@ def news_clear(now, events):
     return all(not -900 <= e['time']-now.timestamp() <= 1800 for e in events)
 
 
-def simulate_fast(bars, costs, events, start_from=None, analyzer=None, include_trades=False):
+def simulate_fast(bars, costs, events, start_from=None, analyzer=None, include_trades=False,
+                  observation_lag_seconds=8):
     if any(not isinstance(x, (int,float)) or x < 0 or not isfinite(x) for x in costs):
         raise ValueError('invalid_fast_cost')
+    if (isinstance(observation_lag_seconds,bool) or not isinstance(observation_lag_seconds,(int,float))
+            or not isfinite(observation_lag_seconds) or observation_lag_seconds < 0):
+        raise ValueError('invalid_observation_lag')
     active = pending = None
     trades = []
     skipped = signals = 0
@@ -27,7 +32,7 @@ def simulate_fast(bars, costs, events, start_from=None, analyzer=None, include_t
     first_signal = None
     daily = {}
     for i, bar in enumerate(bars):
-        now = bar.end + timedelta(seconds=8)
+        now = bar.end + timedelta(seconds=observation_lag_seconds)
         if active:
             active = advance_fast(active, [bar])
             if active['status'] == 'closed':
@@ -39,9 +44,12 @@ def simulate_fast(bars, costs, events, start_from=None, analyzer=None, include_t
             # First FULL minute after the decision, not the minute already in flight.
             candidate = pending['decision']
             if (0 < (bar.start-pending['decision_time']).total_seconds() <= 120
+                    and (now-pending['decision_time']).total_seconds() <= 180
+                    and fast_window(now) and news_clear(now,events)
                     and fast_window(bar.start) and news_clear(bar.start, events)):
                 active = paper_fill(candidate, bar)
                 if active:
+                    active['fill_observed_at'] = now.timestamp()
                     last_entry = bar.start.timestamp()
                     active = advance_fast(active, [bar])
                     if active['status'] == 'closed':
@@ -61,14 +69,17 @@ def simulate_fast(bars, costs, events, start_from=None, analyzer=None, include_t
         if daily.get(now.astimezone(LOCAL).date().isoformat(),0) <= -3:
             continue
         try:
+            require_fresh([bar],now,90)
             d = (analyzer or analyze_fast)(bars[max(0,i-599):i+1], now)
         except DataError:
             continue
         if d['side'] in ('BUY','SELL'):
+            d = dict(d, **decision_metadata([bar],now))
             signals += 1
             first_signal = first_signal or now.isoformat()
             pending = {'decision':d, 'decision_time':now}
-    result = {'signals':signals, 'closed':len(trades), 'skipped_fills':skipped,
+    result = {'execution_model':EXECUTION_MODEL, 'observation_lag_seconds':observation_lag_seconds,
+              'signals':signals, 'closed':len(trades), 'skipped_fills':skipped,
               'open_at_end':int(active is not None), 'pending_at_end':int(pending is not None),
               'excluded':sum(t['r'] is None for t in trades), 'first_signal':first_signal, 'cost_scenarios':[]}
     result['cost_scenarios'] = cost_summary(trades, costs)

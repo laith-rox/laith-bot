@@ -9,6 +9,7 @@ from fast_candidate import RULE, analyze_candidate
 from fast_research import simulate_fast, cost_summary
 from market import Bar, DataError, UTC
 from news import week_start
+from timing import EXECUTION_MODEL
 
 LOG = logging.getLogger('laith')
 COMPARE_COSTS = (.5, 1.0)
@@ -81,12 +82,17 @@ def compare_saved(store, now):
 
 
 def forward_status(store):
-    since = store.get('fast_comparison_started_at')
+    timing_cohort = store.get('fast_timing_model') == EXECUTION_MODEL
+    since = store.get('fast_timing_started_at') if timing_cohort else store.get('fast_comparison_started_at')
     if since is None:
         return '\nمقارنة طريقة إعادة الاختبار قيد التجهيز.'
-    text = '\n<b>المقارنة الورقية على الأسعار القادمة منذ نشر التعديل</b>\n'
+    text = ('\n<b>مقارنة ورقية جديدة منذ تصحيح التوقيت</b>\n' if timing_cohort else
+            '\n<b>المقارنة الورقية على الأسعار القادمة منذ نشر التعديل</b>\n')
     for stem,name in (('fast','السابقة'),('fast2','إعادة الاختبار')):
         trades = read_trades(store,stem,since)
+        if timing_cohort:
+            trades = [t for t in trades if t.get('execution_model') == EXECUTION_MODEL
+                      and t.get('decision_time',0) >= since]
         totals = cost_summary(trades,COMPARE_COSTS)
         text += (f"{name}: {len(trades)} منتهية | "
                  f"بتكلفة 0.5$: {totals[0]['net_r']:+.2f}R | بتكلفة 1$: {totals[1]['net_r']:+.2f}R\n")

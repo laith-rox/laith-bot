@@ -73,6 +73,8 @@ def analyze_fast(bars, now):
 
 
 def paper_fill(decision, bar):
+    if decision.get('decision_time') is not None and bar.start.timestamp() <= decision['decision_time']:
+        return None
     direction = 1 if decision['side'] == 'BUY' else -1
     # Do not fill a stale entry beyond invalidation, or after most of the target is gone.
     if not (direction*(bar.open-decision['sl']) > 0 and direction*(decision['tp1']-bar.open) > 0):
@@ -88,6 +90,9 @@ def paper_fill(decision, bar):
     trade = make_trade(filled, bar.start)
     trade.update(status='active', announced=bar.start.timestamp(), rule=decision.get('rule','fast-v1'),
                  setup=decision.get('reason'), context=decision.get('context'))
+    for key in ('decision_time', 'source_age_at_decision_seconds', 'execution_model'):
+        if key in decision:
+            trade[key] = decision[key]
     return trade
 
 

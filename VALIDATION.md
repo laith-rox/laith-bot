@@ -1,5 +1,7 @@
 # Validation — 2.0.0
 
+Latest release: 2.6.0, 111 local tests passed (including 14 timing regressions). See [TIMING.md](TIMING.md) for current timing behavior and limits; earlier release evidence below is retained.
+
 Base: `laith-rox/laith-bot` commit `d1c945b2daad0bf31b2d3bc9e22b2d8f972d0ea6`.
 Date: 2026-09-10.
 

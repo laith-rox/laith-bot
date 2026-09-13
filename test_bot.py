@@ -498,7 +498,7 @@ class AlertTests(unittest.TestCase):
             app.cycle(NOW+timedelta(minutes=5))
         rows = self.store.db.execute("SELECT * FROM outbox WHERE kind='emergency'").fetchall()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(self.store.claim((NOW+timedelta(minutes=5)).timestamp())["kind"], "emergency")
+        self.assertEqual(self.store.claim((NOW+timedelta(minutes=5,seconds=1)).timestamp())["kind"], "emergency")
         self.assertEqual(self.store.active()["status"], "active")
 
     def test_early_respects_entry_gates(self):
@@ -512,7 +512,9 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(self.store.get("report_candidate")["blocked"], "news_blackout")
         self.store.set("evaluated_bar", None)
         news.check.return_value = True, "calendar_clear", []
-        with patch("bot.analyze", return_value=self.decision()):
+        market.fetch.return_value = [Bar(b.start+timedelta(minutes=15),b.open,b.high,b.low,b.close,b.minutes)
+                                     for b in history()]
+        with patch("bot.analyze", return_value=self.decision(stamp=NOW+timedelta(minutes=15))):
             app.cycle(NOW+timedelta(minutes=15))
         self.assertIsNotNone(self.store.get("report_candidate")["watch"])
         self.assertIsNone(self.store.active())

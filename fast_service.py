@@ -9,10 +9,12 @@ from fast import MinuteMarket, analyze_fast, paper_fill, advance_fast, fast_wind
 from fast_research import evaluate, summary, news_clear
 from fast_candidate import analyze_candidate
 from fast_compare import compare_saved, forward_status
-from market import DataError, UTC
+from fast_timing import start_timing_cohort, audit_saved
+from market import DataError, UTC, require_fresh
 from news import NewsGuard, week_start
 from storage import Store
 from messages import LOCAL
+from timing import DecisionClock, decision_metadata
 
 LOG = logging.getLogger('laith')
 
@@ -27,9 +29,14 @@ def fast_status(store):
         text += (f"عينة لاحقة: {sample['measured']} | نتيجة {sample['net_r']:+.2f}R\n"
                  f"بتكلفة مفترضة {sample['round_trip_dollars_per_ounce']}$ للأونصة للدورة، ليست سبريد حسابك.\n")
     paper = store.get('fast_paper_stats', {'closed':0, 'gross_r':0, 'excluded':0})
-    text += (f"المتابعة الورقية المباشرة: {paper['closed']} منتهية؛ مجموع {paper['gross_r']:+.2f}R قبل التكاليف.\n"
+    text += (f"السجل الورقي الكلي للطريقة السابقة، ويشمل ما قبل تصحيح التوقيت: {paper['closed']} منتهية؛ مجموع {paper['gross_r']:+.2f}R قبل التكاليف.\n"
              'هدف النموذج 5$ بسعر الأونصة، مدة أقصاها 20د، وفحص كل دقيقة بعد 20:00 حتى 23:30 فلسطين. '
              'نتائج افتراضية وليست ربح حساب أو دليلًا على النجاح مستقبلاً.')
+    audit = store.get('fast_timing_audit_status')
+    if audit == 'awaiting_saved_prices_with_matching_calendar':
+        text += '\nفحص أثر التأخر ينتظر أسعارًا محفوظة مع تقويم أخبار مطابق للفترة.'
+    elif audit == 'completed_development_only':
+        text += '\nاكتمل فحص أثر تأخر افتراضي 8 و68ث؛ فحص تطوير وليس إثبات ربحية.'
     return text + forward_status(store)
 
 
@@ -53,7 +60,9 @@ def finish_paper(store, trade, stem='fast'):
     LOG.info('%s_paper_closed id=%s outcome=%s r=%s',stem,trade['id'],trade['outcome'],trade['r'])
 
 
-def cycle_rule(store, bars, now, allowed, events, stem, analyzer):
+def cycle_rule(store, bars, now, allowed, events, stem, analyzer, clock=None):
+    clock = clock or DecisionClock(now)
+    now = clock.now()
     active = store.get(stem+'_paper_watch')
     if active:
         active = advance_fast(active,bars)
@@ -62,8 +71,16 @@ def cycle_rule(store, bars, now, allowed, events, stem, analyzer):
             active = None
         else:
             store.set(stem+'_paper_watch',active)
+    now = clock.now()
     today = now.astimezone(LOCAL).date().isoformat()
-    allowed = allowed and not store.get('paused',False) and store.get(stem+'_paper_daily',{}).get(today,0) > -3
+    try:
+        require_fresh(bars,now,90)
+        store.set(stem+'_timing_status','fresh_at_observation')
+    except DataError as exc:
+        store.set(stem+'_timing_status',str(exc))
+        allowed = False
+    allowed = (allowed and fast_window(now) and news_clear(now,events)
+               and not store.get('paused',False) and store.get(stem+'_paper_daily',{}).get(today,0) > -3)
     pending = store.get(stem+'_paper_pending')
     if pending and not active:
         stamp = pending['time']
@@ -72,6 +89,7 @@ def cycle_rule(store, bars, now, allowed, events, stem, analyzer):
                 and fast_window(choices[0].start) and news_clear(choices[0].start,events)):
             active = paper_fill(pending['decision'],choices[0])
             if active:
+                active['fill_observed_at'] = clock.now().timestamp()
                 store.set(stem+'_last_paper_entry',active['announced'])
                 active = advance_fast(active, bars)
                 if active['status'] == 'closed':
@@ -79,22 +97,35 @@ def cycle_rule(store, bars, now, allowed, events, stem, analyzer):
                     active = None
                 else:
                     store.set(stem+'_paper_watch',active)
-                    LOG.info('%s_paper_open id=%s side=%s reference=%.2f setup=%s',
-                             stem,active['id'],active['side'],active['entry'],active.get('setup'))
+                    LOG.info('%s_paper_open id=%s side=%s reference=%.2f setup=%s decision_time=%s paper_fill_time=%s fill_observed_at=%s model=%s',
+                             stem,active['id'],active['side'],active['entry'],active.get('setup'),
+                             active.get('decision_time'),active['announced'],active['fill_observed_at'],
+                             active.get('execution_model','legacy'))
         if choices or not allowed or now.timestamp()-stamp > 180:
             store.set(stem+'_paper_pending',None)
     if (active or store.get(stem+'_paper_pending') or not allowed or not fast_window(now)
             or store.get(stem+'_paper_daily',{}).get(today,0) <= -3
             or now.timestamp()-store.get(stem+'_last_paper_entry',0) < 300):
         return
-    d = analyzer(bars,now)
+    d = analyzer(bars,clock.now())
+    # Analysis and storage can also take time. Recheck immediately before staging.
+    now = clock.now()
+    require_fresh(bars,now,90)
+    if not fast_window(now) or not news_clear(now,events) or store.get('paused',False):
+        store.set(stem+'_timing_status','entry_window_or_news_changed_during_analysis')
+        return
+    d = dict(d, **decision_metadata(bars,now))
+    store.set(stem+'_timing_status','fresh_at_decision')
     store.set(stem+'_last_analysis', d)
     if d['side'] in ('BUY','SELL') and store.get(stem+'_evaluated_bar') != d['bar']:
         store.set(stem+'_paper_pending',{'decision':d,'time':now.timestamp()})
+        LOG.info('%s_paper_decision side=%s source_end=%s decision_time=%s source_age_seconds=%.3f model=%s',
+                 stem,d['side'],d['bar'],d['decision_time'],d['source_age_at_decision_seconds'],d['execution_model'])
     store.set(stem+'_evaluated_bar',d['bar'])
 
 
-def paper_cycle(store, market, news, now):
+def paper_cycle(store, market, news, now, clock=None):
+    clock = clock or DecisionClock(now)
     active = any(store.get(stem+'_paper_watch') for stem in ('fast','fast2'))
     if not fast_window(now) and not active:
         return
@@ -102,18 +133,28 @@ def paper_cycle(store, market, news, now):
         for stem in ('fast','fast2'):
             store.set(stem+'_paper_pending',None)
         return
-    bars = market.fetch(now)
+    # Stale prices may settle an existing paper lifecycle, but cannot permit entry.
+    bars = market.fetch(now,fresh=False)
+    received = clock.now()
+    store.set('fast_last_fetch',{'request_started_at':now.timestamp(),
+        'received_at':received.timestamp(), 'request_elapsed_seconds':(received-now).total_seconds(),
+        'source_end':bars[-1].end.isoformat() if bars else None,
+        'source_age_at_receipt_seconds':(received-bars[-1].end).total_seconds() if bars else None})
     with store.db:
         store.db.executemany('INSERT OR IGNORE INTO fast_bars(time,open,high,low,close) VALUES (?,?,?,?,?)',
                   [(b.start.timestamp(),b.open,b.high,b.low,b.close) for b in bars])
     store.set('fast_state','شموع الدقيقة متاحة؛ المقارنة الورقية تعمل')
-    allowed, _, _ = news.check(now)
+    allowed, _, _ = news.check(clock.now())
     events = store.get('calendar',{}).get('events',[])
     for stem,analyzer in (('fast',analyze_fast),('fast2',analyze_candidate)):
         try:
-            cycle_rule(store,bars,now,allowed,events,stem,analyzer)
+            cycle_rule(store,bars,clock.now(),allowed,events,stem,analyzer,clock=clock)
         except DataError as exc:
+            store.set(stem+'_timing_status',str(exc))
             LOG.warning('%s_paper_analysis_unavailable reason=%s',stem,str(exc))
+    if any(store.get(stem+'_timing_status') in ('market_closed_candles_stale','market_no_closed_candles')
+           for stem in ('fast','fast2')):
+        store.set('fast_state','بيانات الدقيقة قديمة أو ناقصة؛ الدخول الورقي الجديد محجوب')
 
 
 def run(path, key, stop):
@@ -125,12 +166,16 @@ def run(path, key, stop):
             CREATE TABLE IF NOT EXISTS fast_paper(id TEXT PRIMARY KEY,data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS fast2_paper(id TEXT PRIMARY KEY,data TEXT NOT NULL);''')
         now = datetime.now(UTC)
+        start_timing_cohort(store,now)
+        audit_saved(store,now)
+        now = datetime.now(UTC)
         run_id = 'fast-v1:' + week_start(now).isoformat()
         if store.get('fast_research_run') != run_id and time.time()-store.get('fast_probe_attempt',0) >= 3600:
             store.set('fast_probe_attempt',time.time())
             store.set('fast_state','فحص صلاحية الدقيقة وتقييم تاريخي جارٍ')
             try:
                 news.check(now)
+                now = datetime.now(UTC)
                 cache = store.get('calendar')
                 if (not cache or cache['week'] != week_start(now).isoformat()
                         or not 0 <= now.timestamp()-cache['fetched'] <= 7200):
@@ -154,6 +199,8 @@ def run(path, key, stop):
         next_cycle = 0
         while not stop.is_set():
             now = datetime.now(UTC)
+            if not fast_window(now) and now.timestamp()-store.get('fast_timing_audit_attempt',0) >= 86400:
+                audit_saved(store,now)
             if now.timestamp() >= next_cycle:
                 backoff = 0
                 try:

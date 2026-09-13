@@ -14,14 +14,15 @@ import time
 from engine import analyze, make_trade, advance_trade
 from alerts import reversal
 from reports import snapshot, report_message, follow_message
-from market import Market, DataError
+from market import Market, DataError, require_fresh
 from messages import entry, transition, stats, status, local_time, LOCAL, REASONS, early, emergency
 from news import NewsGuard
 from storage import Store
 from transport import Telegram, SecretFilter, dispatch
 from fast_service import start_worker, fast_status
+from timing import DecisionClock, decision_metadata
 
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -103,7 +104,8 @@ class App:
                 follow_message(current, decision, blocked), epoch,
                 expires=min(epoch + 120, current["ends_at"]))
 
-    def cycle(self, now):
+    def cycle(self, now, clock=None):
+        clock = clock or DecisionClock(now)
         epoch = now.timestamp()
         self.store.set("heartbeat", epoch)
         active = self.store.active()
@@ -113,6 +115,8 @@ class App:
         try:
             bars = self.market.fetch(now)
         except DataError as exc:
+            now = clock.now()
+            epoch = now.timestamp()
             reason = str(exc)
             failures = self.store.get("data_failures", 0) + 1
             self.store.set("data_failures", failures)
@@ -128,6 +132,8 @@ class App:
             self.periodic_reports({"side": "WAIT", "reason": reason}, [], now, reason)
             return
 
+        now = clock.now()
+        epoch = now.timestamp()
         # Position monitoring always precedes entry filters, including pause and news.
         if active and active["status"] != "pending":
             updated, events = advance_trade(active, bars)
@@ -142,6 +148,9 @@ class App:
         self.store.set("last_error", None)
         try:
             decision = analyze(bars, now)
+            now = clock.now()
+            epoch = now.timestamp()
+            require_fresh(bars,now,120)
         except DataError as exc:
             decision = {"side": "WAIT", "reason": str(exc)}
         # Exit warnings run before entry/news/pause gates and use only fresh analysis.
@@ -150,6 +159,13 @@ class App:
             self.monitor_reversal(active, decision, epoch)
         self.monitor_early(bars, decision, now)
         allowed_news, news_reason, events = self.news.check(now)
+        now = clock.now()
+        epoch = now.timestamp()
+        try:
+            require_fresh(bars,now,120)
+            decision = dict(decision, **decision_metadata(bars,now))
+        except DataError as exc:
+            decision = {"side":"WAIT", "reason":str(exc)}
         for event in events:
             if event["time"] >= epoch:
                 self.store.enqueue("news:" + event["id"], "news",
@@ -319,10 +335,11 @@ def main():
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
         store.enqueue("release:" + VERSION, "service",
-            "✅ <b>بوت ليث 2.5 — تجربة تأكيد الاتجاه وإعادة الاختبار</b>\n"
-            "قاعدة دخول جديدة تنتظر استئناف الحركة بعد التصحيح، وتؤكد كسر البنية قبل تبديل الجهة. "
-            "تُقارن بالطريقة السابقة على نفس الأسعار، ثم تُتابع الطريقتان ورقيًا كل دقيقة مساءً.\n"
-            "/fast يعرض المقارنة بعد تكاليف مفترضة. لا إشارات دخول من التجربة السريعة، ولا تفعيل تلقائي بناءً على الاختبار التاريخي.", time.time())
+            "✅ <b>بوت ليث 2.6 — تصحيح توقيت القرارات</b>\n"
+            "فحص حداثة السعر صار يحسب انتظار جلب البيانات والأخبار والتحليل قبل تجهيز الدخول. "
+            "المسار السريع يسجّل وقت القرار ووقت رصد الدخول الورقي كلًا على حدة، "
+            "ويفصل نتائج المتابعة الجديدة عن السابقة.\n"
+            "/fast يعرض الحالة والمقارنة بتكاليف مفترضة. المسار السريع تجريبي؛ هذا التحديث لا يثبت تحسن الربحية.", time.time())
         running = True
 
         def stop(*_):
@@ -340,6 +357,7 @@ def main():
                 except RuntimeError:
                     LOG.warning("telegram_command_poll_unavailable")
                 next_commands = time.time() + 15
+            now = datetime.now(UTC)
             if now.timestamp() >= next_market:
                 app.cycle(now)
                 next_market = (int(time.time()) // interval + 1) * interval + 15

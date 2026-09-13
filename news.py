@@ -6,6 +6,7 @@ import hashlib
 import requests
 
 from market import UTC, timestamp
+from timing import DecisionClock
 
 FEED = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 NY = ZoneInfo("America/New_York")
@@ -36,26 +37,37 @@ def parse_calendar(payload, now):
     return sorted(events, key=lambda e: e["time"])
 
 
+def archive_calendar(store, cache):
+    if cache:
+        store.set('calendar_archive:'+cache['week'],cache)
+
+
 class NewsGuard:
     def __init__(self, store, session=None):
         self.store = store
         self.session = session or requests.Session()
 
-    def check(self, now):
+    def check(self, now, clock=None):
+        clock = clock or DecisionClock(now)
         current = now.timestamp()
         cache = self.store.get("calendar")
         last_attempt = self.store.get("calendar_attempt", 0)
         if (not cache or current - cache["fetched"] >= 3600) and current - last_attempt >= 600:
             self.store.set("calendar_attempt", current)
+            archive_calendar(self.store,cache)
             try:
                 response = self.session.get(FEED, timeout=(5, 15))
                 if response.status_code != 200:
                     raise ValueError("calendar_http_error")
                 events = parse_calendar(response.json(), now)
-                cache = {"fetched": current, "week": week_start(now).isoformat(), "events": events}
+                cache = {"requested_at":current, "fetched":clock.now().timestamp(),
+                         "week": week_start(now).isoformat(), "events": events}
                 self.store.set("calendar", cache)
+                archive_calendar(self.store,cache)
             except (requests.RequestException, ValueError, TypeError, KeyError):
                 self.store.set("calendar_error", "calendar_unavailable")
+        now = clock.now()
+        current = now.timestamp()
         if (not cache or not 0 <= current - cache["fetched"] <= 7200
                 or cache["week"] != week_start(now).isoformat()):
             return False, "calendar_unavailable", []
