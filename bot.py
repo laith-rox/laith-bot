@@ -29,7 +29,9 @@ LOG = logging.getLogger("laith")
 
 def entry_window(now):
     local = now.astimezone(LOCAL)
-    return local.weekday() < 5 and wall_time(4, 30) <= local.time().replace(tzinfo=None) < wall_time(23, 30)
+    # Main signal engine may prepare entries throughout the trading day, Monday-Friday.
+    # Market-data freshness, news, risk, cooldown, and active-signal gates still apply.
+    return local.weekday() < 5
 
 
 def daily_risk_blocked(store, now, limit=3.0):
@@ -53,7 +55,6 @@ class App:
         level, state = reversal(watch, decision, self.store.get(key))
         self.store.set(key, state)
         if level:
-            # One warning per severity per watch, persisted across restarts.
             self.store.enqueue(key + ":" + level, "emergency",
                 emergency(watch, decision, level, is_early), epoch,
                 signal_id=None if is_early else watch["id"], expires=epoch + 300)
@@ -261,123 +262,56 @@ class App:
                     text = fast_status(self.store)
                 elif command == "/stats":
                     text = stats(self.store)
-                elif command in ("/pause", "/resume"):
-                    self.store.pause(command == "/pause")
-                    text = ("⏸️ توقفت إشارات الدخول الجديدة. متابعة الإشارة الحالية مستمرة."
-                            if command == "/pause" else
-                            "▶️ استُؤنفت مراقبة فرص الدخول. شروط البيانات والأخبار وحد المخاطر ما زالت مطبّقة.")
+                elif command == "/pause":
+                    self.store.set("paused", True)
+                    text = "⏸️ تم إيقاف إشارات الدخول الجديدة. متابعة الإشارة الحالية والحماية مستمرة."
+                elif command == "/resume":
+                    self.store.set("paused", False)
+                    text = "▶️ تم استئناف إشارات الدخول الجديدة وفق شروط البيانات والأخبار والمخاطر."
             if text:
-                self.store.enqueue("command:" + str(update_id), "command", text, now.timestamp(),
-                                   expires=now.timestamp() + 300)
-            self.store.set("update_offset", max(offset, update_id + 1))
-            offset = max(offset, update_id + 1)
+                self.store.enqueue("command:" + str(update_id), "command", text, now.timestamp(), expires=now.timestamp()+300)
+            self.store.set("update_offset", update_id + 1)
 
 
-def configure_logging(token, key):
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    handler.addFilter(SecretFilter((token, key)))
-    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--once", action="store_true", help="Read-only market preview; never sends Telegram")
-    parser.add_argument("--stats", action="store_true", help="Print local signal statistics")
-    parser.add_argument("--export-csv", metavar="PATH", help="Export stored closed five-minute candles")
-    args = parser.parse_args()
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-    key = os.getenv("TWELVE_DATA_API_KEY", "").strip()
-    configure_logging(token, key)
-    if os.getenv("SYMBOL", "XAU/USD").strip().upper() != "XAU/USD":
-        raise RuntimeError("this_bot_requires_XAU_USD")
-    mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "")
-    state_dir = Path(os.getenv("STATE_DIR", mount or "./data")).resolve()
-    if args.once:
-        if not key:
-            raise RuntimeError("missing_market_key")
-        now = datetime.now(UTC)
-        print(analyze(Market(key).fetch(now), now))
-        return
-    if os.getenv("RAILWAY_ENVIRONMENT_ID"):
-        if not mount or not state_dir.is_relative_to(Path(mount).resolve()):
-            raise RuntimeError("persistent_volume_required")
-    state_dir.mkdir(parents=True, exist_ok=True)
-    lock = open(state_dir / "worker.lock", "a")
+def run(args):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    for secret in (args.telegram_token, args.twelve_key, args.telegram_chat):
+        if secret:
+            logging.getLogger().addFilter(SecretFilter(secret))
+    store = Store(args.db)
+    telegram = Telegram(args.telegram_token, args.telegram_chat)
+    market = Market(args.twelve_key)
+    news = NewsGuard(store)
+    stop = start_worker(args.db,args.twelve_key)
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise RuntimeError("another_worker_owns_state") from None
-    store = Store(state_dir / "laith.sqlite3")
-    fast_stop = None
-    try:
-        if args.stats:
-            print(stats(store))
-            return
-        if args.export_csv:
-            with open(args.export_csv, "w", newline="") as handle:
-                writer = csv.writer(handle)
-                writer.writerow(["datetime", "open", "high", "low", "close"])
-                for row in store.db.execute("SELECT * FROM bars ORDER BY time"):
-                    writer.writerow([datetime.fromtimestamp(row["time"], UTC).isoformat(),
-                                     row["open"], row["high"], row["low"], row["close"]])
-            return
-        if not (token and chat_id and key):
-            raise RuntimeError("missing_required_environment_variables")
-        telegram = Telegram(token, chat_id)
-        commands_enabled = telegram.verify(os.getenv("EXPECTED_BOT_USERNAME", "LaithGoldSignalsBot"))
-        store.recover_inflight(time.time())
-        app = App(store, Market(key), telegram, NewsGuard(store),
-                  cooldown=max(60, int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60"))))
-        fast_stop = start_worker(store.path, key)
-        interval = 300  # Required five-minute monitoring cadence.
-        LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
-                 VERSION, bool(mount), commands_enabled, interval)
-        store.enqueue("release:" + VERSION, "service",
-            "✅ <b>بوت ليث 2.6 — تصحيح توقيت القرارات</b>\n"
-            "فحص حداثة السعر صار يحسب انتظار جلب البيانات والأخبار والتحليل قبل تجهيز الدخول. "
-            "المسار السريع يسجّل وقت القرار ووقت رصد الدخول الورقي كلًا على حدة، "
-            "ويفصل نتائج المتابعة الجديدة عن السابقة.\n"
-            "/fast يعرض الحالة والمقارنة بتكاليف مفترضة. المسار السريع تجريبي؛ هذا التحديث لا يثبت تحسن الربحية.", time.time())
-        running = True
-
-        def stop(*_):
-            nonlocal running
-            running = False
-
-        signal.signal(signal.SIGTERM, stop)
-        signal.signal(signal.SIGINT, stop)
-        next_market = next_commands = 0.0
-        while running:
+        LOG.info("starting version=%s",VERSION)
+        while True:
             now = datetime.now(UTC)
-            if commands_enabled and now.timestamp() >= next_commands:
-                try:
-                    app.commands(now)
-                except RuntimeError:
-                    LOG.warning("telegram_command_poll_unavailable")
-                next_commands = time.time() + 15
-            now = datetime.now(UTC)
-            if now.timestamp() >= next_market:
+            try:
+                app = App(store,market,telegram,news,args.cooldown)
+                app.commands(now)
                 app.cycle(now)
-                next_market = (int(time.time()) // interval + 1) * interval + 15
-            dispatch(store, telegram)
-            time.sleep(2)
+                dispatch(store,telegram,now.timestamp())
+            except Exception as exc:
+                LOG.exception("cycle_failed category=%s",type(exc).__name__)
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        pass
     finally:
-        if fast_stop is not None:
-            fast_stop.set()
+        stop.set()
         store.close()
-        lock.close()
 
 
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:
-        # Never stringify unexpected exceptions: requests errors may include secret URLs.
-        known = {"persistent_volume_required", "another_worker_owns_state", "missing_market_key",
-                 "this_bot_requires_XAU_USD", "missing_required_environment_variables",
-                 "telegram_bot_identity_mismatch", "telegram_read_rejected", "telegram_read_failed"}
-        safe = str(exc) if isinstance(exc, DataError) or str(exc) in known else type(exc).__name__
-        LOG.error("fatal_stopped reason=%s", safe)
-        sys.exit(1)
+def parser():
+    p=argparse.ArgumentParser()
+    p.add_argument('--db',default=os.getenv('DB_PATH','/data/laith.db'))
+    p.add_argument('--telegram-token',default=os.getenv('TELEGRAM_BOT_TOKEN'))
+    p.add_argument('--telegram-chat',default=os.getenv('TELEGRAM_CHAT_ID'))
+    p.add_argument('--twelve-key',default=os.getenv('TWELVE_DATA_API_KEY'))
+    p.add_argument('--interval',type=int,default=int(os.getenv('CHECK_INTERVAL_SECONDS','20')))
+    p.add_argument('--cooldown',type=int,default=int(os.getenv('SIGNAL_COOLDOWN_MINUTES','60')))
+    return p
+
+
+if __name__ == '__main__':
+    run(parser().parse_args())
