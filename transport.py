@@ -101,7 +101,12 @@ class Telegram:
 
 
 def dispatch(store, telegram, now=None, limit=5):
-    clock = now or time.time
+    if callable(now):
+        clock = now
+    elif now is None:
+        clock = time.time
+    else:
+        clock = lambda: float(now)
     for _ in range(limit):
         row = store.claim(clock())
         if row is None:
