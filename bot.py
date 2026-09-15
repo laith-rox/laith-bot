@@ -21,7 +21,9 @@ UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
 def entry_window(now):
-    return now.astimezone(LOCAL).weekday() < 5
+    local = now.astimezone(LOCAL)
+    minutes = local.hour * 60 + local.minute
+    return local.weekday() < 5 and 4 * 60 + 30 <= minutes < 23 * 60 + 50
 
 def daily_risk_blocked(store, now, limit=3.0):
     today=now.astimezone(LOCAL).date(); total=0.0
