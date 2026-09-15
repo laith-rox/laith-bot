@@ -52,7 +52,8 @@ def snapshot(d, now, blocked=None):
 def progress(old, d):
     side = bias(d)
     if side is None:
-        return '⚠️ تعذّر تحديث الاتجاه؛ لا تعتمد على السعر السابق كأنه حي.'
+        return ('⚠️ تعذّر تحديث الاتجاه؛ لا تعتمد على السعر السابق كأنه حي.\n\n'
+                '🟢 شروط الشراء: غير متاحة\n🔴 شروط البيع: غير متاحة')
     names = {'BUY': 'شراء', 'SELL': 'بيع', 'WAIT': 'متعادل'}
     if d.get('context') and (not d['context']['entry_allowed'] or side == 'WAIT'):
         state = describe(d['context'])
@@ -67,6 +68,9 @@ def progress(old, d):
         before = old.get('buy') if side == 'BUY' else old.get('sell')
         state = ('🟠 الاتجاه مستمر لكن شروطه ضعفت.' if before is not None and score < before
                  else 'الاتجاه الغالب مستمر: ' + names[side] + '؛ الاستمرار غير مضمون.')
+    state += (f"\n\n🟢 شروط الشراء: <b>{d['buy']}/7</b>\n"
+              f"🔴 شروط البيع: <b>{d['sell']}/7</b>\n"
+              "عدد الشروط المتحققة؛ ليس نسبة نجاح.")
     state += f"\n\nآخر إغلاق 5د: <b>{d['price']:.2f}</b>\nوقت السعر: {price_time(d)} فلسطين"
     if old.get('price') is not None:
         state += f"\nحركة الذهب منذ المرجع: {d['price']-old['price']:+.2f}$ للأونصة"
