@@ -11,6 +11,7 @@ REASONS = {
     "context_unclear": "اتجاه غير محسوم أو فجوة بيانات؛ انتظار",
     "conditions_not_aligned": "شروط الدخول غير متوافقة",
     "entry_conditions_met": "شروط الدخول تحققت",
+    "best_available_bias": "ترجيح أولي؛ شروط الدخول الكاملة غير متحققة",
     "price_extended": "السعر بعيد عن متوسطه؛ انتظار فرصة أقرب",
     "rsi_extreme": "تشبّع في الزخم؛ انتظار اعتداله",
     "recent_data_gap": "نقص في الشموع الأخيرة",
@@ -34,40 +35,64 @@ def local_time(value):
     return datetime.fromtimestamp(value, LOCAL).strftime("%d/%m %H:%M")
 
 
+def price_time(decision):
+    try:
+        stamp = datetime.fromisoformat(decision['price_time'])
+        if stamp.tzinfo is None:
+            return 'غير متاح'
+        return stamp.astimezone(LOCAL).strftime('%d/%m %H:%M')
+    except (KeyError, TypeError, ValueError):
+        return 'غير متاح'
+
+
+def fully_qualified(decision, side):
+    checks = decision.get('checks', {}).get(side, [])
+    return (decision.get('side') == side and not decision.get('forced', False)
+            and decision.get('reason') != 'best_available_bias'
+            and len(checks) == 7 and sum(checks) >= 6
+            and all(checks[i] for i in (0, 1, 3, 4, 6)))
+
+
 def entry(trade, decision):
-    side = "شراء 🟢" if trade["side"] == "BUY" else "بيع 🔴"
+    side = "🟢 شراء" if trade["side"] == "BUY" else "🔴 بيع"
     passed = decision["buy"] if trade["side"] == "BUY" else decision["sell"]
-    return (f"🥇 <b>ليث — إشارة {side} XAU/USD</b>\nمستوفية شروط الدخول — غير مضمونة.\n"
-            f"مرجع الإشارة: <code>{trade['id']}</code>\n"
-            f"السعر المرجعي: <b>{trade['entry']:.2f}</b>\n"
+    grade = ('مستوفية شروط الدخول — غير مضمونة' if fully_qualified(decision, trade['side'])
+             else 'ترجيح أولي — غير مضمون، خطر مرتفع')
+    return (f"<b>{side} | إشارة ذهب جديدة</b>\n"
+            f"المرجع: <code>{escape(trade['id'])}</code>\n{grade}\n\n"
+            f"الدخول المرجعي: <b>{trade['entry']:.2f}</b>\n"
             f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n"
-            f"الهدف الأول: <b>{trade['tp1']:.2f}</b>\n"
-            f"الهدف الثاني: <b>{trade['tp2']:.2f}</b>\n"
-            f"تحقق {passed}/7 شروط مع حماية التشبّع ومطاردة السعر.\n"
-            f"الوقت: {local_time(trade['created'])} فلسطين.\n"
-            "السعر من آخر شمعة 5د مغلقة؛ صلاحية اقتراح الدخول دقيقتان. "
-            "إذا ابتعد السعر، انتظر فرصة جديدة.\n"
-            "تنبيه تحليلي؛ فتح الصفقة ووضع الوقف يتمان عند وسيطك. "
-            "المتابعة كل 5د، والوصول للهدف الأول يولّد اقتراح حماية عند الدخول. "
-            "عدد الشروط ليس احتمال نجاح.")
+            f"هدف 1: <b>{trade['tp1']:.2f}</b>\n"
+            f"هدف 2: <b>{trade['tp2']:.2f}</b>\n\n"
+            f"الشروط المتحققة: {passed}/7؛ ليست نسبة نجاح.\n"
+            f"آخر إغلاق 5د: {price_time(decision)} فلسطين\n"
+            f"وقت الإشارة: {local_time(trade['created'])} فلسطين\n\n"
+            "صلاحية اقتراح الدخول دقيقتان؛ افحص السعر الحالي عند وسيطك.\n"
+            "التحديث كل 5د كردّ على هذه الرسالة. التنفيذ والوقف عند وسيطك.")
 
 
 def transition(trade, kind):
-    prefix = f"🥇 <b>متابعة إشارة ليث</b> — <code>{trade['id']}</code>\n"
+    side = 'شراء' if trade['side'] == 'BUY' else 'بيع'
+    reference = f"{side} | المرجع: <code>{escape(trade['id'])}</code>\n"
     if kind == "tp1":
-        return (prefix + f"رُصد وصول السعر للهدف الأول {trade['tp1']:.2f}.\n"
-                f"اقتراح: نقل الوقف إلى سعر الدخول {trade['entry']:.2f} إذا سمح سعر وسيطك الحالي.\n"
-                "نموذج المتابعة يفعّل مستوى الحماية من الشمعة التالية. "
-                "البوت لا يغيّر أمر الوقف عند الوسيط، والرسوم قد تجعل الإغلاق عند الدخول خاسرًا.")
+        return ("🎯 <b>رُصد الهدف الأول</b>\n" + reference +
+                f"\nالهدف الأول: <b>{trade['tp1']:.2f}</b>\n"
+                f"الهدف التالي: <b>{trade['tp2']:.2f}</b>\n"
+                f"الحماية المقترحة: <b>{trade['entry']:.2f}</b> عند الدخول\n\n"
+                "راجع نقل الوقف إذا سمح سعر وسيطك؛ البوت لا ينقله تلقائيًا.\n"
+                "الحماية في النموذج تبدأ من الشمعة التالية؛ الرسوم قد تجعلها خاسرة.")
     label = {"TP2": "رُصد الهدف الثاني", "STOP": "رُصد مستوى الوقف",
              "PROTECTED_STOP": "رُصد مستوى الحماية بعد الهدف الأول",
              "AMBIGUOUS": "الشمعة لمست الوقف والهدف وترتيب اللمسات غير محسوم"}[trade["outcome"]]
-    result = prefix + label + f".\nوقت الرصد: {local_time(trade['closed'])}.\n"
+    result = "🏁 <b>انتهت متابعة الإشارة</b>\n" + reference + '\n' + label + '.\n'
+    if trade.get('exit') is not None:
+        result += f"سعر نهاية المتابعة: <b>{trade['exit']:.2f}</b>\n"
+    result += f"وقت الرصد: {local_time(trade['closed'])} فلسطين\n\n"
     if trade.get("r") is None:
         result += "النتيجة مستبعدة من إحصاءات الربح لوجود غموض أو فجوة بيانات/تأكيد إرسال."
     else:
         result += f"نتيجة نموذج المتابعة: {trade['r']:+.2f}R قبل السبريد والرسوم؛ ليست ربح حسابك بالدولار."
-    return result
+    return result + '\nهذا إغلاق في نموذج المتابعة؛ البوت لا يغلق صفقتك عند الوسيط.'
 
 
 def stats(store):
@@ -98,7 +123,7 @@ def status(store):
     watch = store.get("early_watch")
     if watch:
         text += f"🟠 متابعة مبكّرة: <code>{watch['id']}</code> {watch['side']}؛ خارج سجل النتائج\n"
-    text += "تقرير اتجاه كل 15د ومتابعة كل 5د خلال ساعات الدخول. لا نسب نجاح مقاسة.\n"
+    text += "متابعة الإشارة الحالية كل 5د؛ وعند عدم وجود إشارة، تقرير سوق كل 15د وتحديث كل 5د. لا نسب نجاح مقاسة.\n"
     text += "مراقبة الانعكاس كل 5د عند توفر بيانات سليمة؛ لا إغلاق آلي.\n"
     return text + "/stats النتائج | /pause إيقاف الدخول | /resume استئناف الدخول"
 
@@ -129,22 +154,22 @@ def early(watch, d):
 
 def emergency(watch, d, level, is_early=False):
     opposite = "بيع" if watch["side"] == "BUY" else "شراء"
-    cause = (f"اكتملت شروط {opposite} المعاكسة لاتجاه المتابعة."
+    cause = ((f"اكتملت شروط {opposite} المعاكسة لاتجاه المتابعة."
+              if fully_qualified(d, 'SELL' if watch['side'] == 'BUY' else 'BUY') else
+              f"تحوّل ترجيح النموذج إلى {opposite}؛ شروطه الكاملة غير متحققة.")
              if level == "urgent" else
              f"غلبت شروط {opposite} مع زخم وموضع سعر معاكسين على شمعتين مغلقتين متتاليتين.")
     if level == "structure":
         cause = "كُسر نطاق سابق عكس اتجاه المتابعة بإغلاقين 15د؛ لم نعد نصنّف الحركة كتراجع تصحيحي فقط."
-    if level == "pressure":
-        return ("⚠️ <b>ضغط عكسي على المتابعة</b> <code>" + watch['id'] + "</code>\n"
-                "القمم والقيعان القصيرة تتحرك عكسها رغم تأخر مؤشرات الساعة. "
-                "هذا تعارض يحتاج مراجعة المخاطر، وليس انعكاسًا محسومًا أو إشارة دخول عكسية.\n"
-                f"آخر سعر مغلق {d['price']:.2f}. لا توسّع وقفك ولا تنتظر تحذيرًا آخر لتنفيذه عند وسيطك.")
-    return ("🚨 <b>تحذير انعكاس — راجع الخروج الآن</b>\n"
-            + ("متابعة مبكّرة " if is_early else "إشارة ")
-            + f"<code>{watch['id']}</code>\n{cause}\n"
-            f"شراء {d['buy']}/7 | بيع {d['sell']}/7\n"
-            f"آخر سعر مغلق {d['price']:.2f} | {escape(d['price_time'])} UTC\n"
-            "إذا دخلت، راجع سعر وسيطك وفكّر بإغلاق الصفقة أو تقليل التعرض. "
-            "هذا إنذار تحليلي قد يخطئ، وليس أمر دخول عكسي. "
-            "البوت لا يغلق صفقتك ولا ينقل وقفك. المتابعة كل 5د وليست لحظية. "
-            "يبقى سجل البوت يتابع المستويات افتراضيًا؛ لا يفترض أنك خرجت.")
+    title = '🚨 تحذير انعكاس — راجع الخروج' if level != 'pressure' else '⚠️ ضغط عكسي — راجع المخاطر'
+    if level == 'pressure':
+        cause = 'القمم والقيعان القصيرة تتحرك عكس الإشارة؛ انعكاس الاتجاه غير محسوم.'
+    side = 'شراء' if watch['side'] == 'BUY' else 'بيع'
+    scope = 'السيناريو المبكّر' if is_early else 'الإشارة'
+    return (f"<b>{title}</b>\n{scope}: {side} | <code>{escape(watch['id'])}</code>\n\n"
+            f"{cause}\n"
+            f"آخر إغلاق 5د: <b>{d['price']:.2f}</b>\n"
+            f"وقت السعر: {price_time(d)} فلسطين\n\n"
+            "إذا دخلت، راجع تقليل التعرض أو الخروج بسعر وسيطك الحالي.\n"
+            "تحذير قد يخطئ؛ ليس دخولًا عكسيًا ولا إغلاقًا آليًا.\n"
+            "المتابعة مستمرة كل 5د؛ لا تنتظر الرسائل لتنفيذ وقفك.")

@@ -66,11 +66,14 @@ class Telegram:
         LOG.info("telegram_identity_verified username=%s", me["username"])
         return not self.read("getWebhookInfo").get("url")
 
-    def send(self, message):
+    def send(self, message, reply_to_message_id=None):
+        payload = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML",
+                   "link_preview_options": {"is_disabled": True}}
+        if type(reply_to_message_id) is int and reply_to_message_id > 0:
+            payload['reply_parameters'] = {'message_id': reply_to_message_id,
+                                            'allow_sending_without_reply': True}
         try:
-            response = self.session.post(self.base + "/sendMessage", json={
-                "chat_id": self.chat_id, "text": message, "parse_mode": "HTML",
-                "link_preview_options": {"is_disabled": True}}, timeout=(5, 20))
+            response = self.session.post(self.base + "/sendMessage", json=payload, timeout=(5, 20))
         except requests.ConnectTimeout:
             return Delivery("retry", error="telegram_connect_timeout")
         except requests.RequestException:
@@ -111,8 +114,10 @@ def dispatch(store, telegram, now=None, limit=5):
         row = store.claim(clock())
         if row is None:
             break
-        outcome = telegram.send(row["message"])
+        reply_to = store.reply_target(row)
+        outcome = (telegram.send(row["message"], reply_to_message_id=reply_to)
+                   if reply_to is not None else telegram.send(row["message"]))
         store.finish(row["id"], outcome.status, clock(), outcome.message_id,
                      outcome.error, outcome.retry_after)
-        LOG.info("delivery event=%s status=%s message_id=%s error=%s", row["id"],
-                 outcome.status, outcome.message_id, outcome.error)
+        LOG.info("delivery event=%s status=%s message_id=%s reply_to=%s error=%s", row["id"],
+                 outcome.status, outcome.message_id, reply_to, outcome.error)

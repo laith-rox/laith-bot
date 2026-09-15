@@ -7,7 +7,7 @@ import time
 
 from engine import analyze, make_trade, advance_trade
 from alerts import reversal
-from reports import snapshot, report_message, follow_message
+from reports import snapshot, report_message, follow_message, trade_follow_message
 from market import Market, DataError, require_fresh
 from messages import entry, transition, stats, status, LOCAL, emergency
 from news import NewsGuard
@@ -16,7 +16,7 @@ from transport import Telegram, dispatch
 from fast_service import start_worker, fast_status
 from timing import DecisionClock, decision_metadata
 
-VERSION = "2.6.2"
+VERSION = "2.6.3"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -44,13 +44,27 @@ class App:
         if not watch: return
         epoch=now.timestamp(); updated,events=advance_trade(watch,bars)
         for event in events:
-            self.store.enqueue(watch["id"]+":early:"+event["kind"],"review","🟠 متابعة السيناريو المبكّر",epoch,expires=epoch+3600)
+            message = "🟠 <b>تحديث السيناريو المبكّر</b>\n" + transition(updated,event["kind"])
+            self.store.enqueue(watch["id"]+":early:"+event["kind"],"review",message,epoch,expires=epoch+3600)
         if updated["status"]=="closed" or epoch-watch["announced"]>=14400: self.store.set("early_watch",None)
         else:
             self.store.set("early_watch",updated); self.monitor_reversal(updated,decision,epoch,True)
 
     def periodic_reports(self,decision,bars,now,blocked=None):
         epoch=now.timestamp(); slot=int(epoch//900); current=self.store.get("current_report")
+        if self.store.has_important_update(epoch):
+            self.store.supersede_routine()
+            return
+        active=self.store.active()
+        if active:
+            self.store.supersede_routine(keep_signal=active['id'])
+            if active['status']=='pending': return
+            follow_id=active['id']+':follow:'+str(int(epoch//300))
+            if not self.store.db.execute("SELECT 1 FROM outbox WHERE id=?",(follow_id,)).fetchone():
+                self.store.enqueue(follow_id,'follow',trade_follow_message(active,decision,now),epoch,
+                                   signal_id=active['id'],expires=epoch+300)
+                LOG.info('trade_follow_prepared id=%s side=%s',follow_id,active['side'])
+            return
         if current and current.get("watch") and bars and epoch <= current["ends_at"]+120:
             watch,_=advance_trade(current["watch"],bars); current["watch"]=watch; self.store.set("current_report",current)
         eligible=entry_window(now) and not self.store.get("paused",False)
@@ -94,13 +108,15 @@ class App:
         elif epoch-self.store.get("last_signal_at",0)<self.cooldown*60: reason="cooldown"
         elif decision.get("bar") and self.store.get("evaluated_bar")==decision["bar"]: reason="already_evaluated"
         else: reason=None
-        self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
         if decision.get("bar"): self.store.set("evaluated_bar",decision["bar"])
         if reason: decision=dict(decision,model_side=original_side,side="WAIT",reason=reason)
         self.store.record(now,decision,bars)
         LOG.info("analysis side=%s reason=%s buy=%s sell=%s closed_5m=%s last_close=%s",decision["side"],decision.get("reason"),raw_decision.get("buy"),raw_decision.get("sell"),len(bars),bars[-1].end.isoformat())
         if decision["side"] in ("BUY","SELL"):
-            trade=make_trade(decision,now); self.store.prepare_entry(trade,entry(trade,decision),epoch)
+            trade=make_trade(decision,now)
+            trade.update(entry_buy=decision.get('buy'),entry_sell=decision.get('sell'))
+            self.store.prepare_entry(trade,entry(trade,decision),epoch)
+        self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
 
     def commands(self,now):
         offset=self.store.get("update_offset",0); updates=self.telegram.read("getUpdates",offset=offset,timeout=0,allowed_updates='["message"]',limit=20)
@@ -124,6 +140,13 @@ def run(args):
     store=Store(args.db); telegram=Telegram(args.telegram_token,args.telegram_chat); market=Market(args.twelve_key); news=NewsGuard(store); stop=start_worker(args.db,args.twelve_key)
     try:
         LOG.info("starting version=%s",VERSION)
+        store.enqueue('release:2.6.3:messages','release',
+                      '✅ <b>ترتيب رسائل بوت ليث صار مفعّل</b>\n\n'
+                      '🟢🔴 دخول واضح: سعر، وقف، هدفان.\n'
+                      '🔎 تحديث كل 5د مرتبط برسالة الإشارة الأصلية.\n'
+                      '🎯 الهدف و🚨 الطوارئ برسائل مميزة؛ تغني عن التحديث المكرر بنفس الفترة.\n\n'
+                      'عند عدم وجود إشارة، يستمر ملخص السوق كل 15د وتحديثه كل 5د.\n'
+                      'كل إشارة غير مضمونة؛ الترجيح الأولي موضّح بخطر مرتفع.',time.time(),expires=time.time()+3600)
         while True:
             now=datetime.now(UTC)
             try: app=App(store,market,telegram,news,args.cooldown); app.commands(now); app.cycle(now); dispatch(store,telegram)

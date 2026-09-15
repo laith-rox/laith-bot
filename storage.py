@@ -70,12 +70,51 @@ class Store:
         with self.db:
             self._enqueue(event_id, kind, message, now, signal_id, expires)
 
+    def supersede_routine(self, keep_signal=None):
+        """Drop only unsent routine updates when a more useful message replaces them."""
+        query = "UPDATE outbox SET status='expired', error='notification_superseded' " \
+                "WHERE status='pending' AND kind IN ('report','follow')"
+        params = ()
+        if keep_signal is not None:
+            query += " AND (signal_id IS NULL OR signal_id<>?)"
+            params = (keep_signal,)
+        with self.db:
+            self.db.execute(query, params)
+
+    def has_important_update(self, now):
+        # Durable across restarts; an old deduplicated alarm cannot suppress later slots.
+        return self.db.execute(
+            "SELECT 1 FROM outbox WHERE kind IN ('entry','tp1','exit','emergency') "
+            "AND created>=? AND created<=? AND status IN ('pending','inflight','sent','uncertain') "
+            "AND (expires IS NULL OR expires>? OR status IN ('sent','uncertain')) LIMIT 1",
+            (int(now // 300) * 300, now, now)).fetchone() is not None
+
+    def reply_target(self, row):
+        """Use only acknowledged parent messages, including rows from older releases."""
+        parent = None
+        if row.get('signal_id') and row['kind'] != 'entry':
+            parent = row['signal_id'] + ':entry'
+        elif row['kind'] == 'follow' and row['id'].startswith('report-'):
+            parent = row['id'].split(':follow:', 1)[0]
+        elif row['id'].startswith('reversal:'):
+            watch_id = row['id'][len('reversal:'):].rsplit(':', 1)[0]
+            parent = watch_id if watch_id.startswith('report-') else watch_id + ':early'
+        elif ':early:' in row['id']:
+            parent = row['id'].split(':early:', 1)[0] + ':early'
+        if parent is None:
+            return None
+        ack = self.db.execute("SELECT message_id FROM outbox WHERE id=? AND status='sent'",
+                              (parent,)).fetchone()
+        return ack[0] if ack and type(ack[0]) is int and ack[0] > 0 else None
+
     def prepare_entry(self, trade, message, now):
         with self.db:
             if self.active() or self.trade(trade["id"]):
                 return False
             self._save_trade(trade)
             self._enqueue(trade["id"] + ":entry", "entry", message, now, trade["id"], now + 120)
+            self.db.execute("UPDATE outbox SET status='expired', error='notification_superseded' "
+                            "WHERE status='pending' AND kind IN ('report','follow')")
         return True
 
     def prepare_report(self, report, message, now):
@@ -123,7 +162,9 @@ class Store:
                         trade["status"] = "undelivered"
                         self._save_trade(trade)
             row = self.db.execute("SELECT * FROM outbox WHERE status='pending' AND next_at<=? "
-                                  "ORDER BY CASE WHEN kind='emergency' THEN 0 ELSE 1 END, created,id LIMIT 1", (now,)).fetchone()
+                                  "ORDER BY CASE WHEN kind='emergency' THEN 0 ELSE 1 END, created, "
+                                  "CASE kind WHEN 'tp1' THEN 0 WHEN 'exit' THEN 1 WHEN 'entry' THEN 2 "
+                                  "WHEN 'report' THEN 4 WHEN 'follow' THEN 4 ELSE 3 END, id LIMIT 1", (now,)).fetchone()
             if row is None:
                 return None
             self.db.execute("UPDATE outbox SET status='inflight', attempts=attempts+1, last_attempt=? "

@@ -5,7 +5,7 @@ from html import escape
 
 from engine import make_trade
 from context import describe
-from messages import CHECK_LABELS, REASONS, local_time
+from messages import REASONS, local_time, price_time, fully_qualified
 
 
 def bias(d):
@@ -24,7 +24,7 @@ def risk_label(d, blocked=None):
     side = bias(d)
     if side is None:
         return 'غير قابل للتقييم — البيانات غير كافية'
-    if blocked or side == 'WAIT' or d.get('side') != side:
+    if blocked or side == 'WAIT' or not fully_qualified(d, side):
         return 'مرتفع — الشروط ناقصة أو الدخول محجوب'
     return 'متوسط وفق القواعد — رغم اكتمال الشروط يمكن أن تخسر'
 
@@ -36,7 +36,7 @@ def snapshot(d, now, blocked=None):
     result = {'id': 'report-' + str(slot), 'slot': slot, 'created': epoch,
               'ends_at': (slot + 1)*900, 'side': side, 'price': d.get('price') if side else None,
               'buy': d.get('buy'), 'sell': d.get('sell'), 'blocked': blocked,
-              'qualified': side in ('BUY', 'SELL') and d.get('side') == side and not blocked,
+              'qualified': side in ('BUY', 'SELL') and fully_qualified(d, side) and not blocked,
               'risk': risk_label(d, blocked), 'context': d.get('context'), 'watch': None}
     if side in ('BUY', 'SELL') and not blocked:
         direction = 1 if side == 'BUY' else -1
@@ -61,16 +61,33 @@ def progress(old, d):
     elif side == 'WAIT':
         state = '🟠 تلاشت الأفضلية؛ شروط الشراء والبيع متعادلة.'
     elif side != old['side']:
-        state = '🚨 تغيّر الاتجاه الغالب إلى ' + names[side] + '؛ راجع الخروج إذا دخلت، ولا تفتح عكسًا تلقائيًا.'
+        state = '⚠️ تغيّر الاتجاه الغالب إلى ' + names[side] + '؛ راجع المخاطر، لا تدخل عكسًا تلقائيًا.'
     else:
         score = d['buy'] if side == 'BUY' else d['sell']
         before = old.get('buy') if side == 'BUY' else old.get('sell')
         state = ('🟠 الاتجاه مستمر لكن شروطه ضعفت.' if before is not None and score < before
                  else 'الاتجاه الغالب مستمر: ' + names[side] + '؛ الاستمرار غير مضمون.')
-    state += f"\nشراء {d['buy']}/7 | بيع {d['sell']}/7 | آخر سعر مغلق {d['price']:.2f}"
+    state += f"\n\nآخر إغلاق 5د: <b>{d['price']:.2f}</b>\nوقت السعر: {price_time(d)} فلسطين"
     if old.get('price') is not None:
-        state += f"\nالتغيّر عن المرجع السابق: {d['price']-old['price']:+.2f}$ بسعر الأونصة؛ ليس ربح حسابك."
+        state += f"\nحركة الذهب منذ المرجع: {d['price']-old['price']:+.2f}$ للأونصة"
     return state
+
+
+def trade_follow_message(trade, d, now):
+    side = 'شراء' if trade['side'] == 'BUY' else 'بيع'
+    previous = {'side': trade['side'], 'price': trade['entry'],
+                'buy': trade.get('entry_buy'), 'sell': trade.get('entry_sell')}
+    text = (f"🔎 <b>تحديث الإشارة | {side}</b>\n"
+            f"المرجع: <code>{escape(trade['id'])}</code>\n"
+            f"وقت التحديث: {local_time(now.timestamp())} فلسطين\n\n" + progress(previous, d))
+    if trade.get('delivery_uncertain'):
+        text += '\n⚠️ وصول رسالة الدخول غير مؤكد؛ تحقق من الرسالة الأصلية.'
+    target = trade['tp2'] if trade['tp1_hit'] else trade['tp1']
+    text += (f"\n\nالوقف في المتابعة: <b>{trade['stop']:.2f}</b>\n"
+             f"الهدف التالي: <b>{target:.2f}</b>\n"
+             "المتابعة مستمرة؛ هذا تحديث لنفس الإشارة.\n"
+             "غير مضمونة؛ حركة الأونصة ليست ربح حسابك. لا تعديل آلي عند الوسيط.")
+    return text
 
 
 def report_message(s, d, previous=None):
@@ -78,36 +95,31 @@ def report_message(s, d, previous=None):
     label = ('مستوفية شروط الدخول — غير مضمونة' if s['qualified'] else
              'إشارة مبكّرة — غير مضمونة' if s['side'] in ('BUY', 'SELL') and not s['blocked'] else
              'تحديث مراقبة — لا اقتراح دخول')
-    text = (f"🕒 <b>ليث — تقرير 15 دقيقة</b> <code>{s['id']}</code>\n"
-            f"<b>{label}</b>\nالاتجاه الغالب بالمؤشرات: <b>{names[s['side']]}</b>\n"
-            f"درجة الخطر التقديرية: {s['risk']}\nنسبة احتمال الخسارة/النجاح غير مقاسة.\n")
+    text = (f"🕒 <b>ملخص السوق | 15 دقيقة</b>\nالمرجع: <code>{escape(s['id'])}</code>\n"
+            f"{local_time(s['created'])} فلسطين\n\n"
+            f"الاتجاه الغالب: <b>{names[s['side']]}</b>\n{label}\n"
+            f"الخطر التقديري: {s['risk']}\n")
     if d.get('context'):
         text += describe(d['context']) + '\n'
     if s['side'] is not None:
-        text += f"شراء {d['buy']}/7 | بيع {d['sell']}/7؛ عدد الشروط ليس احتمال نجاح.\n"
-        text += f"السعر المرجعي {d['price']:.2f} | وقت السعر {escape(d['price_time'])} UTC\n"
-    if s['side'] in ('BUY', 'SELL'):
-        missing = [label for label, ok in zip(CHECK_LABELS, d['checks'][s['side']]) if not ok]
-        text += 'الشروط الناقصة: ' + ('، '.join(missing) if missing else 'لا يوجد') + '\n'
+        text += f"\nآخر إغلاق 5د: <b>{d['price']:.2f}</b>\nوقت السعر: {price_time(d)} فلسطين\n"
+        text += f"شروط الشراء {d['buy']}/7 | البيع {d['sell']}/7\n"
     if s['blocked']:
-        text += 'اقتراح الدخول محجوب: ' + escape(REASONS.get(s['blocked'], s['blocked'])) + '\n'
+        text += '\nسبب عدم الدخول: ' + escape(REASONS.get(s['blocked'], s['blocked'])) + '\n'
     watch = s['watch']
     if watch:
-        text += (f"هدف محتمل أول {watch['tp1']:.2f} ({watch['tp1']-watch['entry']:+.2f}$)\n"
-                 f"هدف محتمل ثانٍ {watch['tp2']:.2f} ({watch['tp2']-watch['entry']:+.2f}$)\n"
-                 f"إلغاء السيناريو {watch['stop']:.2f} — مسافة {abs(watch['stop']-watch['entry']):.2f}$\n"
-                 'مستويات ATR افتراضية؛ ليست توقعًا لحركة ستحدث خلال 15د. الدولار فرق سعر الأونصة، وليس ربح حسابك.\n')
-    if previous and s['created'] - previous['created'] <= 1800:
-        text += '\nخلاصة التقرير السابق:\n' + progress(previous, d) + '\n'
-    text += (f"\nالمتابعة كل 5د حتى التقرير التالي {local_time(s['ends_at'])} فلسطين. "
-             'هذه متابعة مستقلة خارج إحصاءات الصفقات، ولا تعني فتح صفقة جديدة كل ربع ساعة. '
-             'المراقبة ليست لحظية والبوت لا ينفّذ عند الوسيط.')
+        text += (f"\nمستويات سيناريو للمراقبة:\nهدف 1: <b>{watch['tp1']:.2f}</b>\n"
+                 f"هدف 2: <b>{watch['tp2']:.2f}</b>\nإلغاء: <b>{watch['stop']:.2f}</b>\n"
+                 'مستويات افتراضية؛ لا تتنبأ بحركة خلال 15د.\n')
+    text += (f"\nالتقرير التالي: {local_time(s['ends_at'])} فلسطين؛ متابعة كل 5د.\n"
+             'نسبة احتمال الخسارة/النجاح غير مقاسة.\n'
+             'تقرير مراقبة خارج سجل الإشارات؛ البوت لا ينفّذ عند الوسيط.')
     return text
 
 
 def follow_message(s, d, blocked=None):
-    text = (f"🔎 <b>متابعة 5 دقائق</b> <code>{s['id']}</code>\n" + progress(s, d) +
-            '\nالخطر التقديري: ' + risk_label(d, blocked) + '؛ لا نسبة نجاح مقاسة.')
+    text = (f"🔎 <b>تحديث ملخص السوق</b>\nالمرجع: <code>{escape(s['id'])}</code>\n\n" + progress(s, d) +
+            '\n\nالخطر التقديري: ' + risk_label(d, blocked))
     if blocked:
         text += '\nالدخول محجوب: ' + escape(REASONS.get(blocked, blocked))
     watch = s.get('watch')
@@ -116,4 +128,4 @@ def follow_message(s, d, blocked=None):
             'PROTECTED_STOP':'رُصد مستوى الحماية', 'AMBIGUOUS':'ترتيب لمس المستويات غير محسوم'}[watch['outcome']]
     elif watch and watch['tp1_hit']:
         text += '\nرُصد الهدف الأول؛ الحماية المقترحة عند المرجع الأصلي، ولا تُنفّذ تلقائيًا.'
-    return text + '\nغير مضمون؛ افحص سعر وسيطك. هذا تحديث للمتابعة وليس صفقة جديدة.'
+    return text + '\nغير مضمون؛ لا نسبة نجاح مقاسة. هذا تحديث وليس صفقة جديدة.'
