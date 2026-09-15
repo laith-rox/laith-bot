@@ -53,11 +53,61 @@ def fully_qualified(decision, side):
             and all(checks[i] for i in (0, 1, 3, 4, 6)))
 
 
+def trade_strength(decision, side):
+    """Presentation score only: map the existing seven checks onto a 10-point scale."""
+    checks = decision.get('checks', {}).get(side, [])
+    if checks:
+        return round(sum(bool(x) for x in checks) / len(checks) * 10, 1)
+    raw = decision.get('buy' if side == 'BUY' else 'sell', 0)
+    return round(raw / 7 * 10, 1)
+
+
+def correction_estimate(trade, decision):
+    """Heuristic display estimate; it does not alter entries, stops or targets."""
+    direction = 1 if trade['side'] == 'BUY' else -1
+    atr = max(float(decision.get('atr') or 0), abs(trade['entry'] - trade['stop']) / 1.4)
+    context = decision.get('context') or {}
+    pivot = context.get('resistance') if direction == 1 else context.get('support')
+    tp1, tp2, entry_price = trade['tp1'], trade['tp2'], trade['entry']
+
+    # Prefer a nearby prior resistance/support when it lies on the path to or just beyond TP2.
+    if isinstance(pivot, (int, float)) and direction * (pivot - entry_price) > 0 and direction * (pivot - tp2) <= 0.5 * atr:
+        start = float(pivot)
+        source = 'دعم/مقاومة سابقة'
+    else:
+        start = tp1
+        source = 'منطقة الهدف الأول والتمدد السعري'
+
+    half_width = max(0.10 * atr, 0.20)
+    start_low, start_high = start - half_width, start + half_width
+    pullback = max(0.55 * atr, half_width * 2)
+    target = start - direction * pullback
+    target_half = max(0.12 * atr, 0.20)
+    target_low, target_high = target - target_half, target + target_half
+
+    # A descriptive likelihood based on current counter-pressure, not a calibrated probability.
+    opposite = decision.get('sell', 0) if direction == 1 else decision.get('buy', 0)
+    phase = context.get('phase')
+    rsi = float(decision.get('rsi') or 50)
+    pressure = opposite
+    if phase in ('pullback', 'conflict'):
+        pressure += 2
+    if (direction == 1 and rsi >= 65) or (direction == -1 and rsi <= 35):
+        pressure += 1
+    likelihood = 'مرتفع' if pressure >= 6 else 'متوسط' if pressure >= 4 else 'ضعيف'
+    correction_side = '🔴 بيعي' if direction == 1 else '🟢 شرائي'
+    return correction_side, likelihood, start_low, start_high, target_low, target_high, source
+
+
 def entry(trade, decision):
     side = "🟢 شراء BUY" if trade["side"] == "BUY" else "🔴 بيع SELL"
     grade = ('مستوفية شروط الدخول — غير مضمونة' if fully_qualified(decision, trade['side'])
              else 'ترجيح أولي — غير مضمون، خطر مرتفع')
-    return (f"🥇 <b>XAU/USD | إشارة ليث</b>\n\n"
+    strength = trade_strength(decision, trade['side'])
+    corr_side, corr_level, start_lo, start_hi, target_lo, target_hi, corr_source = correction_estimate(trade, decision)
+    return (f"🥇 <b>XAU/USD | إشارة ليث</b>\n"
+            f"⭐ <b>قوة نجاح الصفقة تقديريًا: {strength:.1f}/10</b>\n"
+            "<i>قوة تحليلية من شروط النموذج وليست نسبة نجاح تاريخية مضمونة.</i>\n\n"
             f"📌 الصفقة: <b>{side}</b>\n"
             f"💰 الدخول المرجعي: <b>{trade['entry']:.2f}</b>\n"
             f"🛑 وقف الخسارة: <b>{trade['stop']:.2f}</b>\n\n"
@@ -66,12 +116,13 @@ def entry(trade, decision):
             f"TP2 — <b>{trade['tp2']:.2f}</b>\n\n"
             f"📊 <b>قوة الشروط</b>\n"
             f"🟢 شراء: <b>{decision['buy']}/7</b>\n"
-            f"🔴 بيع: <b>{decision['sell']}/7</b>\n"
-            "<i>هذا تقييم شروط النموذج وليس نسبة نجاح.</i>\n\n"
-            "🔄 <b>التصحيح المحتمل</b>\n"
-            "الاحتمال: غير مقاس حاليًا\n"
-            "هدف/منطقة التصحيح: غير محسوبة في النموذج الحالي\n"
-            "لن يعرض البوت رقمًا تقديريًا غير محسوب.\n\n"
+            f"🔴 بيع: <b>{decision['sell']}/7</b>\n\n"
+            f"🔄 <b>التصحيح المحتمل: {corr_side}</b>\n"
+            f"قوة الاحتمال التحليلية: <b>{corr_level}</b>\n"
+            f"منطقة بداية التصحيح المقدّرة: <b>{start_lo:.2f}–{start_hi:.2f}</b>\n"
+            f"منطقة وصول التصحيح المقدّرة: <b>{target_lo:.2f}–{target_hi:.2f}</b>\n"
+            f"الأساس: {corr_source} + ATR والزخم والسياق الحالي.\n"
+            "<i>هذه منطقة اجتهادية متغيرة وليست أمر دخول عكسي.</i>\n\n"
             f"⚠️ إلغاء السيناريو/الوقف: <b>{trade['stop']:.2f}</b>\n"
             f"الحالة: {grade}\n"
             f"المرجع: <code>{escape(trade['id'])}</code>\n"
