@@ -31,8 +31,14 @@ REASONS = {
 }
 
 
+def format_local(stamp):
+    period = "ص" if stamp.hour < 12 else "م"
+    hour = stamp.hour % 12 or 12
+    return f"{stamp:%d/%m} {hour:02d}:{stamp:%M} {period}"
+
+
 def local_time(value):
-    return datetime.fromtimestamp(value, LOCAL).strftime("%d/%m %H:%M")
+    return format_local(datetime.fromtimestamp(value, LOCAL))
 
 
 def price_time(decision):
@@ -40,7 +46,7 @@ def price_time(decision):
         stamp = datetime.fromisoformat(decision['price_time'])
         if stamp.tzinfo is None:
             return 'غير متاح'
-        return stamp.astimezone(LOCAL).strftime('%d/%m %H:%M')
+        return format_local(stamp.astimezone(LOCAL))
     except (KeyError, TypeError, ValueError):
         return 'غير متاح'
 
