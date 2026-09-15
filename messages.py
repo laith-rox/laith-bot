@@ -54,17 +54,27 @@ def fully_qualified(decision, side):
 
 
 def entry(trade, decision):
-    side = "🟢 شراء" if trade["side"] == "BUY" else "🔴 بيع"
-    passed = decision["buy"] if trade["side"] == "BUY" else decision["sell"]
+    side = "🟢 شراء BUY" if trade["side"] == "BUY" else "🔴 بيع SELL"
     grade = ('مستوفية شروط الدخول — غير مضمونة' if fully_qualified(decision, trade['side'])
              else 'ترجيح أولي — غير مضمون، خطر مرتفع')
-    return (f"<b>{side} | إشارة ذهب جديدة</b>\n"
-            f"المرجع: <code>{escape(trade['id'])}</code>\n{grade}\n\n"
-            f"الدخول المرجعي: <b>{trade['entry']:.2f}</b>\n"
-            f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n"
-            f"هدف 1: <b>{trade['tp1']:.2f}</b>\n"
-            f"هدف 2: <b>{trade['tp2']:.2f}</b>\n\n"
-            f"الشروط المتحققة: {passed}/7؛ ليست نسبة نجاح.\n"
+    return (f"🥇 <b>XAU/USD | إشارة ليث</b>\n\n"
+            f"📌 الصفقة: <b>{side}</b>\n"
+            f"💰 الدخول المرجعي: <b>{trade['entry']:.2f}</b>\n"
+            f"🛑 وقف الخسارة: <b>{trade['stop']:.2f}</b>\n\n"
+            f"🎯 <b>الأهداف</b>\n"
+            f"TP1 — <b>{trade['tp1']:.2f}</b>\n"
+            f"TP2 — <b>{trade['tp2']:.2f}</b>\n\n"
+            f"📊 <b>قوة الشروط</b>\n"
+            f"🟢 شراء: <b>{decision['buy']}/7</b>\n"
+            f"🔴 بيع: <b>{decision['sell']}/7</b>\n"
+            "<i>هذا تقييم شروط النموذج وليس نسبة نجاح.</i>\n\n"
+            "🔄 <b>التصحيح المحتمل</b>\n"
+            "الاحتمال: غير مقاس حاليًا\n"
+            "هدف/منطقة التصحيح: غير محسوبة في النموذج الحالي\n"
+            "لن يعرض البوت رقمًا تقديريًا غير محسوب.\n\n"
+            f"⚠️ إلغاء السيناريو/الوقف: <b>{trade['stop']:.2f}</b>\n"
+            f"الحالة: {grade}\n"
+            f"المرجع: <code>{escape(trade['id'])}</code>\n"
             f"آخر إغلاق 5د: {price_time(decision)} فلسطين\n"
             f"وقت الإشارة: {local_time(trade['created'])} فلسطين\n\n"
             "صلاحية اقتراح الدخول دقيقتان؛ افحص السعر الحالي عند وسيطك.\n"
