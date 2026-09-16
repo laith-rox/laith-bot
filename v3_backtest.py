@@ -21,7 +21,7 @@ from bot import entry_window
 from engine import analyze, make_trade, advance_trade
 from market import UTC, parse_bars, closed_only, DataError
 from messages import LOCAL
-from v3_global_data import GlobalContextProvider, build_snapshot
+from v3_global_data import GlobalContextProvider, build_snapshot, build_proxy_snapshot
 from v3_metrics import summarize_r, block_bootstrap_mean_ci
 from v3_research import analyze_v3
 
@@ -35,6 +35,8 @@ def _strict(decision):
 def _macro_for(provider, now):
     if not provider or not provider.history:
         return None
+    if getattr(provider, "source", None) == "twelve_proxy":
+        return build_proxy_snapshot(provider.history, now)
     return build_snapshot(provider.history, now)
 
 
@@ -155,12 +157,17 @@ def main():
         name: simulate_variant(bars, analyzer, args.spread, args.slippage, provider, events)
         for name, analyzer in variants.items()
     }
+    macro_label = "disabled"
+    if provider:
+        macro_label = ("Twelve market proxies, previous-day as-of context"
+                       if provider.source == "twelve_proxy"
+                       else "FRED previous-day as-of context")
     output = {
         "bars": len(bars),
         "first": bars[0].start.isoformat() if bars else None,
         "last": bars[-1].end.isoformat() if bars else None,
         "cost_assumptions": {"spread": args.spread, "slippage_each_side": args.slippage},
-        "macro": "FRED previous-day as-of context" if provider else "disabled",
+        "macro": macro_label,
         "variants": results,
         "warning": "historical and paper results do not establish future profitability",
     }
