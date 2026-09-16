@@ -23,8 +23,9 @@ from storage import Store
 from v3_global_data import GlobalContextProvider
 from v3_metrics import summarize_r
 from v4_experiment import experiment_record
+from v4_quick import advance_quick, build_quick, cancel_quick
 from v4_research import analyze_v4
-from v4_telegram import V4Telegram, paper_open_message, paper_close_message
+from v4_telegram import V4Telegram, paper_open_message, paper_close_message, quick_message
 
 UTC = timezone.utc
 LOG = logging.getLogger("laith.v4")
@@ -39,14 +40,19 @@ class V4Paper:
         self.cooldown = cooldown_minutes * 60
         self.notifier = notifier
         self.experiment = experiment_record()
-        self.store.db.execute(
-            "CREATE TABLE IF NOT EXISTS v4_paper(id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+        self.store.db.executescript(
+            "CREATE TABLE IF NOT EXISTS v4_paper(id TEXT PRIMARY KEY, data TEXT NOT NULL);"
+            "CREATE TABLE IF NOT EXISTS v4_quick_paper(id TEXT PRIMARY KEY, data TEXT NOT NULL);"
         )
         self.store.db.commit()
         self.store.set("v4_experiment", self.experiment)
 
     def _paper_rows(self):
         rows = self.store.db.execute("SELECT data FROM v4_paper ORDER BY rowid").fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def _quick_rows(self):
+        rows = self.store.db.execute("SELECT data FROM v4_quick_paper ORDER BY rowid").fetchall()
         return [json.loads(row[0]) for row in rows]
 
     def _update_stats(self):
@@ -77,6 +83,66 @@ class V4Paper:
         self.store.set("v4_stats", stats)
         return stats
 
+    def _update_quick_stats(self):
+        trades = self._quick_rows()
+        closed = [t for t in trades if t.get("status") == "closed"]
+        stats = summarize_r([trade.get("r") for trade in closed])
+        stats["saved"] = len(trades)
+        stats["closed"] = len(closed)
+        stats["active"] = sum(t.get("status") == "active" for t in trades)
+        by_strength = {}
+        for trade in closed:
+            by_strength.setdefault(trade.get("strength") or "UNKNOWN", []).append(trade.get("r"))
+        stats["by_strength"] = {k: summarize_r(v) for k, v in sorted(by_strength.items())}
+        self.store.set("v4_quick_stats", stats)
+        return stats
+
+    def _save_quick(self, trade):
+        with self.store.db:
+            self.store.db.execute(
+                "INSERT INTO v4_quick_paper(id,data) VALUES (?,?) "
+                "ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                (trade["id"], json.dumps(trade, allow_nan=False)),
+            )
+        self._update_quick_stats()
+
+    def _advance_quicks(self, bars, now):
+        changed = False
+        for trade in self._quick_rows():
+            if trade.get("status") != "active":
+                continue
+            updated = advance_quick(trade, bars, now)
+            if updated != trade:
+                with self.store.db:
+                    self.store.db.execute(
+                        "UPDATE v4_quick_paper SET data=? WHERE id=?",
+                        (json.dumps(updated, allow_nan=False), updated["id"]),
+                    )
+                changed = True
+                if updated.get("status") == "closed":
+                    LOG.info(
+                        "quick_closed id=%s outcome=%s r=%s strength=%s",
+                        updated["id"], updated.get("outcome"), updated.get("r"), updated.get("strength"),
+                    )
+        if changed:
+            self._update_quick_stats()
+
+    def _cancel_quicks(self, now):
+        changed = False
+        for trade in self._quick_rows():
+            if trade.get("status") != "active":
+                continue
+            updated = cancel_quick(trade, now)
+            with self.store.db:
+                self.store.db.execute(
+                    "UPDATE v4_quick_paper SET data=? WHERE id=?",
+                    (json.dumps(updated, allow_nan=False), updated["id"]),
+                )
+            changed = True
+        if changed:
+            self._update_quick_stats()
+            LOG.info("quick_active_setups_cancelled reason=official_v4_open")
+
     def _finish(self, trade):
         with self.store.db:
             self.store.db.execute(
@@ -93,8 +159,72 @@ class V4Paper:
         if self.notifier:
             self.notifier.send(paper_close_message(trade, stats))
 
+    def quick_cycle(self, now):
+        """Check for one quick paper setup per closed five-minute slot."""
+        bars = self.market.fetch(now)
+        self._advance_quicks(bars, now)
+        if self.store.get("v4_active"):
+            self.store.set("v4_quick_last_block", "official_trade_active")
+            return
+
+        slot = int(now.timestamp() // 300)
+        if self.store.get("v4_quick_last_slot") == slot:
+            return
+        self.store.set("v4_quick_last_slot", slot)
+
+        if not entry_window(now):
+            self.store.set("v4_quick_last_block", "outside_entry_window")
+            return
+        allowed_news, news_reason, nearby = self.news.check(now)
+        if not allowed_news or nearby:
+            self.store.set("v4_quick_last_block", news_reason or "nearby_news")
+            return
+
+        macro = self.store.get("v4_macro")
+        decision = analyze_v4(bars, now, macro=macro)
+        self.store.set("v4_quick_last_analysis", decision)
+        if decision.get("side") in ("BUY", "SELL"):
+            self.store.set("v4_quick_last_block", "official_candidate_available")
+            return
+        preview = build_quick(decision, now)
+        if preview is None:
+            research = decision.get("v4") or {}
+            if research.get("volatility_regime") == "EXTREME":
+                reason = "quick_extreme_volatility"
+            elif research.get("breakout_state") == "FAILED_BREAK":
+                reason = "quick_failed_break"
+            else:
+                reason = "quick_conditions_not_dominant"
+            self.store.set("v4_quick_last_block", reason)
+            return
+
+        require_fresh(bars, now, 120)
+        quote = self.market.quote(lambda: datetime.now(UTC))
+        now2 = datetime.now(UTC)
+        require_fresh(bars, now2, 120)
+        tolerance = min(1.0, decision["atr"] * 0.25)
+        if abs(quote["price"] - decision["price"]) > tolerance:
+            self.store.set("v4_quick_last_block", "market_price_moved")
+            return
+        setup = build_quick(decision, now2, quote_price=quote["price"])
+        if setup is None:
+            self.store.set("v4_quick_last_block", "quick_recheck_failed")
+            return
+        setup.update(quote_time=quote["time"], quote_source=quote["source"])
+        self._save_quick(setup)
+        self.store.set("v4_quick_last", setup)
+        self.store.set("v4_quick_last_block", None)
+        LOG.info(
+            "quick_open id=%s side=%s entry=%.2f stop=%.2f target=%.2f score=%s/7 strength=%s rsi=%.2f rr=%.2f",
+            setup["id"], setup["side"], setup["entry"], setup["stop"], setup["target"],
+            setup["score"], setup["strength"], setup["rsi"], setup["rr"],
+        )
+        if self.notifier:
+            self.notifier.send(quick_message(setup))
+
     def cycle(self, now):
         bars = self.market.fetch(now)
+        self._advance_quicks(bars, now)
         active = self.store.get("v4_active")
         if active:
             active, _ = advance_trade(active, bars)
@@ -185,6 +315,7 @@ class V4Paper:
             paper_only=True,
             generation="V4",
         )
+        self._cancel_quicks(now2)
         self.store.set("v4_active", trade)
         self.store.set("v4_last_entry", now2.timestamp())
         LOG.info(
@@ -205,8 +336,12 @@ def run(args):
     telegram = V4Telegram(args.telegram_token, store, args.telegram_chat, args.telegram_pair_code)
     global_context = GlobalContextProvider(refresh_seconds=args.macro_refresh, twelve_key=args.twelve_key)
     paper = V4Paper(store, market, news, global_context, args.cooldown, notifier=telegram)
-    LOG.info("starting independent V4 paper worker db=%s experiment=%s telegram=%s", args.db, paper.experiment["id"], bool(args.telegram_token))
+    LOG.info(
+        "starting independent V4 paper worker db=%s experiment=%s telegram=%s quick_interval=%ss",
+        args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
+    )
     next_cycle = 0.0
+    next_quick = 0.0
     try:
         while True:
             now = datetime.now(UTC)
@@ -224,7 +359,18 @@ def run(args):
                 except Exception:
                     LOG.exception("cycle_failed")
                 next_cycle = time.time() + args.interval
-            time.sleep(max(1, min(args.telegram_poll, args.interval)))
+            if time.time() >= next_quick:
+                try:
+                    paper.quick_cycle(datetime.now(UTC))
+                    store.set("v4_quick_last_error", None)
+                except DataError as exc:
+                    store.set("v4_quick_last_error", str(exc))
+                    LOG.warning("quick_cycle_data_error reason=%s", exc)
+                except Exception:
+                    LOG.exception("quick_cycle_failed")
+                current = time.time()
+                next_quick = (int(current) // args.quick_interval + 1) * args.quick_interval + 12
+            time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
     finally:
         store.close()
 
@@ -234,6 +380,7 @@ def parser():
     p.add_argument("--db", default=os.getenv("V4_DB_PATH", "/data/laith_v4.db"))
     p.add_argument("--twelve-key", default=os.getenv("TWELVE_DATA_API_KEY"))
     p.add_argument("--interval", type=int, default=int(os.getenv("V4_CHECK_INTERVAL_SECONDS", "900")))
+    p.add_argument("--quick-interval", type=int, default=int(os.getenv("V4_QUICK_INTERVAL_SECONDS", "300")))
     p.add_argument("--cooldown", type=int, default=int(os.getenv("V4_SIGNAL_COOLDOWN_MINUTES", "60")))
     p.add_argument("--macro-refresh", type=int, default=int(os.getenv("V4_MACRO_REFRESH_SECONDS", "21600")))
     p.add_argument("--telegram-token", default=os.getenv("V4_TELEGRAM_BOT_TOKEN"))
