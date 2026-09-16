@@ -42,6 +42,10 @@ def evaluate_warning(trade,bars,now,previous=None):
     boundary=min(b.low for b in prior) if direction==1 else max(b.high for b in prior)
     broken=all(direction*(b.close-boundary)<-.1*volatility for b in bars[-2:])
     counter=direction*(fast-slow)<0
+    # Equal-weight evidence count only; these correlated indicators are not a probability.
+    pressure_checks = [retrace>=threshold,
+                       direction*(last.close-bars[-2].close)<0,
+                       direction*(price-fast)<0, counter]
     observed=0
     if direction*(price-trade['stop'])<=0:
         observed=3
@@ -58,7 +62,8 @@ def evaluate_warning(trade,bars,now,previous=None):
     if observed<=old_level: return None,state
     kind={1:'correction',2:'reversal',3:'stop'}[observed]
     return {'kind':kind,'price':price,'stamp':stamp,'retrace':retrace,
-            'boundary':boundary,'episode':state.get('episode',0)},state
+            'boundary':boundary,'episode':state.get('episode',0),
+            'pressure_checks':pressure_checks},state
 
 
 def warning_message(trade,event):
@@ -70,9 +75,18 @@ def warning_message(trade,event):
     side='شراء' if trade['side']=='BUY' else 'بيع'
     action=('تصحيح محتمل؛ استمرار الحركة غير مؤكد، وليس إشارة دخول عكسية.' if event['kind']=='correction' else
             'راجع سعر وسيطك والوقف فورًا؛ لا تدخل عكسًا تلقائيًا.')
+    evidence = ''
+    checks = event.get('pressure_checks')
+    if event['kind'] in ('correction','reversal'):
+        if isinstance(checks,list) and len(checks)==4 and all(type(x) is bool for x in checks):
+            count=sum(checks)
+            evidence=(f'📊 تحقق مؤشرات الضغط المعاكس: <b>{count}/4 = {count*25}%</b>\n'
+                      'نسبة شروط مرصودة؛ ليست احتمال استمرار التصحيح، حتى عند 100%.\n')
+        else:
+            evidence='📊 نسبة تحقق المؤشرات: غير متاحة\n'
     return (f"<b>{labels[event['kind']]}</b>\n{side} | <code>{escape(trade['id'])}</code>\n"
             f"إغلاق الدقيقة: <b>{event['price']:.2f}</b> | {local_time(event['stamp'])} فلسطين\n"
-            f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n{action}\n"
+            f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n{evidence}{action}\n"
             'Twelve Data؛ ليس سعر وسيطك الحي. تحذير احتمالي، لا إغلاق آلي.')
 
 
