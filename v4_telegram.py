@@ -21,10 +21,12 @@ def welcome_message():
     return (
         "🥇 <b>Laith V4 — مختبر الذهب</b>\n\n"
         "تم ربط تيليجرام بالنسخة التجريبية المستقلة.\n"
-        "📄 الصفقات هنا <b>ورقية/بحثية فقط</b> وليست تنفيذًا على حساب حقيقي.\n\n"
+        "⚡ يفحص صفقة سريعة كل 5 دقائق عندما لا توجد صفقة V4 رسمية.\n"
+        "📄 كل الصفقات هنا <b>ورقية/بحثية فقط</b> وليست تنفيذًا على حساب حقيقي.\n\n"
         "الأوامر:\n"
         "/status — آخر تحليل وحالة V4\n"
-        "/stats — نتائج الصفقات الورقية"
+        "/stats — نتائج الصفقات الرسمية الورقية\n"
+        "/quickstats — نتائج الصفقات السريعة الورقية"
     )
 
 
@@ -35,11 +37,12 @@ def status_message(store):
     correction = structure.get("correction", {}) or {}
     risk = structure.get("risk", {}) or {}
     active = store.get("v4_active")
+    quick = store.get("v4_quick_last") or {}
     side = decision.get("side", "WAIT")
     reason = decision.get("reason", "—")
     lines = [
         "📊 <b>حالة Laith V4</b>",
-        f"القرار: <b>{side}</b>",
+        f"القرار الرسمي: <b>{side}</b>",
         f"السبب: {reason}",
         f"الجلسة: {research.get('session', '—')}",
         f"التذبذب: {research.get('volatility_regime', '—')} ({research.get('volatility_percentile', '—')}%)",
@@ -52,7 +55,7 @@ def status_message(store):
     if active:
         lines.extend([
             "",
-            "🧪 <b>صفقة ورقية قائمة</b>",
+            "✅ <b>صفقة V4 الرسمية الورقية قائمة</b>",
             f"الاتجاه: {active.get('side', '—')}",
             f"الدخول: {_fmt(active.get('entry'))}",
             f"الوقف: {_fmt(active.get('stop'))}",
@@ -60,7 +63,16 @@ def status_message(store):
             f"TP2: {_fmt(active.get('tp2'))}",
         ])
     else:
-        lines.extend(["", "لا توجد صفقة ورقية قائمة حاليًا."])
+        lines.extend(["", "لا توجد صفقة رسمية ورقية قائمة حاليًا."])
+    if quick:
+        lines.extend([
+            "",
+            "⚡ <b>آخر صفقة سريعة</b>",
+            f"الاتجاه: {quick.get('side', '—')} | القوة: {quick.get('strength', '—')}",
+            f"الشروط: {quick.get('score', '—')}/7 = {quick.get('condition_percent', '—')}%",
+            f"RSI: {_fmt(quick.get('rsi'))}",
+            f"الدخول: {_fmt(quick.get('entry'))} | الهدف: {_fmt(quick.get('target'))}",
+        ])
     return "\n".join(lines)
 
 
@@ -68,7 +80,7 @@ def stats_message(store):
     stats = store.get("v4_stats", {}) or {}
     measured = stats.get("measured", 0)
     return (
-        "📈 <b>إحصاءات V4 الورقية</b>\n"
+        "📈 <b>إحصاءات V4 الرسمية الورقية</b>\n"
         f"الصفقات المقاسة: {measured}\n"
         f"صافي R: {stats.get('net_r', 0.0):.3f}\n"
         f"Max Drawdown (R): {stats.get('max_drawdown_r', 0.0):.3f}\n"
@@ -77,10 +89,43 @@ def stats_message(store):
     )
 
 
+def quick_stats_message(store):
+    stats = store.get("v4_quick_stats", {}) or {}
+    return (
+        "⚡ <b>إحصاءات الصفقات السريعة — V4</b>\n"
+        f"الإشارات المحفوظة: {stats.get('saved', 0)}\n"
+        f"الصفقات المقاسة: {stats.get('measured', 0)}\n"
+        f"صافي R: {stats.get('net_r', 0.0):.3f}\n"
+        f"Max Drawdown (R): {stats.get('max_drawdown_r', 0.0):.3f}\n\n"
+        "القوة ونسبة الشروط تصف اكتمال القواعد، وليست احتمال نجاح."
+    )
+
+
+def quick_message(trade):
+    conditions = []
+    for item in trade.get("conditions") or []:
+        conditions.append(("✅" if item.get("ok") else "❌") + " " + str(item.get("name", "شرط")))
+    checklist = "\n".join(conditions)
+    return (
+        "⚡ <b>صفقة سريعة — V4 (ورقية)</b>\n\n"
+        f"الاتجاه: <b>{trade.get('side', '—')}</b>\n"
+        f"📊 تحقق الشروط: <b>{trade.get('score', '—')}/7 = {trade.get('condition_percent', '—')}% — {trade.get('strength', '—')}</b>\n"
+        f"📈 RSI: <b>{_fmt(trade.get('rsi'))}</b>\n\n"
+        f"{checklist}\n\n"
+        f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🛑 وقف الخسارة: {_fmt(trade.get('stop'))}\n"
+        f"🎯 الهدف السريع: {_fmt(trade.get('target'))}\n"
+        f"⚖️ R:R: 1:{float(trade.get('rr', 0)):.2f}\n"
+        "⏱️ الصلاحية: 20 دقيقة\n\n"
+        f"الجلسة: {trade.get('session', '—')} | التذبذب: {trade.get('volatility_regime', '—')}\n"
+        "⚠️ القوة = اكتمال شروط، وليست نسبة نجاح. الصفقة بحثية ورقية فقط."
+    )
+
+
 def paper_open_message(trade):
     research = trade.get("research_v4") or {}
     return (
-        "🧪 <b>إشارة V4 ورقية جديدة</b>\n\n"
+        "✅ <b>صفقة V4 الرسمية — ورقية</b>\n\n"
         f"الاتجاه: <b>{trade.get('side')}</b>\n"
         f"الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🛑 الوقف: {_fmt(trade.get('stop'))}\n"
@@ -90,13 +135,13 @@ def paper_open_message(trade):
         f"التذبذب: {research.get('volatility_regime', '—')}\n"
         f"الماكرو: {research.get('macro_alignment', '—')}\n"
         f"الكسر: {research.get('breakout_state', '—')}\n\n"
-        "⚠️ صفقة بحثية ورقية فقط؛ ليست تنفيذًا حقيقيًا ولا ربحًا مضمونًا."
+        "⚠️ رسمية داخل نظام V4 لكنها ما زالت صفقة بحثية ورقية؛ ليست تنفيذًا حقيقيًا ولا ربحًا مضمونًا."
     )
 
 
 def paper_close_message(trade, stats):
     return (
-        "🏁 <b>إغلاق صفقة V4 الورقية</b>\n\n"
+        "🏁 <b>إغلاق صفقة V4 الرسمية الورقية</b>\n\n"
         f"الاتجاه: {trade.get('side', '—')}\n"
         f"النتيجة: <b>{trade.get('outcome', '—')}</b>\n"
         f"R للصفقة: {trade.get('r', '—')}\n"
@@ -173,6 +218,8 @@ class V4Telegram:
                     self.client.send(status_message(self.store))
                 elif command == "/stats":
                     self.client.send(stats_message(self.store))
+                elif command == "/quickstats":
+                    self.client.send(quick_stats_message(self.store))
 
             if isinstance(uid, int):
                 self.store.set("v4_telegram_update_offset", uid + 1)
