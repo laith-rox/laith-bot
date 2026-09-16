@@ -16,7 +16,7 @@ from transport import Telegram, dispatch
 from fast_service import start_worker, fast_status
 from timing import DecisionClock, decision_metadata
 
-VERSION = "2.6.3"
+VERSION = "2.6.4"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -101,6 +101,11 @@ class App:
         if active and active["status"]!="pending": self.monitor_reversal(active,decision,epoch)
         self.monitor_early(bars,decision,now)
         allowed_news,news_reason,_=self.news.check(now)
+        now=clock.now(); epoch=now.timestamp()
+        try:
+            require_fresh(bars,now,600)
+        except DataError as exc:
+            decision={"side":"WAIT","reason":str(exc)}
         raw_decision=dict(decision); original_side=decision["side"]; active=self.store.active()
         if self.store.get("paused",False): reason="paused"
         elif active: reason="active_signal"
@@ -115,9 +120,28 @@ class App:
         self.store.record(now,decision,bars)
         LOG.info("analysis side=%s reason=%s buy=%s sell=%s closed_5m=%s last_close=%s",decision["side"],decision.get("reason"),raw_decision.get("buy"),raw_decision.get("sell"),len(bars),bars[-1].end.isoformat())
         if decision["side"] in ("BUY","SELL"):
-            trade=make_trade(decision,now)
-            trade.update(entry_buy=decision.get('buy'),entry_sell=decision.get('sell'))
-            self.store.prepare_entry(trade,entry(trade,decision),epoch)
+            try:
+                require_fresh(bars,clock.now(),120)
+                quote=self.market.quote(clock.now)
+                now=clock.now(); epoch=now.timestamp()
+                require_fresh(bars,now,120)
+                if not entry_window(now): raise DataError('outside_entry_window')
+                tolerance=min(1.0,decision['atr']*0.25)
+                shift=quote['price']-decision['price']
+                if abs(shift)>tolerance: raise DataError('market_price_moved')
+                decision=dict(decision)
+                for field in ('price','sl','tp1','tp2'): decision[field]+=shift
+                trade=make_trade(decision,now)
+                trade.update(entry_buy=decision.get('buy'),entry_sell=decision.get('sell'),
+                             quote_time=quote['time'],quote_source=quote['source'],
+                             price_tolerance=tolerance,
+                             entry_expires=min(quote['time']+90,bars[-1].end.timestamp()+120))
+                self.store.prepare_entry(trade,entry(trade,decision),epoch)
+                LOG.info('entry_quote_verified id=%s price=%.2f source_age=%.1f',
+                         trade['id'],trade['entry'],epoch-quote['time'])
+            except DataError as exc:
+                reason=str(exc); self.store.set('last_error',reason)
+                LOG.warning('entry_blocked reason=%s',reason)
         self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
 
     def commands(self,now):
@@ -151,7 +175,7 @@ def run(args):
                       'كل إشارة غير مضمونة؛ الترجيح الأولي موضّح بخطر مرتفع.',time.time(),expires=time.time()+3600)
         while True:
             now=datetime.now(UTC)
-            try: app=App(store,market,telegram,news,args.cooldown); app.commands(now); app.cycle(now); dispatch(store,telegram)
+            try: app=App(store,market,telegram,news,args.cooldown); app.commands(now); app.cycle(now); dispatch(store,telegram,market=market)
             except Exception: LOG.exception("cycle_failed")
             time.sleep(args.interval)
     finally: stop.set(); store.close()

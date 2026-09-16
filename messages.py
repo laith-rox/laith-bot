@@ -5,6 +5,10 @@ from zoneinfo import ZoneInfo
 LOCAL = ZoneInfo("Asia/Hebron")
 
 REASONS = {
+    "market_quote_invalid": "تعذّر التحقق من سعر حديث ومؤرّخ؛ لا دخول",
+    "market_quote_unavailable": "قراءة السعر الحديثة غير متاحة؛ لا دخول",
+    "market_quote_stale": "قراءة السعر قديمة؛ أُلغي اقتراح الدخول",
+    "market_price_moved": "تحرك السعر بعيدًا عن المرجع؛ أُلغي اقتراح الدخول",
     "context_conflict": "تعارض حركة القمم والقيعان القصيرة مع اتجاه الساعة؛ لا دخول",
     "context_pullback": "تصحيح محتمل؛ انتظار تأكيد عودة الاتجاه",
     "context_trend_break": "كسر نطاق الاتجاه؛ انتظار تأكيد اتجاه جديد",
@@ -115,7 +119,9 @@ def entry(trade, decision):
             f"⭐ <b>قوة نجاح الصفقة تقديريًا: {strength:.1f}/10</b>\n"
             "<i>قوة تحليلية من شروط النموذج وليست نسبة نجاح تاريخية مضمونة.</i>\n\n"
             f"📌 الصفقة: <b>{side}</b>\n"
-            f"💰 الدخول المرجعي: <b>{trade['entry']:.2f}</b>\n"
+            f"💰 سعر الإشارة المرجعي: <b>{trade['entry']:.2f}</b>\n"
+            "المصدر: Twelve Data؛ ليس سعر شراء/بيع مباشر من JustMarkets.\n"
+            f"وقت قراءة السعر: {local_time(trade.get('quote_time',trade['created']))} فلسطين\n"
             f"🛑 وقف الخسارة: <b>{trade['stop']:.2f}</b>\n\n"
             f"🎯 <b>الأهداف</b>\n"
             f"TP1 — <b>{trade['tp1']:.2f}</b>\n"
@@ -134,7 +140,7 @@ def entry(trade, decision):
             f"المرجع: <code>{escape(trade['id'])}</code>\n"
             f"آخر إغلاق 5د: {price_time(decision)} فلسطين\n"
             f"وقت الإشارة: {local_time(trade['created'])} فلسطين\n\n"
-            "صلاحية اقتراح الدخول دقيقتان؛ افحص السعر الحالي عند وسيطك.\n"
+            "لا تنفّذ على رقم الرسالة إذا اختلف سعر وسيطك؛ المرجع ليس سعر تنفيذ مضمونًا.\n"
             "التحديث كل 5د كردّ على هذه الرسالة. التنفيذ والوقف عند وسيطك.")
 
 

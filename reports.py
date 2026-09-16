@@ -84,6 +84,9 @@ def trade_follow_message(trade, d, now):
     text = (f"🔎 <b>تحديث الإشارة | {side}</b>\n"
             f"المرجع: <code>{escape(trade['id'])}</code>\n"
             f"وقت التحديث: {local_time(now.timestamp())} فلسطين\n\n" + progress(previous, d))
+    text += '\nمصدر المتابعة: شموع Twelve Data؛ ليس سعر JustMarkets اللحظي.'
+    if not trade.get('quote_time'):
+        text += '\n⚠️ هذه إشارة سابقة للتصحيح، ومرجعها إغلاق شمعة قديم؛ التحديث ليس دعوة دخول جديدة.'
     if trade.get('delivery_uncertain'):
         text += '\n⚠️ وصول رسالة الدخول غير مؤكد؛ تحقق من الرسالة الأصلية.'
     tp1_state = ' ✅ تم رصده' if trade.get('tp1_hit') else ''

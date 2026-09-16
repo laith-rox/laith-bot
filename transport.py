@@ -1,11 +1,13 @@
 """Confirmed Telegram delivery, explicit ambiguity handling, secret-free logs."""
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import logging
 import re
 import time
 
 import requests
+from market import DataError
 
 LOG = logging.getLogger("laith")
 
@@ -103,7 +105,7 @@ class Telegram:
         return Delivery("failed", error="telegram_request_rejected")
 
 
-def dispatch(store, telegram, now=None, limit=5):
+def dispatch(store, telegram, now=None, limit=5, market=None):
     if callable(now):
         clock = now
     elif now is None:
@@ -114,6 +116,24 @@ def dispatch(store, telegram, now=None, limit=5):
         row = store.claim(clock())
         if row is None:
             break
+        if row['kind'] == 'entry':
+            try:
+                trade=store.trade(row['signal_id'])
+                if market is None or not trade.get('quote_time'):
+                    raise DataError('market_quote_unavailable')
+                quote=market.quote(lambda: datetime.fromtimestamp(clock(),timezone.utc))
+                checked_at=clock()
+                if checked_at >= trade['entry_expires']:
+                    raise DataError('market_quote_stale')
+                if abs(quote['price']-trade['entry']) > trade['price_tolerance']:
+                    raise DataError('market_price_moved')
+                LOG.info('entry_presend_verified id=%s reference=%.2f quote=%.2f age=%.1f',
+                         trade['id'],trade['entry'],quote['price'],checked_at-quote['time'])
+            except DataError as exc:
+                store.finish(row['id'],'failed',clock(),error=str(exc))
+                store.set('last_error',str(exc))
+                LOG.warning('entry_send_blocked id=%s reason=%s',row['id'],str(exc))
+                continue
         reply_to = store.reply_target(row)
         outcome = (telegram.send(row["message"], reply_to_message_id=reply_to)
                    if reply_to is not None else telegram.send(row["message"]))

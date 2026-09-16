@@ -112,7 +112,8 @@ class Store:
             if self.active() or self.trade(trade["id"]):
                 return False
             self._save_trade(trade)
-            self._enqueue(trade["id"] + ":entry", "entry", message, now, trade["id"], now + 120)
+            self._enqueue(trade["id"] + ":entry", "entry", message, now, trade["id"],
+                          min(now + 120, trade.get('entry_expires', now + 120)))
             self.db.execute("UPDATE outbox SET status='expired', error='notification_superseded' "
                             "WHERE status='pending' AND kind IN ('report','follow')")
         return True

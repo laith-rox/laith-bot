@@ -48,7 +48,9 @@ def macd(values):
 
 
 def analyze(bars, now):
-    require_fresh(bars, now, 120)
+    # Closed candles remain useful for monitoring between closes. Entry has a
+    # separate strict 120-second gate plus a timestamped provider quote.
+    require_fresh(bars, now, 600)
     m15, h1 = resample(bars, 15), resample(bars, 60)
     if len(m15) < 220 or len(h1) < 100:
         raise DataError("market_insufficient_closed_history")

@@ -69,15 +69,37 @@ def resample(bars, minutes):
 
 def require_fresh(bars, now, max_age_seconds=600):
     if not bars: raise DataError("market_no_closed_candles")
-    # A completed 5m candle can normally be 0-5 minutes old before the next candle closes.
-    # Never classify that normal interval as a closed market, even if a caller asks for 120s.
-    effective_max = max(max_age_seconds, 600) if bars[-1].minutes == 5 else max_age_seconds
     age=(now-bars[-1].end).total_seconds()
-    if age < 0 or age > effective_max: raise DataError("market_closed_candles_stale")
+    if age < 0 or age > max_age_seconds: raise DataError("market_closed_candles_stale")
     return age
+
+def parse_quote(payload, now):
+    """Timestamped provider rate, never a broker executable bid/ask."""
+    try:
+        if not isinstance(payload, dict) or payload.get('symbol') != 'XAU/USD':
+            raise DataError('market_quote_invalid')
+        price = float(payload['rate'])
+        stamp = float(payload['timestamp'])
+        if not math.isfinite(price) or price <= 0 or not math.isfinite(stamp):
+            raise DataError('market_quote_invalid')
+        if not 0 <= now.timestamp() - stamp <= 90:
+            raise DataError('market_quote_stale')
+        return {'price': price, 'time': stamp, 'source': 'Twelve Data'}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise DataError('market_quote_invalid') from None
 
 class Market:
     def __init__(self,key,session=None): self.key=key; self.session=session or requests.Session()
+    def quote(self, clock):
+        try:
+            response = self.session.get('https://api.twelvedata.com/exchange_rate',
+                params={'symbol':'XAU/USD', 'apikey':self.key}, timeout=(5, 10))
+            if response.status_code != 200:
+                raise DataError('market_quote_unavailable')
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            raise DataError('market_quote_unavailable') from None
+        return parse_quote(payload, clock())
     def fetch(self,now):
         try:
             response=self.session.get("https://api.twelvedata.com/time_series",params={"symbol":"XAU/USD","interval":"5min","outputsize":2400,"timezone":"UTC","order":"ASC","apikey":self.key,"format":"JSON"},timeout=(5,25))
