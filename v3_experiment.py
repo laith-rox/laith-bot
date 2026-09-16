@@ -1,15 +1,15 @@
 """Experiment identity and audit helpers for V3 research.
 
 Every paper trade must be attributable to the exact rule set that produced it.
-Changing a threshold creates a different deterministic experiment id, preventing
-results from incompatible rule versions from being silently pooled.
+Changing a threshold or data source creates a different deterministic experiment
+id, preventing results from incompatible rule versions from being silently pooled.
 """
 import hashlib
 import json
 
 
 V3_EXPERIMENT = {
-    "name": "laith-v3-global-filter-v1",
+    "name": "laith-v3-global-filter-v2",
     "baseline": "engine.analyze",
     "forced_bias": "reject",
     "sessions": {
@@ -22,10 +22,13 @@ V3_EXPERIMENT = {
         "block_at_or_above_percentile": 95,
     },
     "macro": {
-        "series": ["DTWEXBGS", "DGS10", "DFII10", "VIXCLS", "DCOILWTICO"],
+        "primary_source": ["DTWEXBGS", "DGS10", "DFII10", "VIXCLS", "DCOILWTICO"],
+        "runtime_fallback": ["UUP", "TLT", "VIXY", "SPY", "USO"],
+        "fallback_label": "twelve_proxy",
         "asof_rule": "previous_calendar_day_or_earlier",
         "veto": "STRONG_CONFLICT_only",
         "oil_directional_vote": False,
+        "proxy_equity_directional_vote": False,
     },
     "event_guard": {
         "source": "existing_high_impact_USD_calendar",
