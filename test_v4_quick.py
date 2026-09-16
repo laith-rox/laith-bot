@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import unittest
 
 from market import Bar
-from v4_quick import advance_quick, build_quick, leading_side, strength_label
+from v4_quick import advance_quick, build_quick, continuation_snapshot, leading_side, strength_label
 
 UTC = timezone.utc
 
@@ -58,13 +58,31 @@ class V4QuickTests(unittest.TestCase):
         self.assertAlmostEqual(setup["stop"], 4298.0)
         self.assertAlmostEqual(setup["target"], 4305.5)
 
-    def test_quick_is_blocked_for_official_or_extreme_or_failed_break(self):
+    def test_quick_coexists_with_official_candidate_but_blocks_risk_states(self):
         now = datetime(2026, 9, 16, 19, 0, tzinfo=UTC)
         d = decision()
         d["side"] = "BUY"
-        self.assertIsNone(build_quick(d, now))
+        self.assertIsNotNone(build_quick(d, now))
         self.assertIsNone(build_quick(decision(vol="EXTREME"), now))
         self.assertIsNone(build_quick(decision(breakout="FAILED_BREAK"), now))
+
+    def test_continuation_snapshot_tracks_original_official_side(self):
+        d = decision()
+        trade = {
+            "side": "BUY", "entry": 4300.0, "stop": 4294.0,
+            "tp1": 4308.0, "tp2": 4312.0, "tp1_hit": False,
+        }
+        snap = continuation_snapshot(d, trade, price=4302.0)
+        self.assertEqual(snap["side"], "BUY")
+        self.assertEqual(snap["score"], 5)
+        self.assertEqual(snap["condition_percent"], 71)
+        self.assertEqual(snap["state"], "متوسطة")
+        self.assertEqual(snap["price"], 4302.0)
+
+        d["side"] = "SELL"
+        snap2 = continuation_snapshot(d, trade, price=4298.0)
+        self.assertEqual(snap2["state"], "تحذير")
+        self.assertTrue(snap2["opposite_official"])
 
     def test_target_and_stop_outcomes(self):
         now = datetime(2026, 9, 16, 19, 0, tzinfo=UTC)
