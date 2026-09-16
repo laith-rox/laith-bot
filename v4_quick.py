@@ -29,16 +29,37 @@ def strength_label(score):
     return "ضعيفة"
 
 
+def _checks(decision, side):
+    values = (decision.get("checks") or {}).get(side)
+    if not isinstance(values, (list, tuple)) or len(values) != 7:
+        return None
+    return [bool(x) for x in values]
+
+
 def leading_side(decision):
-    """Return a quick side only when one side has usable rule dominance."""
+    """Choose the better-supported quick side, with RSI as a deterministic tie-break.
+
+    The quick stream is deliberately descriptive even when support is weak; low
+    support is reported as weak/high-risk rather than silently suppressing a slot.
+    """
+    buy_checks = _checks(decision, "BUY")
+    sell_checks = _checks(decision, "SELL")
+    if buy_checks is None or sell_checks is None:
+        return None
     try:
-        buy = int(decision.get("buy", 0))
-        sell = int(decision.get("sell", 0))
+        buy = int(decision.get("buy", sum(buy_checks)))
+        sell = int(decision.get("sell", sum(sell_checks)))
     except (TypeError, ValueError):
-        return None
-    if max(buy, sell) < 4 or abs(buy - sell) < 2:
-        return None
-    return "BUY" if buy > sell else "SELL"
+        buy, sell = sum(buy_checks), sum(sell_checks)
+    if buy > sell:
+        return "BUY"
+    if sell > buy:
+        return "SELL"
+    try:
+        rsi = float(decision.get("rsi"))
+    except (TypeError, ValueError):
+        rsi = 50.0
+    return "BUY" if math.isfinite(rsi) and rsi >= 50.0 else "SELL"
 
 
 def _opposite_correction(side, correction):
@@ -55,10 +76,9 @@ def continuation_snapshot(decision, trade, price=None):
     points the other way.
     """
     side = trade.get("side")
-    checks = (decision.get("checks") or {}).get(side)
-    if side not in ("BUY", "SELL") or not isinstance(checks, (list, tuple)) or len(checks) != 7:
+    checks = _checks(decision, side)
+    if side not in ("BUY", "SELL") or checks is None:
         return None
-    checks = [bool(x) for x in checks]
     score = sum(checks)
     research = decision.get("v4") or {}
     correction = research.get("correction") or {}
@@ -114,35 +134,71 @@ def continuation_snapshot(decision, trade, price=None):
     }
 
 
-def build_quick(decision, now, quote_price=None, lifetime_seconds=1200):
-    """Build one quick paper setup from the latest V4 analysis.
+def _risk_profile(decision, side, score):
+    research = decision.get("v4") or {}
+    correction = research.get("correction") or {}
+    flags = []
+    high = False
+    medium = False
 
-    Quick setups remain independent when an official V4 paper trade/candidate exists.
-    They are still blocked by extreme volatility, failed breaks, and triggered strong
-    opposite corrections.
+    if research.get("volatility_regime") == "EXTREME":
+        flags.append("تذبذب EXTREME")
+        high = True
+    elif research.get("volatility_regime") == "HIGH":
+        flags.append("تذبذب مرتفع")
+        medium = True
+
+    if research.get("breakout_state") == "FAILED_BREAK":
+        flags.append("كسر فاشل")
+        high = True
+
+    if (correction.get("triggered") and correction.get("strength") == "STRONG"
+            and _opposite_correction(side, correction)):
+        flags.append("تصحيح قوي عكس الاتجاه")
+        high = True
+
+    try:
+        buy = int(decision.get("buy", 0))
+        sell = int(decision.get("sell", 0))
+    except (TypeError, ValueError):
+        buy = sell = 0
+    if buy == sell:
+        flags.append("تعادل الشروط؛ الاتجاه حُسم بالـRSI")
+        high = True
+    elif abs(buy - sell) == 1:
+        flags.append("أفضلية اتجاه محدودة")
+        medium = True
+
+    if score <= 3:
+        flags.append("تحقق الشروط ضعيف")
+        high = True
+    elif score <= 5:
+        medium = True
+
+    if high:
+        return "مرتفعة", flags
+    if medium:
+        return "متوسطة", flags
+    return "منخفضة", flags
+
+
+def build_quick(decision, now, quote_price=None, lifetime_seconds=1200):
+    """Build a quick paper setup for each eligible five-minute observation.
+
+    Unlike the strict official V4 strategy, EXTREME volatility, failed breaks and
+    weak rule dominance no longer silence the quick research stream. They are
+    surfaced explicitly through the risk label and reasons instead.
     """
     side = leading_side(decision)
     if side is None:
         return None
 
-    checks = (decision.get("checks") or {}).get(side)
-    if not isinstance(checks, (list, tuple)) or len(checks) != 7:
+    checks = _checks(decision, side)
+    if checks is None:
         return None
-    checks = [bool(x) for x in checks]
     score = sum(checks)
-    if score < 4:
-        return None
 
     research = decision.get("v4") or {}
-    if research.get("volatility_regime") == "EXTREME":
-        return None
-    if research.get("breakout_state") == "FAILED_BREAK":
-        return None
-    correction = research.get("correction") or {}
-    if (correction.get("triggered") and correction.get("strength") == "STRONG"
-            and _opposite_correction(side, correction)):
-        return None
-
     try:
         atr = float(decision["atr"])
         price = float(quote_price if quote_price is not None else decision["price"])
@@ -152,8 +208,7 @@ def build_quick(decision, now, quote_price=None, lifetime_seconds=1200):
     if not all(math.isfinite(x) for x in (atr, price, rsi)) or atr <= 0 or price <= 0:
         return None
 
-    # A deliberately small, testable paper scalp envelope. It is not claimed to
-    # be optimal; V4 records outcomes so the rule can later be kept, changed, or removed.
+    risk_level, risk_reasons = _risk_profile(decision, side, score)
     risk = min(5.0, max(2.0, 0.60 * atr))
     rr = 1.50
     direction = 1 if side == "BUY" else -1
@@ -181,6 +236,8 @@ def build_quick(decision, now, quote_price=None, lifetime_seconds=1200):
         "total": 7,
         "condition_percent": round(score / 7 * 100),
         "strength": strength_label(score),
+        "risk_level": risk_level,
+        "risk_reasons": risk_reasons,
         "conditions": conditions,
         "rsi": rsi,
         "session": research.get("session"),
