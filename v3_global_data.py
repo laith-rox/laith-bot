@@ -9,7 +9,7 @@ Primary source: FRED daily series.
 Runtime fallback: low-frequency Twelve Data daily market proxies, following the
 same general macro-proxy approach used by Twelve Data's public world-model
 research dataset (for example UUP as a dollar proxy, TLT as a rates proxy, and
-VIXY as a volatility proxy).  Proxy data is explicitly labelled and is never
+VIXY as a volatility proxy). Proxy data is explicitly labelled and is never
 silently presented as the official economic series.
 """
 from dataclasses import dataclass
@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from io import StringIO
 import csv
 import math
+import os
 import time
 
 import requests
@@ -115,7 +116,6 @@ def parse_twelve_bundle(payload):
     histories = {}
     for symbol, name in reverse.items():
         item = payload.get(symbol)
-        # Defensive support for a single-symbol-shaped response in tests/manual use.
         if item is None and payload.get("meta", {}).get("symbol") == symbol:
             item = payload
         if not isinstance(item, dict) or item.get("status") == "error":
@@ -175,7 +175,6 @@ def _freshness(dates, asof):
 
 
 def build_snapshot(history, asof):
-    """Build an as-of-safe snapshot from official-style daily macro histories."""
     values, changes, dates = {}, {}, {}
     for name in SERIES:
         pair = asof_pair(history.get(name, []), asof)
@@ -204,7 +203,6 @@ def build_snapshot(history, asof):
 
 
 def build_proxy_snapshot(history, asof):
-    """Build an as-of-safe snapshot from explicitly labelled market proxies."""
     values, returns, dates = {}, {}, {}
     for name in PROXY_SERIES:
         pair = asof_pair(history.get(name, []), asof)
@@ -233,7 +231,6 @@ def build_proxy_snapshot(history, asof):
 
 
 def gold_macro_score(changes):
-    """Coarse context score for official-style daily changes, not probability."""
     score = 0
     parts = {}
     for key, weight, invert in (
@@ -255,13 +252,7 @@ def gold_macro_score(changes):
 
 
 def gold_proxy_score(returns):
-    """Coarse market-proxy score; deliberately simple and separately labelled.
-
-    UUP rising is treated as a dollar headwind. TLT rising is treated as a bond-
-    price/rates-tailwind proxy. VIXY rising is a weak risk-aversion tailwind.
-    SPY and USO are recorded for later research but have no directional vote in
-    v1 because their relationship with gold is regime-dependent.
-    """
+    """Coarse market-proxy score; deliberately simple and separately labelled."""
     score = 0
     parts = {}
     for key, weight, invert in (
@@ -309,7 +300,7 @@ class GlobalContextProvider:
         self.session = session or requests.Session()
         self.refresh_seconds = refresh_seconds
         self.history_days = history_days
-        self.twelve_key = twelve_key
+        self.twelve_key = twelve_key or os.getenv("TWELVE_DATA_API_KEY")
         self.history = {}
         self.source = None
         self.fetched_at = 0.0
