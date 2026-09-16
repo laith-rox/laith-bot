@@ -72,6 +72,52 @@ def trade_strength(decision, side):
     return round(raw / 7 * 10, 1)
 
 
+def signal_assessment(decision, side):
+    """Rule-based evidence grade, not an estimated win probability or entry gate."""
+    checks = decision.get('checks', {}).get(side, [])
+    other = 'SELL' if side == 'BUY' else 'BUY'
+    opposite = decision.get('checks', {}).get(other, [])
+    context = decision.get('context') or {}
+    if (side not in ('BUY', 'SELL') or len(checks) != 7 or len(opposite) != 7
+            or any(type(x) is not bool for x in checks + opposite)):
+        return 'غير قابلة للتقييم', 'لا اتجاه محدد أو بيانات الشروط غير مكتملة', []
+    missing = [label for label, ok in zip(CHECK_LABELS, checks) if not ok]
+    score, opposing = sum(checks), sum(opposite)
+    if not context or context.get('phase') == 'unclear':
+        return 'غير قابلة للتقييم', 'سياق الاتجاه غير مكتمل أو غير محسوم', missing
+    phase = context.get('phase')
+    reasons = {'pullback':'تصحيح محتمل؛ عودة الاتجاه لم تتأكد',
+               'conflict':'تعارض بين بنية الحركة القصيرة واتجاه الساعة',
+               'trend_break':'كسر نطاق الاتجاه؛ الفكرة تحتاج إعادة تقييم'}
+    if phase in reasons:
+        return 'ضعيفة', reasons[phase], missing
+    if context.get('trend') != side:
+        return 'ضعيفة', 'اتجاه الإشارة يعاكس اتجاه الساعة أو أن اتجاه الساعة غير محسوم', missing
+    if context.get('local_structure') not in (side, 'WAIT'):
+        return 'ضعيفة', 'بنية القمم والقيعان القصيرة تعاكس الإشارة أو غير متاحة', missing
+    if phase != 'aligned' or not context.get('entry_allowed'):
+        return 'ضعيفة', 'السياق لا يؤكد صلاحية الاتجاه', missing
+    # Missing RSI/extension protection must not be hidden by a high total score.
+    if not all(checks[i] for i in (0, 1, 2, 3, 6)):
+        return 'ضعيفة', 'نقص في توافق الاتجاه أو الزخم أو نطاق RSI أو عدم التمدد', missing
+    if score <= opposing:
+        return 'ضعيفة', 'لا أفضلية واضحة على الشروط المعاكسة', missing
+    if (fully_qualified(decision, side) and checks[2]
+            and context.get('local_structure') == side and score-opposing >= 3):
+        return 'قوية', 'اتجاه 15د والساعة والزخم والبنية القصيرة متوافقة مع شروط الدخول', missing
+    return 'متوسطة', 'الاتجاه والزخم متوافقان؛ تأكيد البنية القصيرة أو بقية شروط الدخول ناقص', missing
+
+
+def strength_message(decision, side, current=False):
+    grade, reason, missing = signal_assessment(decision, side)
+    name = {'BUY':'الشراء', 'SELL':'البيع'}.get(side, 'الإشارة')
+    title = ('قوة دعم ' if current else 'قوة إشارة ') + name + (' الآن' if current else '')
+    text = f'⭐ <b>{title}: {grade}</b>\nالسبب: {reason}'
+    if missing:
+        text += '\nالشروط الناقصة: ' + '، '.join(missing)
+    return text + '\nتقييم قواعد النموذج؛ ليس نسبة نجاح أو ضمان ربح.'
+
+
 def correction_estimate(trade, decision):
     """Heuristic display estimate; it does not alter entries, stops or targets."""
     direction = 1 if trade['side'] == 'BUY' else -1
@@ -113,11 +159,9 @@ def entry(trade, decision):
     side = "🟢 شراء BUY" if trade["side"] == "BUY" else "🔴 بيع SELL"
     grade = ('مستوفية شروط الدخول — غير مضمونة' if fully_qualified(decision, trade['side'])
              else 'ترجيح أولي — غير مضمون، خطر مرتفع')
-    strength = trade_strength(decision, trade['side'])
     corr_side, corr_level, start_lo, start_hi, target_lo, target_hi, corr_source = correction_estimate(trade, decision)
     return (f"🥇 <b>XAU/USD | إشارة ليث</b>\n"
-            f"⭐ <b>قوة نجاح الصفقة تقديريًا: {strength:.1f}/10</b>\n"
-            "<i>قوة تحليلية من شروط النموذج وليست نسبة نجاح تاريخية مضمونة.</i>\n\n"
+            f"{strength_message(decision, trade['side'])}\n\n"
             f"📌 الصفقة: <b>{side}</b>\n"
             f"💰 سعر الإشارة المرجعي: <b>{trade['entry']:.2f}</b>\n"
             "المصدر: Twelve Data؛ ليس سعر شراء/بيع مباشر من JustMarkets.\n"

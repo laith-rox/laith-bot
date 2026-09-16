@@ -5,7 +5,7 @@ from html import escape
 
 from engine import make_trade
 from context import describe
-from messages import REASONS, local_time, price_time, fully_qualified
+from messages import REASONS, local_time, price_time, fully_qualified, strength_message
 
 
 def bias(d):
@@ -53,7 +53,8 @@ def progress(old, d):
     side = bias(d)
     if side is None:
         return ('⚠️ تعذّر تحديث الاتجاه؛ لا تعتمد على السعر السابق كأنه حي.\n\n'
-                '🟢 شروط الشراء: غير متاحة\n🔴 شروط البيع: غير متاحة')
+                '🟢 شروط الشراء: غير متاحة\n🔴 شروط البيع: غير متاحة\n' +
+                strength_message(d, old.get('side'), current=True))
     names = {'BUY': 'شراء', 'SELL': 'بيع', 'WAIT': 'متعادل'}
     if d.get('context') and (not d['context']['entry_allowed'] or side == 'WAIT'):
         state = describe(d['context'])
@@ -68,6 +69,8 @@ def progress(old, d):
         before = old.get('buy') if side == 'BUY' else old.get('sell')
         state = ('🟠 الاتجاه مستمر لكن شروطه ضعفت.' if before is not None and score < before
                  else 'الاتجاه الغالب مستمر: ' + names[side] + '؛ الاستمرار غير مضمون.')
+    assessed_side = old.get('side') if old.get('side') in ('BUY', 'SELL') else side
+    state += '\n\n' + strength_message(d, assessed_side, current=True)
     state += (f"\n\n🟢 شروط الشراء: <b>{d['buy']}/7</b>\n"
               f"🔴 شروط البيع: <b>{d['sell']}/7</b>\n"
               "عدد الشروط المتحققة؛ ليس نسبة نجاح.")
@@ -106,7 +109,7 @@ def report_message(s, d, previous=None):
     text = (f"🕒 <b>ملخص السوق | 15 دقيقة</b>\nالمرجع: <code>{escape(s['id'])}</code>\n"
             f"{local_time(s['created'])} فلسطين\n\n"
             f"الاتجاه الغالب: <b>{names[s['side']]}</b>\n{label}\n"
-            f"الخطر التقديري: {s['risk']}\n")
+            f"الخطر التقديري: {s['risk']}\n" + strength_message(d, s['side']) + '\n')
     if d.get('context'):
         text += describe(d['context']) + '\n'
     if s['side'] is not None:
