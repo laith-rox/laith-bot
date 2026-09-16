@@ -30,7 +30,7 @@ def fast_status(store):
                  f"بتكلفة مفترضة {sample['round_trip_dollars_per_ounce']}$ للأونصة للدورة، ليست سبريد حسابك.\n")
     paper = store.get('fast_paper_stats', {'closed':0, 'gross_r':0, 'excluded':0})
     text += (f"السجل الورقي الكلي للطريقة السابقة، ويشمل ما قبل تصحيح التوقيت: {paper['closed']} منتهية؛ مجموع {paper['gross_r']:+.2f}R قبل التكاليف.\n"
-             'هدف النموذج 5$ بسعر الأونصة، مدة أقصاها 20د، وفحص كل دقيقة بعد 20:00 حتى 23:30 فلسطين. '
+             'هدف النموذج 5$ بسعر الأونصة، مدة أقصاها 20د، وفحص كل دقيقة من 20:00 حتى 09:00 فلسطين. '
              'نتائج افتراضية وليست ربح حساب أو دليلًا على النجاح مستقبلاً.')
     audit = store.get('fast_timing_audit_status')
     if audit == 'awaiting_saved_prices_with_matching_calendar':
