@@ -21,7 +21,8 @@ def welcome_message():
     return (
         "🥇 <b>Laith V4 — مختبر الذهب</b>\n\n"
         "تم ربط تيليجرام بالنسخة التجريبية المستقلة.\n"
-        "⚡ يفحص صفقة سريعة كل 5 دقائق عندما لا توجد صفقة V4 رسمية.\n"
+        "⚡ يفحص صفقة سريعة كل 5 دقائق، وتبقى السريعة مستقلة حتى لو كانت صفقة V4 الرسمية قائمة.\n"
+        "🔄 الصفقة الرسمية القائمة تحصل على تحديث استمرارية كل 5 دقائق.\n"
         "📄 كل الصفقات هنا <b>ورقية/بحثية فقط</b> وليست تنفيذًا على حساب حقيقي.\n\n"
         "الأوامر:\n"
         "/status — آخر تحليل وحالة V4\n"
@@ -38,6 +39,7 @@ def status_message(store):
     risk = structure.get("risk", {}) or {}
     active = store.get("v4_active")
     quick = store.get("v4_quick_last") or {}
+    continuation = store.get("v4_last_continuation") or {}
     side = decision.get("side", "WAIT")
     reason = decision.get("reason", "—")
     lines = [
@@ -62,6 +64,11 @@ def status_message(store):
             f"TP1: {_fmt(active.get('tp1'))}",
             f"TP2: {_fmt(active.get('tp2'))}",
         ])
+        if continuation:
+            lines.extend([
+                f"استمرارية آخر فحص: <b>{continuation.get('state', '—')}</b>",
+                f"الشروط: {continuation.get('score', '—')}/7 = {continuation.get('condition_percent', '—')}%",
+            ])
     else:
         lines.extend(["", "لا توجد صفقة رسمية ورقية قائمة حاليًا."])
     if quick:
@@ -118,7 +125,37 @@ def quick_message(trade):
         f"⚖️ R:R: 1:{float(trade.get('rr', 0)):.2f}\n"
         "⏱️ الصلاحية: 20 دقيقة\n\n"
         f"الجلسة: {trade.get('session', '—')} | التذبذب: {trade.get('volatility_regime', '—')}\n"
+        "↔️ المسار السريع مستقل عن الصفقة الرسمية وقد يعمل معها بنفس الوقت.\n"
         "⚠️ القوة = اكتمال شروط، وليست نسبة نجاح. الصفقة بحثية ورقية فقط."
+    )
+
+
+def continuation_message(snapshot):
+    state = snapshot.get("state", "—")
+    marker = "✅" if state == "قوية" else "🟡" if state == "متوسطة" else "🟠" if state == "ضعيفة" else "🔴"
+    notes = []
+    if snapshot.get("opposite_official"):
+        notes.append("ظهر اتجاه رسمي معاكس في الفحص الحالي")
+    if snapshot.get("adverse_correction"):
+        notes.append("رُصد تصحيح قوي عكس اتجاه الصفقة")
+    if snapshot.get("failed_break"):
+        notes.append("ظهر كسر فاشل")
+    note_text = ("\n⚠️ " + " — ".join(notes)) if notes else ""
+    tp1_text = "✅ تم رصده" if snapshot.get("tp1_hit") else "لم يُرصد بعد"
+    return (
+        "🔄 <b>تحديث 5 دقائق — استمرارية صفقة V4 الرسمية</b>\n\n"
+        f"الاتجاه: <b>{snapshot.get('side', '—')}</b>\n"
+        f"{marker} الاستمرارية الحالية: <b>{state}</b>\n"
+        f"📊 شروط الاتجاه: <b>{snapshot.get('score', '—')}/7 = {snapshot.get('condition_percent', '—')}%</b>\n"
+        f"📈 RSI: {_fmt(snapshot.get('rsi'))}\n"
+        f"💰 السعر المرجعي الحالي: {_fmt(snapshot.get('price'))}\n\n"
+        f"الدخول: {_fmt(snapshot.get('entry'))}\n"
+        f"🛑 الوقف الحالي: {_fmt(snapshot.get('stop'))}\n"
+        f"🎯 TP1: {_fmt(snapshot.get('tp1'))} — {tp1_text}\n"
+        f"🎯 TP2: {_fmt(snapshot.get('tp2'))}\n"
+        f"الكسر: {snapshot.get('breakout_state', '—')} | التصحيح: {snapshot.get('correction_direction', '—')} / {snapshot.get('correction_strength', '—')}"
+        f"{note_text}\n\n"
+        "⚠️ هذا تحديث شروط واستمرارية للصفقة الورقية، وليس ضمانًا باستمرار الحركة."
     )
 
 
