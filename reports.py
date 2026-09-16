@@ -86,9 +86,10 @@ def trade_follow_message(trade, d, now):
             f"وقت التحديث: {local_time(now.timestamp())} فلسطين\n\n" + progress(previous, d))
     if trade.get('delivery_uncertain'):
         text += '\n⚠️ وصول رسالة الدخول غير مؤكد؛ تحقق من الرسالة الأصلية.'
-    target = trade['tp2'] if trade['tp1_hit'] else trade['tp1']
-    text += (f"\n\nالوقف في المتابعة: <b>{trade['stop']:.2f}</b>\n"
-             f"الهدف التالي: <b>{target:.2f}</b>\n"
+    tp1_state = ' ✅ تم رصده' if trade.get('tp1_hit') else ''
+    text += (f"\n\n🛑 وقف الخسارة: <b>{trade['stop']:.2f}</b>\n"
+             f"🎯 TP1: <b>{trade['tp1']:.2f}</b>{tp1_state}\n"
+             f"🎯 TP2: <b>{trade['tp2']:.2f}</b>\n"
              "المتابعة مستمرة؛ هذا تحديث لنفس الإشارة.\n"
              "غير مضمونة؛ حركة الأونصة ليست ربح حسابك. لا تعديل آلي عند الوسيط.")
     return text
@@ -127,6 +128,10 @@ def follow_message(s, d, blocked=None):
     if blocked:
         text += '\nالدخول محجوب: ' + escape(REASONS.get(blocked, blocked))
     watch = s.get('watch')
+    if watch:
+        text += (f"\n\n🛑 وقف الخسارة/إلغاء السيناريو: <b>{watch['stop']:.2f}</b>\n"
+                 f"🎯 TP1: <b>{watch['tp1']:.2f}</b>\n"
+                 f"🎯 TP2: <b>{watch['tp2']:.2f}</b>")
     if watch and watch['status'] == 'closed':
         text += '\nانتهى سيناريو المستويات: ' + {'STOP':'رُصد مستوى الإلغاء', 'TP2':'رُصد الهدف الثاني',
             'PROTECTED_STOP':'رُصد مستوى الحماية', 'AMBIGUOUS':'ترتيب لمس المستويات غير محسوم'}[watch['outcome']]
