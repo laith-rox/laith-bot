@@ -22,6 +22,7 @@ def welcome_message():
         "🥇 <b>Laith V4 — مختبر الذهب</b>\n\n"
         "تم ربط تيليجرام بالنسخة التجريبية المستقلة.\n"
         "⚡ يفحص صفقة سريعة كل 5 دقائق، وتبقى السريعة مستقلة حتى لو كانت صفقة V4 الرسمية قائمة.\n"
+        "🔴 إذا كانت الظروف خطرة لا تختفي الصفقة السريعة؛ يظهر عليها مستوى المخاطرة وأسباب التحذير.\n"
         "🔄 الصفقة الرسمية القائمة تحصل على تحديث استمرارية كل 5 دقائق.\n"
         "📄 كل الصفقات هنا <b>ورقية/بحثية فقط</b> وليست تنفيذًا على حساب حقيقي.\n\n"
         "الأوامر:\n"
@@ -76,6 +77,7 @@ def status_message(store):
             "",
             "⚡ <b>آخر صفقة سريعة</b>",
             f"الاتجاه: {quick.get('side', '—')} | القوة: {quick.get('strength', '—')}",
+            f"المخاطرة: {quick.get('risk_level', '—')}",
             f"الشروط: {quick.get('score', '—')}/7 = {quick.get('condition_percent', '—')}%",
             f"RSI: {_fmt(quick.get('rsi'))}",
             f"الدخول: {_fmt(quick.get('entry'))} | الهدف: {_fmt(quick.get('target'))}",
@@ -113,10 +115,16 @@ def quick_message(trade):
     for item in trade.get("conditions") or []:
         conditions.append(("✅" if item.get("ok") else "❌") + " " + str(item.get("name", "شرط")))
     checklist = "\n".join(conditions)
+    risk_level = trade.get("risk_level", "—")
+    risk_marker = "🔴" if risk_level == "مرتفعة" else "🟡" if risk_level == "متوسطة" else "🟢"
+    reasons = trade.get("risk_reasons") or []
+    risk_text = " — ".join(str(x) for x in reasons) if reasons else "لا توجد تحذيرات إضافية"
     return (
         "⚡ <b>صفقة سريعة — V4 (ورقية)</b>\n\n"
         f"الاتجاه: <b>{trade.get('side', '—')}</b>\n"
         f"📊 تحقق الشروط: <b>{trade.get('score', '—')}/7 = {trade.get('condition_percent', '—')}% — {trade.get('strength', '—')}</b>\n"
+        f"{risk_marker} المخاطرة: <b>{risk_level}</b>\n"
+        f"⚠️ ملاحظات: {risk_text}\n"
         f"📈 RSI: <b>{_fmt(trade.get('rsi'))}</b>\n\n"
         f"{checklist}\n\n"
         f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
@@ -218,7 +226,7 @@ class V4Telegram:
             return
         offset = self.store.get("v4_telegram_update_offset", 0)
         try:
-            updates = self.client.read("getUpdates", offset=offset, timeout=0, allowed_updates='["message"]', limit=20)
+            updates = self.client.read("getUpdates", offset=offset, timeout=0, allowed_updates='[\"message\"]', limit=20)
         except RuntimeError as exc:
             LOG.warning("telegram_poll_error reason=%s", exc)
             return
