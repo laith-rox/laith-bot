@@ -2,7 +2,7 @@
 
 Quick candidates are intentionally separate from the strict V4 paper strategy.
 They are research-only, use the same seven observable checks from the baseline
-analyzer, and never create broker orders.  A strength label means rule completion,
+analyzer, and never create broker orders. A strength label means rule completion,
 not a calibrated probability of profit.
 """
 from copy import deepcopy
@@ -47,14 +47,80 @@ def _opposite_correction(side, correction):
             or (side == "SELL" and direction == "UP"))
 
 
+def continuation_snapshot(decision, trade, price=None):
+    """Describe current rule support for an already-open official V4 paper trade.
+
+    This is a monitoring snapshot, not a new entry signal or calibrated probability.
+    It intentionally follows the original trade side even if the current quick bias
+    points the other way.
+    """
+    side = trade.get("side")
+    checks = (decision.get("checks") or {}).get(side)
+    if side not in ("BUY", "SELL") or not isinstance(checks, (list, tuple)) or len(checks) != 7:
+        return None
+    checks = [bool(x) for x in checks]
+    score = sum(checks)
+    research = decision.get("v4") or {}
+    correction = research.get("correction") or {}
+    adverse_correction = (
+        correction.get("triggered")
+        and correction.get("strength") == "STRONG"
+        and _opposite_correction(side, correction)
+    )
+    failed_break = research.get("breakout_state") == "FAILED_BREAK"
+    opposite_official = decision.get("side") in ("BUY", "SELL") and decision.get("side") != side
+
+    if opposite_official or adverse_correction or failed_break or score <= 3:
+        state = "تحذير"
+    elif score >= 6:
+        state = "قوية"
+    elif score == 5:
+        state = "متوسطة"
+    else:
+        state = "ضعيفة"
+
+    try:
+        current_price = float(price if price is not None else decision.get("price"))
+    except (TypeError, ValueError):
+        current_price = None
+    try:
+        rsi_value = float(decision.get("rsi"))
+    except (TypeError, ValueError):
+        rsi_value = None
+
+    return {
+        "side": side,
+        "state": state,
+        "score": score,
+        "total": 7,
+        "condition_percent": round(score / 7 * 100),
+        "conditions": [
+            {"name": name, "ok": ok}
+            for name, ok in zip(CONDITION_NAMES, checks)
+        ],
+        "rsi": rsi_value,
+        "price": current_price,
+        "entry": trade.get("entry"),
+        "stop": trade.get("stop"),
+        "tp1": trade.get("tp1"),
+        "tp2": trade.get("tp2"),
+        "tp1_hit": bool(trade.get("tp1_hit")),
+        "breakout_state": research.get("breakout_state"),
+        "correction_direction": correction.get("direction"),
+        "correction_strength": correction.get("strength"),
+        "opposite_official": bool(opposite_official),
+        "adverse_correction": bool(adverse_correction),
+        "failed_break": bool(failed_break),
+    }
+
+
 def build_quick(decision, now, quote_price=None, lifetime_seconds=1200):
     """Build one quick paper setup from the latest V4 analysis.
 
-    Strict V4 candidates take precedence.  Quick candidates are also blocked by
-    extreme volatility, failed breaks, and triggered strong opposite corrections.
+    Quick setups remain independent when an official V4 paper trade/candidate exists.
+    They are still blocked by extreme volatility, failed breaks, and triggered strong
+    opposite corrections.
     """
-    if decision.get("side") in ("BUY", "SELL"):
-        return None
     side = leading_side(decision)
     if side is None:
         return None
@@ -86,7 +152,7 @@ def build_quick(decision, now, quote_price=None, lifetime_seconds=1200):
     if not all(math.isfinite(x) for x in (atr, price, rsi)) or atr <= 0 or price <= 0:
         return None
 
-    # A deliberately small, testable paper scalp envelope.  It is not claimed to
+    # A deliberately small, testable paper scalp envelope. It is not claimed to
     # be optimal; V4 records outcomes so the rule can later be kept, changed, or removed.
     risk = min(5.0, max(2.0, 0.60 * atr))
     rr = 1.50
@@ -138,7 +204,7 @@ def advance_quick(original, bars, now):
     """Advance a quick paper setup using closed 5-minute OHLC bars.
 
     If stop and target occur in the same candle, ordering is unknown and the result
-    is excluded rather than counted as a win.  Unresolved setups expire using the
+    is excluded rather than counted as a win. Unresolved setups expire using the
     latest closed price available at or before expiry.
     """
     trade = deepcopy(original)
@@ -184,7 +250,8 @@ def advance_quick(original, bars, now):
     return trade
 
 
-def cancel_quick(original, now, reason="OFFICIAL_SUPERSEDED"):
+def cancel_quick(original, now, reason="MANUAL_CANCEL"):
+    """Retained for explicit/manual research cancellation; official trades do not call it."""
     trade = deepcopy(original)
     if trade.get("status") == "active":
         trade.update(status="closed", outcome=reason, closed=now.timestamp(), r=None)
