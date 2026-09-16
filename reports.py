@@ -5,7 +5,8 @@ from html import escape
 
 from engine import make_trade
 from context import describe
-from messages import REASONS, local_time, price_time, fully_qualified, strength_message
+from messages import (REASONS, local_time, price_time, fully_qualified,
+                      strength_message, signal_assessment, correction_estimate)
 
 
 def bias(d):
@@ -80,25 +81,72 @@ def progress(old, d):
     return state
 
 
+def compact_follow(d, side, watch=None):
+    """Presentation only: never move stored stops, targets or an account order."""
+    current = bias(d)
+    name = {'BUY':'الشراء', 'SELL':'البيع'}.get(side, 'الاتجاه')
+    if current is None:
+        lines = ['⚠️ بيانات السعر غير متاحة.',
+                 '🟢 شروط الشراء: —/7 | 🔴 شروط البيع: —/7',
+                 f'⭐ قوة دعم {name} الآن: غير قابلة للتقييم']
+    else:
+        grade, _, _ = signal_assessment(d, side)
+        lines = [f"🟢 شروط الشراء: <b>{d['buy']}/7</b> | 🔴 شروط البيع: <b>{d['sell']}/7</b>",
+                 f'⭐ <b>قوة دعم {name} الآن: {grade}</b>',
+                 f"إغلاق 5د: <b>{d['price']:.2f}</b> | {price_time(d)} فلسطين"]
+        phase = (d.get('context') or {}).get('phase')
+        if phase in ('conflict', 'trend_break'):
+            lines.append('⚠️ تعارض/كسر اتجاه؛ راجع المخاطر.')
+        elif current in ('BUY','SELL') and side in ('BUY','SELL') and current != side:
+            lines.append('⚠️ الترجيح الحالي عكس الإشارة.')
+    if not watch:
+        lines.append('الستوب والأهداف والتأمين: لا سيناريو دخول قائم.')
+        lines.append('🔄 التصحيح: غير محدد | الاحتمال %: غير مقاس')
+        return '\n'.join(lines)
+    hit = ' ✅' if watch.get('tp1_hit') else ''
+    lines += [f"🛑 وقف الخسارة: <b>{watch['stop']:.2f}</b>",
+              f"🎯 TP1: <b>{watch['tp1']:.2f}</b>{hit} | TP2: <b>{watch['tp2']:.2f}</b>"]
+    if watch.get('status') == 'closed':
+        outcome = {'STOP':'الوقف', 'TP2':'الهدف الثاني', 'PROTECTED_STOP':'وقف الحماية',
+                   'AMBIGUOUS':'ترتيب لمس المستويات غير محسوم'}.get(watch.get('outcome'),'انتهاء المتابعة')
+        lines.append('🏁 انتهى السيناريو: ' + outcome)
+        return '\n'.join(lines)
+    if current is None:
+        lines.append('التأمين والتصحيح: تعذّر تحديثهما | الاحتمال %: غير مقاس')
+        return '\n'.join(lines)
+    # Existing rule: price breakeven only after TP1. Partial realization is a
+    # displayed suggestion, not a new trailing-stop rule or recorded execution.
+    protection_state = 'بعد رصد TP1' if watch.get('tp1_hit') else 'مشروط ببلوغ TP1'
+    lines.append(f"🔒 تأمين الدخول المقترح: <b>{watch['entry']:.2f}</b>؛ {protection_state}")
+    if watch.get('tp1_hit'):
+        lines.append(f"💵 مستوى الجني الأول مرصود؛ التالي <b>{watch['tp2']:.2f}</b>")
+    else:
+        lines.append(f"💵 جني ربح جزئي مقترح: <b>{watch['tp1']:.2f}</b> عند بلوغه")
+    phase = (d.get('context') or {}).get('phase')
+    if phase in ('conflict', 'trend_break', 'unclear') or not d.get('context'):
+        lines.append('🔄 منطقة التصحيح: غير مؤكدة مع تعارض/غموض الاتجاه')
+        lines.append('احتمال بدء التصحيح %: غير مقاس')
+        return '\n'.join(lines)
+    corr_side, likelihood, lo, hi, target_lo, target_hi, _ = correction_estimate(watch, d)
+    passed = d['price'] > hi if watch['side'] == 'BUY' else d['price'] < lo
+    if passed:
+        lines.append('🔄 منطقة التصحيح السابقة تم تجاوزها؛ لا منطقة جديدة مؤكدة')
+        lines.append('احتمال بدء التصحيح %: غير مقاس')
+    else:
+        lines += [f"🔄 بداية تصحيح {corr_side} مقدّرة: <b>{lo:.2f}–{hi:.2f}</b>",
+                  f"↩️ امتداده المقدّر: <b>{target_lo:.2f}–{target_hi:.2f}</b>",
+                  f'ترجيح التصحيح: {likelihood} | الاحتمال %: غير مقاس']
+    return '\n'.join(lines)
+
+
 def trade_follow_message(trade, d, now):
     side = 'شراء' if trade['side'] == 'BUY' else 'بيع'
-    previous = {'side': trade['side'], 'price': trade['entry'],
-                'buy': trade.get('entry_buy'), 'sell': trade.get('entry_sell')}
-    text = (f"🔎 <b>تحديث الإشارة | {side}</b>\n"
-            f"المرجع: <code>{escape(trade['id'])}</code>\n"
-            f"وقت التحديث: {local_time(now.timestamp())} فلسطين\n\n" + progress(previous, d))
-    text += '\nمصدر المتابعة: شموع Twelve Data؛ ليس سعر JustMarkets اللحظي.'
-    if not trade.get('quote_time'):
-        text += '\n⚠️ هذه إشارة سابقة للتصحيح، ومرجعها إغلاق شمعة قديم؛ التحديث ليس دعوة دخول جديدة.'
+    text = (f"🔎 <b>تحديث 5د | {side}</b> | <code>{escape(trade['id'])}</code>\n"
+            f"{local_time(now.timestamp())} فلسطين\n" + compact_follow(d, trade['side'], trade))
     if trade.get('delivery_uncertain'):
-        text += '\n⚠️ وصول رسالة الدخول غير مؤكد؛ تحقق من الرسالة الأصلية.'
-    tp1_state = ' ✅ تم رصده' if trade.get('tp1_hit') else ''
-    text += (f"\n\n🛑 وقف الخسارة: <b>{trade['stop']:.2f}</b>\n"
-             f"🎯 TP1: <b>{trade['tp1']:.2f}</b>{tp1_state}\n"
-             f"🎯 TP2: <b>{trade['tp2']:.2f}</b>\n"
-             "المتابعة مستمرة؛ هذا تحديث لنفس الإشارة.\n"
-             "غير مضمونة؛ حركة الأونصة ليست ربح حسابك. لا تعديل آلي عند الوسيط.")
-    return text
+        text += '\n⚠️ وصول إشارة الدخول غير مؤكد.'
+    return text + ('\nTwelve Data؛ ليس سعر الوسيط الحي.\n'
+                   'متابعة فقط؛ تقديرات غير مضمونة، والتأمين يدوي قبل الرسوم.')
 
 
 def report_message(s, d, previous=None):
@@ -129,18 +177,10 @@ def report_message(s, d, previous=None):
 
 
 def follow_message(s, d, blocked=None):
-    text = (f"🔎 <b>تحديث ملخص السوق</b>\nالمرجع: <code>{escape(s['id'])}</code>\n\n" + progress(s, d) +
-            '\n\nالخطر التقديري: ' + risk_label(d, blocked))
+    watch = s.get('watch')
+    text = (f"🔎 <b>تحديث 5د | ملخص السوق</b> | <code>{escape(s['id'])}</code>\n" +
+            compact_follow(d, s.get('side'), watch))
     if blocked:
         text += '\nالدخول محجوب: ' + escape(REASONS.get(blocked, blocked))
-    watch = s.get('watch')
-    if watch:
-        text += (f"\n\n🛑 وقف الخسارة/إلغاء السيناريو: <b>{watch['stop']:.2f}</b>\n"
-                 f"🎯 TP1: <b>{watch['tp1']:.2f}</b>\n"
-                 f"🎯 TP2: <b>{watch['tp2']:.2f}</b>")
-    if watch and watch['status'] == 'closed':
-        text += '\nانتهى سيناريو المستويات: ' + {'STOP':'رُصد مستوى الإلغاء', 'TP2':'رُصد الهدف الثاني',
-            'PROTECTED_STOP':'رُصد مستوى الحماية', 'AMBIGUOUS':'ترتيب لمس المستويات غير محسوم'}[watch['outcome']]
-    elif watch and watch['tp1_hit']:
-        text += '\nرُصد الهدف الأول؛ الحماية المقترحة عند المرجع الأصلي، ولا تُنفّذ تلقائيًا.'
-    return text + '\nغير مضمون؛ لا نسبة نجاح مقاسة. هذا تحديث وليس صفقة جديدة.'
+    return text + ('\nTwelve Data؛ ليس سعر الوسيط الحي.\n'
+                   'سيناريو مراقبة فقط؛ التأمين يدوي والتقديرات غير مضمونة.')
