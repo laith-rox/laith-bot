@@ -117,8 +117,22 @@ def compact_follow(d, side, watch=None):
         return '\n'.join(lines)
     # Existing rule: price breakeven only after TP1. Partial realization is a
     # displayed suggestion, not a new trailing-stop rule or recorded execution.
-    protection_state = 'بعد رصد TP1' if watch.get('tp1_hit') else 'مشروط ببلوغ TP1'
-    lines.append(f"🔒 تأمين الدخول المقترح: <b>{watch['entry']:.2f}</b>؛ {protection_state}")
+    if watch.get('protection_rule') == 'staged-v1':
+        direction=1 if watch['side']=='BUY' else -1
+        risk=abs(watch['entry']-watch['initial_sl'])
+        half_trigger=watch['entry']+direction*.5*risk
+        half_stop=watch['entry']-direction*.5*risk
+        full_trigger=watch['entry']+direction*risk
+        if direction*(watch['stop']-half_stop)<0:
+            lines.append(f'🛡️ عند {half_trigger:.2f}: وقف مقترح {half_stop:.2f}')
+        if direction*(watch['stop']-watch['entry'])<0:
+            lines.append(f"🔒 عند {full_trigger:.2f}: تأمين الدخول {watch['entry']:.2f}")
+        else:
+            lines.append('🔒 الوقف المقترح عند الدخول أو أفضل؛ لا تُرجعه للخلف.')
+        if watch.get('tp1_hit'): lines.append('بعد TP1: وقف يتبع القمم/القيعان المؤكدة ولا يتراجع.')
+    else:
+        protection_state = 'بعد رصد TP1' if watch.get('tp1_hit') else 'مشروط ببلوغ TP1'
+        lines.append(f"🔒 تأمين الدخول المقترح: <b>{watch['entry']:.2f}</b>؛ {protection_state}")
     if watch.get('tp1_hit'):
         lines.append(f"💵 مستوى الجني الأول مرصود؛ التالي <b>{watch['tp2']:.2f}</b>")
     else:

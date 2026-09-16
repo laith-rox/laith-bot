@@ -91,6 +91,8 @@ class Store:
 
     def reply_target(self, row):
         """Use only acknowledged parent messages, including rows from older releases."""
+        if row['kind'] == 'emergency':
+            return None
         parent = None
         if row.get('signal_id') and row['kind'] != 'entry':
             parent = row['signal_id'] + ':entry'
@@ -151,8 +153,9 @@ class Store:
         for row in self.db.execute("SELECT id FROM outbox WHERE status='inflight'").fetchall():
             self.finish(row["id"], "uncertain", now, error="restart_during_send")
 
-    def claim(self, now):
+    def claim(self, now, only_kind=None):
         with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
             expired = self.db.execute("SELECT * FROM outbox WHERE status='pending' "
                                       "AND expires IS NOT NULL AND expires<=?", (now,)).fetchall()
             for row in expired:
@@ -163,9 +166,10 @@ class Store:
                         trade["status"] = "undelivered"
                         self._save_trade(trade)
             row = self.db.execute("SELECT * FROM outbox WHERE status='pending' AND next_at<=? "
+                                  "AND (? IS NULL OR kind=?) "
                                   "ORDER BY CASE WHEN kind='emergency' THEN 0 ELSE 1 END, created, "
                                   "CASE kind WHEN 'tp1' THEN 0 WHEN 'exit' THEN 1 WHEN 'entry' THEN 2 "
-                                  "WHEN 'report' THEN 4 WHEN 'follow' THEN 4 ELSE 3 END, id LIMIT 1", (now,)).fetchone()
+                                  "WHEN 'report' THEN 4 WHEN 'follow' THEN 4 ELSE 3 END, id LIMIT 1", (now,only_kind,only_kind)).fetchone()
             if row is None:
                 return None
             self.db.execute("UPDATE outbox SET status='inflight', attempts=attempts+1, last_attempt=? "

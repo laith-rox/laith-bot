@@ -129,7 +129,7 @@ def advance_trade(original, bars):
         return trade, events
     direction = 1 if trade["side"] == "BUY" else -1
     risk = abs(trade["entry"] - trade["initial_sl"])
-    for bar in bars:
+    for index, bar in enumerate(bars):
         end, start = bar.end.timestamp(), bar.start.timestamp()
         if end <= (trade["last_end"] or trade["announced"]):
             continue
@@ -157,7 +157,8 @@ def advance_trade(original, bars):
             outcome, exit_price = "TP2", trade["tp2"]
         elif first_hit and not trade["tp1_hit"]:
             trade["tp1_hit"] = True
-            trade["stop"] = trade["entry"]
+            trade["stop"] = (max(trade['stop'],trade['entry']) if direction == 1
+                             else min(trade['stop'],trade['entry']))
             events.append({"kind": "tp1", "time": end})
         trade["last_end"] = end
         if outcome:
@@ -166,4 +167,27 @@ def advance_trade(original, bars):
                 trade["r"] = direction * (exit_price - trade["entry"]) / risk
             events.append({"kind": "exit", "time": end})
             break
+        if (trade.get('protection_rule') == 'staged-v1' and not partial
+                and start >= trade.get('protection_since', trade['announced'])):
+            # Observe the close, then apply a tighter stop to subsequent bars only.
+            candidate = trade['stop']
+            progress = direction * (bar.close-trade['entry']) / risk
+            if progress >= 1:
+                candidate = trade['entry']
+            elif progress >= .5:
+                candidate = trade['entry']-direction*.5*risk
+            recent = bars[max(0,index-2):index+1]
+            if (trade['tp1_hit'] and len(recent)==3
+                    and all(b.start.timestamp() >= trade.get('protection_since',trade['announced']) for b in recent)
+                    and all((b.start-a.start).total_seconds()==300 for a,b in zip(recent,recent[1:]))):
+                left,pivot,right=recent
+                if direction==1 and pivot.low < left.low and pivot.low <= right.low:
+                    candidate=max(candidate,pivot.low-.1*risk)
+                elif direction==-1 and pivot.high > left.high and pivot.high >= right.high:
+                    candidate=min(candidate,pivot.high+.1*risk)
+            improves = direction*(candidate-trade['stop']) > 1e-8
+            below_price = direction*(bar.close-candidate) > 0
+            if improves and below_price:
+                trade['stop']=candidate
+                events.append({'kind':'protect','time':end,'stop':candidate})
     return trade, events

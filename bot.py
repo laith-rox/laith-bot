@@ -15,8 +15,9 @@ from storage import Store
 from transport import Telegram, dispatch
 from fast_service import start_worker, fast_status
 from timing import DecisionClock, decision_metadata
+from safety_monitor import start_safety_worker
 
-VERSION = "2.6.4"
+VERSION = "2.7.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -92,7 +93,16 @@ class App:
             reason=str(exc); self.store.set("last_error",reason); self.periodic_reports({"side":"WAIT","reason":reason},[],clock.now(),reason); return
         now=clock.now(); epoch=now.timestamp()
         if active and active["status"]!="pending":
-            updated,events=advance_trade(active,bars); self.store.save_transition(updated,[(e["kind"],transition(updated,e["kind"])) for e in events],epoch)
+            updated,events=advance_trade(active,bars)
+            if not updated.get('protection_rule') and updated['status'] != 'closed':
+                updated.update(protection_rule='staged-v1',protection_since=epoch)
+            rendered=[]
+            for e in events:
+                kind=e['kind']
+                key=kind+':'+str(int(e['time'])) if kind=='protect' else kind
+                view=dict(updated,stop=e['stop']) if kind=='protect' else updated
+                rendered.append((key,transition(view,kind)))
+            self.store.save_transition(updated,rendered,epoch)
         self.store.set("last_error",None)
         try:
             decision=analyze(bars,now); now=clock.now(); epoch=now.timestamp(); require_fresh(bars,now,600); decision=dict(decision,**decision_metadata(bars,now))
@@ -132,6 +142,7 @@ class App:
                 decision=dict(decision)
                 for field in ('price','sl','tp1','tp2'): decision[field]+=shift
                 trade=make_trade(decision,now)
+                trade.update(protection_rule='staged-v1',protection_since=epoch)
                 trade.update(entry_buy=decision.get('buy'),entry_sell=decision.get('sell'),
                              quote_time=quote['time'],quote_source=quote['source'],
                              price_tolerance=tolerance,
@@ -164,6 +175,7 @@ class App:
 def run(args):
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
     store=Store(args.db); telegram=Telegram(args.telegram_token,args.telegram_chat); market=Market(args.twelve_key); news=NewsGuard(store); stop=start_worker(args.db,args.twelve_key)
+    safety_stop=start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
     try:
         LOG.info("starting version=%s",VERSION)
         store.enqueue('release:2.6.3:messages','release',
@@ -178,7 +190,7 @@ def run(args):
             try: app=App(store,market,telegram,news,args.cooldown); app.commands(now); app.cycle(now); dispatch(store,telegram,market=market)
             except Exception: LOG.exception("cycle_failed")
             time.sleep(args.interval)
-    finally: stop.set(); store.close()
+    finally: safety_stop.set(); stop.set(); store.close()
 
 def parser():
     p=argparse.ArgumentParser(); p.add_argument('--db',default=os.getenv('DB_PATH','/data/laith.db')); p.add_argument('--telegram-token',default=os.getenv('TELEGRAM_BOT_TOKEN')); p.add_argument('--telegram-chat',default=os.getenv('TELEGRAM_CHAT_ID')); p.add_argument('--twelve-key',default=os.getenv('TWELVE_DATA_API_KEY')); p.add_argument('--interval',type=int,default=int(os.getenv('CHECK_INTERVAL_SECONDS','20'))); p.add_argument('--cooldown',type=int,default=int(os.getenv('SIGNAL_COOLDOWN_MINUTES','60'))); return p

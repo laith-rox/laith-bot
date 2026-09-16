@@ -105,7 +105,7 @@ class Telegram:
         return Delivery("failed", error="telegram_request_rejected")
 
 
-def dispatch(store, telegram, now=None, limit=5, market=None):
+def dispatch(store, telegram, now=None, limit=5, market=None, only_kind=None):
     if callable(now):
         clock = now
     elif now is None:
@@ -113,9 +113,14 @@ def dispatch(store, telegram, now=None, limit=5, market=None):
     else:
         clock = lambda: float(now)
     for _ in range(limit):
-        row = store.claim(clock())
+        row = store.claim(clock(),only_kind=only_kind)
         if row is None:
             break
+        if row['kind']=='emergency' and row.get('signal_id'):
+            watch=store.trade(row['signal_id'])
+            if not watch or watch['status'] not in ('active','uncertain_delivery'):
+                store.finish(row['id'],'failed',clock(),error='signal_no_longer_active')
+                continue
         if row['kind'] == 'entry':
             try:
                 trade=store.trade(row['signal_id'])
