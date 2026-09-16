@@ -73,6 +73,13 @@ def volatility_regime(bars, lookback=96):
     return {"label": label, "percentile": percentile, "atr": current}
 
 
+def _correction_against_entry(side, correction):
+    """True only when a triggered correction points opposite the candidate side."""
+    direction = (correction or {}).get("direction")
+    return ((side == "BUY" and direction == "DOWN")
+            or (side == "SELL" and direction == "UP"))
+
+
 def research_gate(base, session, vol, macro=None, price_action=None):
     """Return a research veto reason or None.
 
@@ -95,7 +102,8 @@ def research_gate(base, session, vol, macro=None, price_action=None):
         if breakout.get("state") == "FAILED_BREAK":
             return "v3_failed_breakout_against_entry"
         correction = price_action.get("correction") or {}
-        if correction.get("triggered") and correction.get("strength") == "STRONG":
+        if (correction.get("triggered") and correction.get("strength") == "STRONG"
+                and _correction_against_entry(base.get("side"), correction)):
             return "v3_strong_correction_against_entry"
         risk = price_action.get("risk_plan") or {}
         if not risk.get("valid"):
