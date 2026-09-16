@@ -90,7 +90,7 @@ def research_gate(base, session, vol, macro=None, price_action=None):
     alignment = macro_alignment(base.get("side"), macro)
     if alignment == "STRONG_CONFLICT":
         return "v3_strong_macro_conflict"
-    if price_action:
+    if price_action and price_action.get("available"):
         breakout = price_action.get("breakout") or {}
         if breakout.get("state") == "FAILED_BREAK":
             return "v3_failed_breakout_against_entry"
