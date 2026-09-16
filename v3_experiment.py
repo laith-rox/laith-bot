@@ -9,7 +9,7 @@ import json
 
 
 V3_EXPERIMENT = {
-    "name": "laith-v3-structure-lab-v3",
+    "name": "laith-v3-structure-lab-v4",
     "baseline": "engine.analyze",
     "forced_bias": "reject",
     "sessions": {
@@ -37,7 +37,7 @@ V3_EXPERIMENT = {
         "break_confirmation": "two_15m_closes_plus_0.10_ATR_buffer",
         "failed_break": "wick_through_zone_then_close_back_inside",
         "block_failed_break_against_entry": True,
-        "block_strong_triggered_correction": True,
+        "block_strong_triggered_correction": "only_when_direction_opposes_entry",
     },
     "correction_map": {
         "source": "last_confirmed_impulse_plus_structural_zones",
