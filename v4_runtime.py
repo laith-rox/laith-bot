@@ -1,14 +1,14 @@
 """V4 runtime with resilient five-minute paper-signal delivery.
 
-Official V4 entries remain strict and unchanged. Only the quick paper stream and
-its five-minute official-continuation monitor may fall back to the latest closed
-5-minute candle when Twelve Data's timestamped quote is stale/unavailable.
+Official V4 entries remain strict and unchanged. The quick paper stream runs
+around the clock while market data are usable. It may fall back to the latest
+closed/cached five-minute data when Twelve Data is stale, unavailable, or
+rate-limited; every such fallback is explicitly marked high risk.
 """
 from datetime import datetime
 import logging
 import time
 
-from bot import entry_window
 from engine import advance_trade
 from market import DataError, require_fresh
 from news import NewsGuard
@@ -22,20 +22,21 @@ from market import Market
 
 LOG = logging.getLogger("laith.v4")
 
+QUICK_QUOTE_FALLBACK_ERRORS = {
+    "market_quote_stale",
+    "market_quote_unavailable",
+    "market_http_429",
+}
+
 
 def quick_reference_quote(market, bars, now):
-    """Return a reference price for paper monitoring without weakening official entry.
-
-    A fresh Twelve Data quote is preferred. If that endpoint returns a stale or
-    temporarily unavailable timestamp, the latest closed 5-minute candle is used
-    and explicitly marked delayed/reference-only.
-    """
+    """Return a reference price for paper monitoring without weakening official entry."""
     try:
         quote = market.quote(lambda: datetime.now(UTC))
         quote["delayed_reference"] = False
         return quote
     except DataError as exc:
-        if str(exc) not in {"market_quote_stale", "market_quote_unavailable"}:
+        if str(exc) not in QUICK_QUOTE_FALLBACK_ERRORS:
             raise
         require_fresh(bars, now, 600)
         last = bars[-1]
@@ -47,10 +48,27 @@ def quick_reference_quote(market, bars, now):
         }
 
 
+def quick_market_bars(market, now, cached_bars=None):
+    """Prefer fresh bars; on Twelve Data 429 reuse only a still-fresh cached set."""
+    try:
+        return market.fetch(now), False
+    except DataError as exc:
+        if str(exc) != "market_http_429" or not cached_bars:
+            raise
+        require_fresh(cached_bars, now, 600)
+        return cached_bars, True
+
+
 class V4PaperResilientQuick(V4Paper):
     def quick_cycle(self, now):
-        """Five-minute paper stream: always emit a directional setup when data exist."""
-        bars = self.market.fetch(now)
+        """Five-minute paper stream: emit setups 24h whenever usable data exist."""
+        bars, cached_market = quick_market_bars(
+            self.market, now, getattr(self, "_last_quick_bars", None)
+        )
+        if not cached_market:
+            self._last_quick_bars = bars
+        else:
+            LOG.warning("quick_market_fallback reason=market_http_429 source=cached_5m_bars")
         self._advance_quicks(bars, now)
 
         slot = int(now.timestamp() // 300)
@@ -90,10 +108,9 @@ class V4PaperResilientQuick(V4Paper):
                 if self.notifier:
                     self.notifier.send(continuation_message(snap))
 
-        if not entry_window(now):
-            self.store.set("v4_quick_last_block", "outside_entry_window")
-            return
-
+        # Quick setups intentionally have no general entry-window restriction.
+        # Market/data freshness remains the hard gate, so closed/stale markets do not
+        # produce a supposedly live quick setup.
         allowed_news, news_reason, nearby = self.news.check(now)
         setup_preview = build_quick(decision, now)
         if setup_preview is None:
@@ -109,8 +126,11 @@ class V4PaperResilientQuick(V4Paper):
             return
 
         reasons = list(setup.get("risk_reasons") or [])
+        if cached_market:
+            reasons.append("بيانات الشموع من آخر قراءة مخزنة بسبب حد Twelve Data")
+            setup["risk_level"] = "مرتفعة"
         if quote.get("delayed_reference"):
-            reasons.append("السعر المرجعي من آخر شمعة 5د لأن السعر اللحظي متأخر")
+            reasons.append("السعر المرجعي من آخر شمعة 5د لأن السعر اللحظي متأخر/غير متاح")
             setup["risk_level"] = "مرتفعة"
         if not allowed_news or nearby:
             reasons.append("خبر/حدث اقتصادي قريب")
@@ -128,14 +148,16 @@ class V4PaperResilientQuick(V4Paper):
             quote_time=quote.get("time"),
             quote_source=quote.get("source"),
             delayed_reference=bool(quote.get("delayed_reference")),
+            cached_market_data=bool(cached_market),
         )
         self._save_quick(setup)
         self.store.set("v4_quick_last", setup)
         self.store.set("v4_quick_last_block", None)
         LOG.info(
-            "quick_open id=%s side=%s entry=%.2f stop=%.2f target=%.2f score=%s/7 strength=%s risk=%s source=%s official_active=%s",
+            "quick_open id=%s side=%s entry=%.2f stop=%.2f target=%.2f score=%s/7 strength=%s risk=%s source=%s cached=%s official_active=%s",
             setup["id"], setup["side"], setup["entry"], setup["stop"], setup["target"],
-            setup["score"], setup["strength"], setup.get("risk_level"), setup.get("quote_source"), bool(active),
+            setup["score"], setup["strength"], setup.get("risk_level"), setup.get("quote_source"),
+            bool(cached_market), bool(active),
         )
         if self.notifier:
             self.notifier.send(quick_message(setup))
