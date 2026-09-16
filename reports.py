@@ -101,7 +101,7 @@ def compact_follow(d, side, watch=None):
             lines.append('⚠️ الترجيح الحالي عكس الإشارة.')
     if not watch:
         lines.append('الستوب والأهداف والتأمين: لا سيناريو دخول قائم.')
-        lines.append('🔄 التصحيح: غير محدد | الاحتمال %: غير مقاس')
+        lines.append('🔄 التصحيح: غير محدد | ⚡ القوة: غير قابلة للتقييم')
         return '\n'.join(lines)
     hit = ' ✅' if watch.get('tp1_hit') else ''
     lines += [f"🛑 وقف الخسارة: <b>{watch['stop']:.2f}</b>",
@@ -112,7 +112,8 @@ def compact_follow(d, side, watch=None):
         lines.append('🏁 انتهى السيناريو: ' + outcome)
         return '\n'.join(lines)
     if current is None:
-        lines.append('التأمين والتصحيح: تعذّر تحديثهما | الاحتمال %: غير مقاس')
+        lines.append('التأمين والتصحيح: تعذّر تحديثهما')
+        lines.append('⚡ قوة التصحيح: غير قابلة للتقييم')
         return '\n'.join(lines)
     # Existing rule: price breakeven only after TP1. Partial realization is a
     # displayed suggestion, not a new trailing-stop rule or recorded execution.
@@ -125,17 +126,18 @@ def compact_follow(d, side, watch=None):
     phase = (d.get('context') or {}).get('phase')
     if phase in ('conflict', 'trend_break', 'unclear') or not d.get('context'):
         lines.append('🔄 منطقة التصحيح: غير مؤكدة مع تعارض/غموض الاتجاه')
-        lines.append('احتمال بدء التصحيح %: غير مقاس')
+        lines.append('⚡ قوة التصحيح: غير قابلة للتقييم')
         return '\n'.join(lines)
     corr_side, likelihood, lo, hi, target_lo, target_hi, _ = correction_estimate(watch, d)
+    strength = {'مرتفع': 'قوي', 'متوسط': 'متوسط', 'ضعيف': 'ضعيف'}.get(likelihood, likelihood)
     passed = d['price'] > hi if watch['side'] == 'BUY' else d['price'] < lo
     if passed:
         lines.append('🔄 منطقة التصحيح السابقة تم تجاوزها؛ لا منطقة جديدة مؤكدة')
-        lines.append('احتمال بدء التصحيح %: غير مقاس')
+        lines.append('⚡ قوة التصحيح: غير قابلة للتقييم')
     else:
         lines += [f"🔄 بداية تصحيح {corr_side} مقدّرة: <b>{lo:.2f}–{hi:.2f}</b>",
                   f"↩️ امتداده المقدّر: <b>{target_lo:.2f}–{target_hi:.2f}</b>",
-                  f'ترجيح التصحيح: {likelihood} | الاحتمال %: غير مقاس']
+                  f'⚡ قوة التصحيح: <b>{strength}</b>']
     return '\n'.join(lines)
 
 
