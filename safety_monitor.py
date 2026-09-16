@@ -62,11 +62,13 @@ def evaluate_warning(trade,bars,now,previous=None):
 
 
 def warning_message(trade,event):
-    labels={'correction':'⚠️ تصحيح محتمل ضد الإشارة',
-            'reversal':'🚨 خطر انعكاس: كسر قصير وزخم معاكس',
+    movement = '⬇️ هابط' if trade['side']=='BUY' else '⬆️ صاعد'
+    observed = 'رُصد تراجع هابط ⬇️ ضد الشراء' if trade['side']=='BUY' else 'رُصد ارتداد صاعد ⬆️ ضد البيع'
+    labels={'correction':'⚠️ ' + observed,
+            'reversal':'🚨 خطر انعكاس ' + movement + ': كسر قصير وزخم معاكس',
             'stop':'🚨 رُصد تجاوز الوقف في بيانات المصدر'}
     side='شراء' if trade['side']=='BUY' else 'بيع'
-    action=('راجع المخاطر؛ التصحيح ليس انعكاسًا مؤكدًا.' if event['kind']=='correction' else
+    action=('تصحيح محتمل؛ استمرار الحركة غير مؤكد، وليس إشارة دخول عكسية.' if event['kind']=='correction' else
             'راجع سعر وسيطك والوقف فورًا؛ لا تدخل عكسًا تلقائيًا.')
     return (f"<b>{labels[event['kind']]}</b>\n{side} | <code>{escape(trade['id'])}</code>\n"
             f"إغلاق الدقيقة: <b>{event['price']:.2f}</b> | {local_time(event['stamp'])} فلسطين\n"
