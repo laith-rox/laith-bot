@@ -99,9 +99,12 @@ class FastTests(unittest.TestCase):
             MinuteMarket('private',session).fetch(AT)
 
     def test_time_window_and_weekend(self):
+        # September is UTC+3 locally: these cover 22:00, 03:00, 08:59, 09:00 and 19:59.
         self.assertTrue(fast_window(AT))
-        self.assertFalse(fast_window(AT.replace(hour=16)))
-        self.assertFalse(fast_window(AT.replace(hour=21)))
+        self.assertTrue(fast_window(AT.replace(hour=0)))
+        self.assertTrue(fast_window(AT.replace(hour=5, minute=59)))
+        self.assertFalse(fast_window(AT.replace(hour=6, minute=0)))
+        self.assertFalse(fast_window(AT.replace(hour=16, minute=59)))
         self.assertFalse(fast_window(AT+timedelta(days=2)))
 
     def test_cost_sensitivity_and_holdout(self):
