@@ -22,6 +22,7 @@ from engine import make_trade, advance_trade
 from market import Market, DataError, require_fresh
 from news import NewsGuard
 from storage import Store
+from v3_experiment import experiment_record
 from v3_global_data import GlobalContextProvider
 from v3_metrics import summarize_r
 from v3_research import analyze_v3
@@ -37,10 +38,12 @@ class V3Paper:
         self.news = news
         self.global_context = global_context or GlobalContextProvider()
         self.cooldown = cooldown_minutes * 60
+        self.experiment = experiment_record()
         self.store.db.execute(
             "CREATE TABLE IF NOT EXISTS v3_paper(id TEXT PRIMARY KEY, data TEXT NOT NULL)"
         )
         self.store.db.commit()
+        self.store.set("v3_experiment", self.experiment)
 
     def _paper_rows(self):
         rows = self.store.db.execute("SELECT data FROM v3_paper ORDER BY rowid").fetchall()
@@ -48,9 +51,14 @@ class V3Paper:
 
     def _update_stats(self):
         trades = self._paper_rows()
-        stats = summarize_r([trade.get("r") for trade in trades])
+        # Never silently pool incompatible experiment versions.
+        matching = [t for t in trades if t.get("experiment_id") == self.experiment["id"]]
+        stats = summarize_r([trade.get("r") for trade in matching])
+        stats["experiment_id"] = self.experiment["id"]
+        stats["all_saved_trades"] = len(trades)
+        stats["matching_experiment_trades"] = len(matching)
         by_session, by_vol, by_macro = {}, {}, {}
-        for trade in trades:
+        for trade in matching:
             research = trade.get("research_v3") or {}
             for target, label in (
                 (by_session, research.get("session", "UNKNOWN")),
@@ -73,9 +81,9 @@ class V3Paper:
         stats = self._update_stats()
         self.store.set("v3_active", None)
         LOG.info(
-            "paper_closed id=%s outcome=%s r=%s measured=%s net_r=%.3f max_dd=%.3f",
-            trade["id"], trade.get("outcome"), trade.get("r"), stats.get("measured"),
-            stats.get("net_r", 0.0), stats.get("max_drawdown_r", 0.0),
+            "paper_closed experiment=%s id=%s outcome=%s r=%s measured=%s net_r=%.3f max_dd=%.3f",
+            self.experiment["id"], trade["id"], trade.get("outcome"), trade.get("r"),
+            stats.get("measured"), stats.get("net_r", 0.0), stats.get("max_drawdown_r", 0.0),
         )
 
     def cycle(self, now):
@@ -104,10 +112,11 @@ class V3Paper:
         allowed_news, news_reason, nearby = self.news.check(now)
         research = decision.get("v3", {})
         LOG.info(
-            "analysis side=%s reason=%s session=%s vol=%s pct=%s macro=%s macro_score=%s news=%s",
-            decision.get("side"), decision.get("reason"), research.get("session"),
-            research.get("volatility_regime"), research.get("volatility_percentile"),
-            research.get("macro_alignment"), research.get("macro_score"), news_reason,
+            "analysis experiment=%s side=%s reason=%s session=%s vol=%s pct=%s macro=%s macro_score=%s news=%s",
+            self.experiment["id"], decision.get("side"), decision.get("reason"),
+            research.get("session"), research.get("volatility_regime"),
+            research.get("volatility_percentile"), research.get("macro_alignment"),
+            research.get("macro_score"), news_reason,
         )
 
         if active or decision.get("side") not in ("BUY", "SELL"):
@@ -141,14 +150,16 @@ class V3Paper:
             quote_source=quote["source"],
             research_v3=research,
             macro_snapshot=macro,
+            experiment_id=self.experiment["id"],
             paper_only=True,
         )
         self.store.set("v3_active", trade)
         self.store.set("v3_last_entry", now2.timestamp())
         LOG.info(
-            "paper_open id=%s side=%s entry=%.2f session=%s vol=%s macro=%s",
-            trade["id"], trade["side"], trade["entry"], research.get("session"),
-            research.get("volatility_regime"), research.get("macro_alignment"),
+            "paper_open experiment=%s id=%s side=%s entry=%.2f session=%s vol=%s macro=%s",
+            self.experiment["id"], trade["id"], trade["side"], trade["entry"],
+            research.get("session"), research.get("volatility_regime"),
+            research.get("macro_alignment"),
         )
 
 
@@ -159,7 +170,7 @@ def run(args):
     news = NewsGuard(store)
     global_context = GlobalContextProvider(refresh_seconds=args.macro_refresh)
     paper = V3Paper(store, market, news, global_context, args.cooldown)
-    LOG.info("starting isolated V3 paper worker db=%s", args.db)
+    LOG.info("starting isolated V3 paper worker db=%s experiment=%s", args.db, paper.experiment["id"])
     try:
         while True:
             now = datetime.now(UTC)
@@ -180,7 +191,7 @@ def parser():
     p = argparse.ArgumentParser()
     p.add_argument("--db", default=os.getenv("V3_DB_PATH", "/data/laith_v3.db"))
     p.add_argument("--twelve-key", default=os.getenv("TWELVE_DATA_API_KEY"))
-    p.add_argument("--interval", type=int, default=int(os.getenv("V3_CHECK_INTERVAL_SECONDS", "60")))
+    p.add_argument("--interval", type=int, default=int(os.getenv("V3_CHECK_INTERVAL_SECONDS", "900")))
     p.add_argument("--cooldown", type=int, default=int(os.getenv("V3_SIGNAL_COOLDOWN_MINUTES", "60")))
     p.add_argument("--macro-refresh", type=int, default=int(os.getenv("V3_MACRO_REFRESH_SECONDS", "21600")))
     return p
