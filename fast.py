@@ -14,8 +14,7 @@ MAX_HOLD = 20 * 60
 
 def fast_window(now):
     local = now.astimezone(LOCAL)
-    return local.weekday() < 5 and 20 <= local.hour < 23 or (
-        local.weekday() < 5 and local.hour == 23 and local.minute < 30)
+    return local.weekday() < 5 and (local.hour >= 20 or local.hour < 9)
 
 
 def aggregate_five(bars):
