@@ -3,9 +3,10 @@
 This module is intentionally isolated from bot.py and is not used by the live bot.
 It wraps the current analyzer and adds research-only controls:
 1) reject forced/best-available bias as a trade candidate,
-2) tag and optionally filter by liquid trading session,
+2) tag/filter by liquid trading session,
 3) classify ATR volatility regime,
-4) attach slow-moving global macro context and test only strong conflicts.
+4) attach slow global macro context and test only strong conflicts,
+5) map causal support/resistance, break/retest/failure, corrections and structural stops.
 
 Nothing in this file sends Telegram alerts or broker orders.
 """
@@ -14,6 +15,7 @@ from zoneinfo import ZoneInfo
 from engine import analyze, atr
 from market import resample
 from v3_global_data import macro_alignment
+from v3_price_action import analyze_price_action
 
 TOKYO = ZoneInfo("Asia/Tokyo")
 LONDON = ZoneInfo("Europe/London")
@@ -42,11 +44,7 @@ def session_label(now):
 
 
 def volatility_regime(bars, lookback=96):
-    """Return ATR percentile regime from closed 15-minute bars.
-
-    Percentile is computed only from information available at the decision time.
-    It is descriptive research metadata, not a calibrated probability.
-    """
+    """Return ATR percentile regime from closed 15-minute bars."""
     m15 = resample(bars, 15)
     if len(m15) < 30:
         return {"label": "UNAVAILABLE", "percentile": None, "atr": None}
@@ -75,12 +73,11 @@ def volatility_regime(bars, lookback=96):
     return {"label": label, "percentile": percentile, "atr": current}
 
 
-def research_gate(base, session, vol, macro=None):
+def research_gate(base, session, vol, macro=None, price_action=None):
     """Return a research veto reason or None.
 
-    The first V3 generation is intentionally conservative.  It does not add a
-    new trade when the baseline has none.  It only rejects weak/poor-context
-    candidates so the experiment tests whether selectivity improves results.
+    V3 never creates a trade when the baseline has none. It filters already-strict
+    candidates and tests whether better location/invalidation improves outcomes.
     """
     if base.get("forced") or base.get("reason") == "best_available_bias":
         return "v3_forced_bias_rejected"
@@ -93,32 +90,72 @@ def research_gate(base, session, vol, macro=None):
     alignment = macro_alignment(base.get("side"), macro)
     if alignment == "STRONG_CONFLICT":
         return "v3_strong_macro_conflict"
+    if price_action:
+        breakout = price_action.get("breakout") or {}
+        if breakout.get("state") == "FAILED_BREAK":
+            return "v3_failed_breakout_against_entry"
+        correction = price_action.get("correction") or {}
+        if correction.get("triggered") and correction.get("strength") == "STRONG":
+            return "v3_strong_correction_against_entry"
+        risk = price_action.get("risk_plan") or {}
+        if not risk.get("valid"):
+            return "v3_" + str(risk.get("reason") or "risk_plan_invalid")
     return None
+
+
+def _zone_summary(zone):
+    if not zone:
+        return None
+    return {
+        "low": zone.get("low"), "center": zone.get("center"), "high": zone.get("high"),
+        "touches": zone.get("touches"), "score": zone.get("score"),
+    }
 
 
 def analyze_v3(bars, now, macro=None):
     """Research candidate built on top of the current live analyzer.
 
-    Session, volatility and macro metadata are attached for later out-of-sample
-    comparison.  Macro context is a filter only when it is strongly opposed to
-    an already-strict technical setup; missing macro data never invents a trade.
+    All added fields are observable at decision time. Strength labels describe
+    completed rules, not calibrated probabilities. A valid structural risk plan
+    replaces the baseline ATR-only SL/TP in V3 paper trades so it can be tested
+    side-by-side; the live bot remains unchanged.
     """
     base = analyze(bars, now)
     result = dict(base)
     session = session_label(now)
     vol = volatility_regime(bars)
     alignment = macro_alignment(base.get("side"), macro)
+    price_action = analyze_price_action(bars, base)
+
+    levels = price_action.get("levels") or {}
+    breakout = price_action.get("breakout") or {}
+    correction = price_action.get("correction") or {}
+    risk = price_action.get("risk_plan") or {}
     result["v3"] = {
         "session": session,
         "volatility_regime": vol["label"],
         "volatility_percentile": vol["percentile"],
         "macro_alignment": alignment,
         "macro_score": macro.get("gold_macro_score") if macro else None,
+        "macro_source": macro.get("source") if macro else None,
         "macro_max_staleness_days": macro.get("max_staleness_days") if macro else None,
+        "nearest_support": _zone_summary(levels.get("nearest_support")),
+        "nearest_resistance": _zone_summary(levels.get("nearest_resistance")),
+        "breakout_state": breakout.get("state"),
+        "critical_level": _zone_summary(breakout.get("level")),
+        "correction": correction,
+        "structural_risk": risk,
         "research_only": True,
     }
 
-    veto = research_gate(base, session, vol, macro)
+    veto = research_gate(base, session, vol, macro, price_action)
     if veto:
         result.update(side="WAIT", reason=veto)
+        return result
+
+    if result.get("side") in ("BUY", "SELL") and risk.get("valid"):
+        result.update(
+            sl=risk["stop"], tp1=risk["tp1"], tp2=risk["tp2"],
+            reason="v3_structural_entry",
+        )
     return result
