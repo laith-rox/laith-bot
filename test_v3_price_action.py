@@ -88,8 +88,8 @@ class StructuralRiskTests(unittest.TestCase):
 
 
 class GatePriceActionTests(unittest.TestCase):
-    def base(self):
-        return {"side": "BUY", "forced": False, "reason": "entry_conditions_met"}
+    def base(self, side="BUY"):
+        return {"side": side, "forced": False, "reason": "entry_conditions_met"}
 
     def test_failed_break_blocks_entry(self):
         pa = {"available": True, "breakout": {"state": "FAILED_BREAK"},
@@ -99,12 +99,29 @@ class GatePriceActionTests(unittest.TestCase):
             "v3_failed_breakout_against_entry",
         )
 
-    def test_strong_triggered_correction_blocks_entry(self):
+    def test_strong_down_correction_blocks_buy(self):
         pa = {"available": True, "breakout": {"state": "LEVEL_INTACT"},
-              "correction": {"triggered": True, "strength": "STRONG"},
+              "correction": {"triggered": True, "strength": "STRONG", "direction": "DOWN"},
               "risk_plan": {"valid": True}}
         self.assertEqual(
-            research_gate(self.base(), "LONDON", {"label": "NORMAL"}, None, pa),
+            research_gate(self.base("BUY"), "LONDON", {"label": "NORMAL"}, None, pa),
+            "v3_strong_correction_against_entry",
+        )
+
+    def test_strong_up_correction_does_not_block_buy(self):
+        pa = {"available": True, "breakout": {"state": "LEVEL_INTACT"},
+              "correction": {"triggered": True, "strength": "STRONG", "direction": "UP"},
+              "risk_plan": {"valid": True}}
+        self.assertIsNone(
+            research_gate(self.base("BUY"), "LONDON", {"label": "NORMAL"}, None, pa)
+        )
+
+    def test_strong_up_correction_blocks_sell(self):
+        pa = {"available": True, "breakout": {"state": "LEVEL_INTACT"},
+              "correction": {"triggered": True, "strength": "STRONG", "direction": "UP"},
+              "risk_plan": {"valid": True}}
+        self.assertEqual(
+            research_gate(self.base("SELL"), "LONDON", {"label": "NORMAL"}, None, pa),
             "v3_strong_correction_against_entry",
         )
 
