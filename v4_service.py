@@ -3,7 +3,7 @@
 Isolation guarantees:
 - separate SQLite database (/data/laith_v4.db by default),
 - separate Railway project/service expected,
-- no Telegram transport,
+- dedicated V4 Telegram transport only,
 - no broker orders,
 - no writes to Laith Bot or V3 databases,
 - paper outcomes only.
@@ -24,18 +24,20 @@ from v3_global_data import GlobalContextProvider
 from v3_metrics import summarize_r
 from v4_experiment import experiment_record
 from v4_research import analyze_v4
+from v4_telegram import V4Telegram, paper_open_message, paper_close_message
 
 UTC = timezone.utc
 LOG = logging.getLogger("laith.v4")
 
 
 class V4Paper:
-    def __init__(self, store, market, news, global_context=None, cooldown_minutes=60):
+    def __init__(self, store, market, news, global_context=None, cooldown_minutes=60, notifier=None):
         self.store = store
         self.market = market
         self.news = news
         self.global_context = global_context or GlobalContextProvider()
         self.cooldown = cooldown_minutes * 60
+        self.notifier = notifier
         self.experiment = experiment_record()
         self.store.db.execute(
             "CREATE TABLE IF NOT EXISTS v4_paper(id TEXT PRIMARY KEY, data TEXT NOT NULL)"
@@ -88,6 +90,8 @@ class V4Paper:
             self.experiment["id"], trade["id"], trade.get("outcome"), trade.get("r"),
             stats.get("measured"), stats.get("net_r", 0.0), stats.get("max_drawdown_r", 0.0),
         )
+        if self.notifier:
+            self.notifier.send(paper_close_message(trade, stats))
 
     def cycle(self, now):
         bars = self.market.fetch(now)
@@ -189,6 +193,8 @@ class V4Paper:
             trade["tp1"], trade["tp2"], research.get("session"), research.get("volatility_regime"),
             research.get("macro_alignment"),
         )
+        if self.notifier:
+            self.notifier.send(paper_open_message(trade))
 
 
 def run(args):
@@ -196,21 +202,29 @@ def run(args):
     store = Store(args.db)
     market = Market(args.twelve_key)
     news = NewsGuard(store)
+    telegram = V4Telegram(args.telegram_token, store, args.telegram_chat, args.telegram_pair_code)
     global_context = GlobalContextProvider(refresh_seconds=args.macro_refresh, twelve_key=args.twelve_key)
-    paper = V4Paper(store, market, news, global_context, args.cooldown)
-    LOG.info("starting independent V4 paper worker db=%s experiment=%s", args.db, paper.experiment["id"])
+    paper = V4Paper(store, market, news, global_context, args.cooldown, notifier=telegram)
+    LOG.info("starting independent V4 paper worker db=%s experiment=%s telegram=%s", args.db, paper.experiment["id"], bool(args.telegram_token))
+    next_cycle = 0.0
     try:
         while True:
             now = datetime.now(UTC)
             try:
-                paper.cycle(now)
-                store.set("v4_last_error", None)
-            except DataError as exc:
-                store.set("v4_last_error", str(exc))
-                LOG.warning("cycle_data_error reason=%s", exc)
+                telegram.poll()
             except Exception:
-                LOG.exception("cycle_failed")
-            time.sleep(args.interval)
+                LOG.exception("telegram_cycle_failed")
+            if time.time() >= next_cycle:
+                try:
+                    paper.cycle(now)
+                    store.set("v4_last_error", None)
+                except DataError as exc:
+                    store.set("v4_last_error", str(exc))
+                    LOG.warning("cycle_data_error reason=%s", exc)
+                except Exception:
+                    LOG.exception("cycle_failed")
+                next_cycle = time.time() + args.interval
+            time.sleep(max(1, min(args.telegram_poll, args.interval)))
     finally:
         store.close()
 
@@ -222,6 +236,10 @@ def parser():
     p.add_argument("--interval", type=int, default=int(os.getenv("V4_CHECK_INTERVAL_SECONDS", "900")))
     p.add_argument("--cooldown", type=int, default=int(os.getenv("V4_SIGNAL_COOLDOWN_MINUTES", "60")))
     p.add_argument("--macro-refresh", type=int, default=int(os.getenv("V4_MACRO_REFRESH_SECONDS", "21600")))
+    p.add_argument("--telegram-token", default=os.getenv("V4_TELEGRAM_BOT_TOKEN"))
+    p.add_argument("--telegram-chat", default=os.getenv("V4_TELEGRAM_CHAT_ID"))
+    p.add_argument("--telegram-pair-code", default=os.getenv("V4_TELEGRAM_PAIR_CODE"))
+    p.add_argument("--telegram-poll", type=int, default=int(os.getenv("V4_TELEGRAM_POLL_SECONDS", "5")))
     return p
 
 
