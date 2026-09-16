@@ -23,9 +23,15 @@ from storage import Store
 from v3_global_data import GlobalContextProvider
 from v3_metrics import summarize_r
 from v4_experiment import experiment_record
-from v4_quick import advance_quick, build_quick, cancel_quick
+from v4_quick import advance_quick, build_quick, continuation_snapshot
 from v4_research import analyze_v4
-from v4_telegram import V4Telegram, paper_open_message, paper_close_message, quick_message
+from v4_telegram import (
+    V4Telegram,
+    continuation_message,
+    paper_close_message,
+    paper_open_message,
+    quick_message,
+)
 
 UTC = timezone.utc
 LOG = logging.getLogger("laith.v4")
@@ -127,22 +133,6 @@ class V4Paper:
         if changed:
             self._update_quick_stats()
 
-    def _cancel_quicks(self, now):
-        changed = False
-        for trade in self._quick_rows():
-            if trade.get("status") != "active":
-                continue
-            updated = cancel_quick(trade, now)
-            with self.store.db:
-                self.store.db.execute(
-                    "UPDATE v4_quick_paper SET data=? WHERE id=?",
-                    (json.dumps(updated, allow_nan=False), updated["id"]),
-                )
-            changed = True
-        if changed:
-            self._update_quick_stats()
-            LOG.info("quick_active_setups_cancelled reason=official_v4_open")
-
     def _finish(self, trade):
         with self.store.db:
             self.store.db.execute(
@@ -151,6 +141,7 @@ class V4Paper:
             )
         stats = self._update_stats()
         self.store.set("v4_active", None)
+        self.store.set("v4_last_continuation", None)
         LOG.info(
             "paper_closed experiment=%s id=%s outcome=%s r=%s measured=%s net_r=%.3f max_dd=%.3f",
             self.experiment["id"], trade["id"], trade.get("outcome"), trade.get("r"),
@@ -160,18 +151,51 @@ class V4Paper:
             self.notifier.send(paper_close_message(trade, stats))
 
     def quick_cycle(self, now):
-        """Check for one quick paper setup per closed five-minute slot."""
+        """Every five minutes: monitor official continuity and search quick paper setups."""
         bars = self.market.fetch(now)
         self._advance_quicks(bars, now)
-        if self.store.get("v4_active"):
-            self.store.set("v4_quick_last_block", "official_trade_active")
-            return
 
         slot = int(now.timestamp() // 300)
         if self.store.get("v4_quick_last_slot") == slot:
             return
         self.store.set("v4_quick_last_slot", slot)
 
+        macro = self.store.get("v4_macro")
+        decision = analyze_v4(bars, now, macro=macro)
+        self.store.set("v4_quick_last_analysis", decision)
+
+        # Official paper trades are monitored on the same five-minute heartbeat.
+        # Quick setups remain a separate stream and are not cancelled by this trade.
+        active = self.store.get("v4_active")
+        quote = None
+        quote_now = now
+        if active:
+            active, _ = advance_trade(active, bars)
+            if active["status"] == "closed":
+                self._finish(active)
+                active = None
+            else:
+                self.store.set("v4_active", active)
+
+        if active:
+            require_fresh(bars, now, 120)
+            quote = self.market.quote(lambda: datetime.now(UTC))
+            quote_now = datetime.now(UTC)
+            require_fresh(bars, quote_now, 120)
+            snapshot = continuation_snapshot(decision, active, price=quote["price"])
+            if snapshot:
+                snapshot.update(time=quote_now.isoformat(), quote_source=quote.get("source"))
+                self.store.set("v4_last_continuation", snapshot)
+                LOG.info(
+                    "official_continuation side=%s state=%s score=%s/7 price=%.2f rsi=%s",
+                    snapshot.get("side"), snapshot.get("state"), snapshot.get("score"),
+                    snapshot.get("price"), snapshot.get("rsi"),
+                )
+                if self.notifier:
+                    self.notifier.send(continuation_message(snapshot))
+
+        # The quick stream is independent. It may issue a paper setup even while
+        # an official paper trade is active, provided quick-entry safety rules pass.
         if not entry_window(now):
             self.store.set("v4_quick_last_block", "outside_entry_window")
             return
@@ -180,12 +204,6 @@ class V4Paper:
             self.store.set("v4_quick_last_block", news_reason or "nearby_news")
             return
 
-        macro = self.store.get("v4_macro")
-        decision = analyze_v4(bars, now, macro=macro)
-        self.store.set("v4_quick_last_analysis", decision)
-        if decision.get("side") in ("BUY", "SELL"):
-            self.store.set("v4_quick_last_block", "official_candidate_available")
-            return
         preview = build_quick(decision, now)
         if preview is None:
             research = decision.get("v4") or {}
@@ -199,14 +217,15 @@ class V4Paper:
             return
 
         require_fresh(bars, now, 120)
-        quote = self.market.quote(lambda: datetime.now(UTC))
-        now2 = datetime.now(UTC)
-        require_fresh(bars, now2, 120)
+        if quote is None:
+            quote = self.market.quote(lambda: datetime.now(UTC))
+            quote_now = datetime.now(UTC)
+            require_fresh(bars, quote_now, 120)
         tolerance = min(1.0, decision["atr"] * 0.25)
         if abs(quote["price"] - decision["price"]) > tolerance:
             self.store.set("v4_quick_last_block", "market_price_moved")
             return
-        setup = build_quick(decision, now2, quote_price=quote["price"])
+        setup = build_quick(decision, quote_now, quote_price=quote["price"])
         if setup is None:
             self.store.set("v4_quick_last_block", "quick_recheck_failed")
             return
@@ -215,9 +234,9 @@ class V4Paper:
         self.store.set("v4_quick_last", setup)
         self.store.set("v4_quick_last_block", None)
         LOG.info(
-            "quick_open id=%s side=%s entry=%.2f stop=%.2f target=%.2f score=%s/7 strength=%s rsi=%.2f rr=%.2f",
+            "quick_open id=%s side=%s entry=%.2f stop=%.2f target=%.2f score=%s/7 strength=%s rsi=%.2f rr=%.2f official_active=%s",
             setup["id"], setup["side"], setup["entry"], setup["stop"], setup["target"],
-            setup["score"], setup["strength"], setup["rsi"], setup["rr"],
+            setup["score"], setup["strength"], setup["rsi"], setup["rr"], bool(active),
         )
         if self.notifier:
             self.notifier.send(quick_message(setup))
@@ -315,7 +334,6 @@ class V4Paper:
             paper_only=True,
             generation="V4",
         )
-        self._cancel_quicks(now2)
         self.store.set("v4_active", trade)
         self.store.set("v4_last_entry", now2.timestamp())
         LOG.info(
