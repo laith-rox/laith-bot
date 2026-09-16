@@ -51,7 +51,6 @@ class V3Paper:
 
     def _update_stats(self):
         trades = self._paper_rows()
-        # Never silently pool incompatible experiment versions.
         matching = [t for t in trades if t.get("experiment_id") == self.experiment["id"]]
         stats = summarize_r([trade.get("r") for trade in matching])
         stats["experiment_id"] = self.experiment["id"]
@@ -101,9 +100,13 @@ class V3Paper:
             macro = self.global_context.snapshot(now)
             self.store.set("v3_macro", macro)
             self.store.set("v3_macro_error", self.global_context.last_error)
+            if self.global_context.last_error:
+                LOG.warning("macro_context_partial error=%s", self.global_context.last_error)
         except Exception as exc:
             macro = None
-            self.store.set("v3_macro_error", type(exc).__name__ + ":" + str(exc))
+            detail = type(exc).__name__ + ":" + str(exc)
+            self.store.set("v3_macro_error", detail)
+            LOG.warning("macro_context_unavailable error=%s", detail)
 
         decision = analyze_v3(bars, now, macro=macro)
         self.store.set("v3_last_analysis", decision)
@@ -112,11 +115,11 @@ class V3Paper:
         allowed_news, news_reason, nearby = self.news.check(now)
         research = decision.get("v3", {})
         LOG.info(
-            "analysis experiment=%s side=%s reason=%s session=%s vol=%s pct=%s macro=%s macro_score=%s news=%s",
+            "analysis experiment=%s side=%s reason=%s session=%s vol=%s pct=%s macro=%s macro_score=%s coverage=%s news=%s",
             self.experiment["id"], decision.get("side"), decision.get("reason"),
             research.get("session"), research.get("volatility_regime"),
             research.get("volatility_percentile"), research.get("macro_alignment"),
-            research.get("macro_score"), news_reason,
+            research.get("macro_score"), macro.get("coverage") if macro else None, news_reason,
         )
 
         if active or decision.get("side") not in ("BUY", "SELL"):
