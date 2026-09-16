@@ -7,8 +7,8 @@ Safe isolation rules:
 - no writes to the live bot database,
 - research/v3-signal-lab branch only until explicitly promoted.
 
-The worker combines the existing XAU/USD market feed with slow-moving public
-macro context from v3_global_data.py.  It records paper outcomes only.
+The worker combines XAU/USD market data, public macro context and the causal V3
+price-structure map. It records paper outcomes only.
 """
 import argparse
 from datetime import datetime, timezone
@@ -56,18 +56,24 @@ class V3Paper:
         stats["experiment_id"] = self.experiment["id"]
         stats["all_saved_trades"] = len(trades)
         stats["matching_experiment_trades"] = len(matching)
-        by_session, by_vol, by_macro = {}, {}, {}
+        buckets = {
+            "by_session": ("session",),
+            "by_volatility": ("volatility_regime",),
+            "by_macro": ("macro_alignment",),
+            "by_breakout": ("breakout_state",),
+            "by_correction_strength": ("correction", "strength"),
+        }
+        collected = {name: {} for name in buckets}
         for trade in matching:
             research = trade.get("research_v3") or {}
-            for target, label in (
-                (by_session, research.get("session", "UNKNOWN")),
-                (by_vol, research.get("volatility_regime", "UNKNOWN")),
-                (by_macro, research.get("macro_alignment", "UNKNOWN")),
-            ):
-                target.setdefault(label, []).append(trade.get("r"))
-        stats["by_session"] = {k: summarize_r(v) for k, v in sorted(by_session.items())}
-        stats["by_volatility"] = {k: summarize_r(v) for k, v in sorted(by_vol.items())}
-        stats["by_macro"] = {k: summarize_r(v) for k, v in sorted(by_macro.items())}
+            for bucket_name, path in buckets.items():
+                value = research
+                for key in path:
+                    value = value.get(key) if isinstance(value, dict) else None
+                label = value or "UNKNOWN"
+                collected[bucket_name].setdefault(label, []).append(trade.get("r"))
+        for bucket_name, values in collected.items():
+            stats[bucket_name] = {k: summarize_r(v) for k, v in sorted(values.items())}
         self.store.set("v3_stats", stats)
         return stats
 
@@ -114,12 +120,35 @@ class V3Paper:
 
         allowed_news, news_reason, nearby = self.news.check(now)
         research = decision.get("v3", {})
+        support = research.get("nearest_support") or {}
+        resistance = research.get("nearest_resistance") or {}
+        correction = research.get("correction") or {}
+        risk = research.get("structural_risk") or {}
+        structure_snapshot = {
+            "time": now.isoformat(),
+            "side": decision.get("side"),
+            "reason": decision.get("reason"),
+            "support": support,
+            "resistance": resistance,
+            "breakout_state": research.get("breakout_state"),
+            "critical_level": research.get("critical_level"),
+            "correction": correction,
+            "risk": risk,
+        }
+        self.store.set("v3_last_structure", structure_snapshot)
         LOG.info(
             "analysis experiment=%s side=%s reason=%s session=%s vol=%s pct=%s macro=%s macro_score=%s coverage=%s news=%s",
             self.experiment["id"], decision.get("side"), decision.get("reason"),
             research.get("session"), research.get("volatility_regime"),
             research.get("volatility_percentile"), research.get("macro_alignment"),
             research.get("macro_score"), macro.get("coverage") if macro else None, news_reason,
+        )
+        LOG.info(
+            "structure support=%s resistance=%s break=%s corr_dir=%s corr_strength=%s corr_triggered=%s corr_start=%s corr_t1=%s corr_t2=%s stop=%s room_r=%s",
+            support.get("center"), resistance.get("center"), research.get("breakout_state"),
+            correction.get("direction"), correction.get("strength"), correction.get("triggered"),
+            correction.get("start_zone"), correction.get("target1"), correction.get("target2"),
+            risk.get("stop"), risk.get("room_r"),
         )
 
         if active or decision.get("side") not in ("BUY", "SELL"):
@@ -159,9 +188,9 @@ class V3Paper:
         self.store.set("v3_active", trade)
         self.store.set("v3_last_entry", now2.timestamp())
         LOG.info(
-            "paper_open experiment=%s id=%s side=%s entry=%.2f session=%s vol=%s macro=%s",
-            self.experiment["id"], trade["id"], trade["side"], trade["entry"],
-            research.get("session"), research.get("volatility_regime"),
+            "paper_open experiment=%s id=%s side=%s entry=%.2f sl=%.2f tp1=%.2f tp2=%.2f session=%s vol=%s macro=%s",
+            self.experiment["id"], trade["id"], trade["side"], trade["entry"], trade["stop"],
+            trade["tp1"], trade["tp2"], research.get("session"), research.get("volatility_regime"),
             research.get("macro_alignment"),
         )
 
@@ -171,7 +200,7 @@ def run(args):
     store = Store(args.db)
     market = Market(args.twelve_key)
     news = NewsGuard(store)
-    global_context = GlobalContextProvider(refresh_seconds=args.macro_refresh)
+    global_context = GlobalContextProvider(refresh_seconds=args.macro_refresh, twelve_key=args.twelve_key)
     paper = V3Paper(store, market, news, global_context, args.cooldown)
     LOG.info("starting isolated V3 paper worker db=%s experiment=%s", args.db, paper.experiment["id"])
     try:
