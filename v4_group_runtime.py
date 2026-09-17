@@ -1,4 +1,4 @@
-"""Laith V4 entrypoint with smart guards, group routing, emergency alerts and H4 paper trades."""
+"""Laith V4 entrypoint focused on quick 5m and official 15m trade streams."""
 from datetime import datetime, timezone
 import logging
 
@@ -6,7 +6,6 @@ import v4_runtime
 import v4_service
 from v4_emergency import scan_emergencies
 from v4_group_telegram import V4Telegram
-from v4_h4 import process_h4
 from v4_intelligence import (
     attach_continuation_intelligence,
     enhance_continuation_message,
@@ -23,7 +22,6 @@ from v4_shared_market import SharedV4Market, closed_bar_reference
 from v4_wait_display import smart_wait_message
 
 LOG = logging.getLogger("laith.v4.emergency")
-H4_LOG = logging.getLogger("laith.v4.h4")
 KEY_LOG = logging.getLogger("laith.v4.key")
 LEARN_LOG = logging.getLogger("laith.v4.learning")
 
@@ -78,7 +76,7 @@ class QuickGuardBlocked(RuntimeError):
 
 
 class V4PaperWithEmergency(_BasePaper):
-    """Adds smart waits, quick guards, learning, reversal warnings and H4 paper trades."""
+    """Adds smart waits, quick guards, learning and reversal warnings to 5m/15m V4."""
 
     def _save_quick(self, trade):
         try:
@@ -203,28 +201,12 @@ class V4PaperWithEmergency(_BasePaper):
                     alert.get("own_score"), alert.get("opposite_score"),
                 )
 
-        # Independent H4 paper stream reuses the already-fetched 5m CLOSED bars,
-        # so it does not add another Twelve Data request or consume the forming
-        # candle as if it were a completed H4 observation.
-        bars = getattr(self, "_last_quick_bars", None)
-        if bars:
-            try:
-                h4_events = process_h4(self.store, self.notifier, bars, now)
-                for event in h4_events:
-                    kind = event.get("kind")
-                    trade = event.get("trade") or {}
-                    h4_decision = event.get("decision") or {}
-                    H4_LOG.info(
-                        "h4_event kind=%s id=%s side=%s buy=%s/7 sell=%s/7 outcome=%s",
-                        kind, trade.get("id"), trade.get("side") or h4_decision.get("side"),
-                        h4_decision.get("buy"), h4_decision.get("sell"), trade.get("outcome"),
-                    )
-            except Exception:
-                H4_LOG.exception("h4_cycle_failed")
+        # H4 trade processing is intentionally disabled. Laith V4 now focuses on:
+        # 1) true quick 5m setups, and 2) the official 15m trade stream.
         return result
 
 
-# V4-only infrastructure wiring. Official/H4 analysis remains based on closed
+# V4-only infrastructure wiring. Official 15m analysis remains based on closed
 # bars. New quick entries are tied to the real current 5m candle and the dedicated
 # 5m decision engine while M15/H1 context remains a filter only.
 v4_runtime.Market = SharedV4Market
