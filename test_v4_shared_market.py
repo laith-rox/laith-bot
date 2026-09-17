@@ -75,20 +75,36 @@ class V4SharedMarketTests(unittest.TestCase):
         self.assertEqual(reference["entry_delay_seconds"], 12.0)
         self.assertTrue(reference["current_five_minute_candle"])
         self.assertTrue(reference["timing_aligned"])
-        self.assertFalse(reference["delayed_reference"])
+        self.assertFalse(reference["candle_open_estimated"])
 
     def test_current_candle_reference_rejects_late_entry(self):
         market = SharedV4Market("dummy")
         with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, self.current)):
             market.fetch(self.now)
             with self.assertRaisesRegex(DataError, "quick_candle_entry_window_missed"):
-                market.current_candle_reference(self.now + timedelta(seconds=50))
+                market.current_candle_reference(self.now + timedelta(seconds=70))
 
-    def test_missing_current_candle_is_not_replaced_by_previous_closed_candle(self):
+    def test_missing_current_candle_uses_current_slot_live_quote(self):
         market = SharedV4Market("dummy")
-        with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, None)):
+        quote_stamp = self.now.timestamp() - 2
+        with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, None)), \
+             patch.object(market, "quote", return_value={"price": 4302.7, "time": quote_stamp, "source": "Twelve Data"}):
             market.fetch(self.now)
-            with self.assertRaisesRegex(DataError, "quick_current_candle_unavailable"):
+            reference = market.current_candle_reference(self.now)
+        self.assertEqual(reference["price"], 4302.7)
+        self.assertEqual(reference["candle_open"], 4302.0)
+        self.assertTrue(reference["candle_open_estimated"])
+        self.assertTrue(reference["timing_aligned"])
+        self.assertEqual(reference["candle_start"], datetime(2026, 9, 17, 12, 0, tzinfo=UTC).timestamp())
+        self.assertIn("live quote", reference["source"])
+
+    def test_live_quote_fallback_rejects_quote_from_previous_slot(self):
+        market = SharedV4Market("dummy")
+        stale_slot_stamp = datetime(2026, 9, 17, 11, 59, 50, tzinfo=UTC).timestamp()
+        with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, None)), \
+             patch.object(market, "quote", return_value={"price": 4302.7, "time": stale_slot_stamp, "source": "Twelve Data"}):
+            market.fetch(self.now)
+            with self.assertRaisesRegex(DataError, "quick_live_quote_not_in_current_slot"):
                 market.current_candle_reference(self.now)
 
 
