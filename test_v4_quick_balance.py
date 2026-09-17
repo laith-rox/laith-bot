@@ -5,6 +5,7 @@ from v4_quick_balance import (
     condition_balance_line,
     correction_block,
     quick_message,
+    strength_marker,
 )
 
 
@@ -28,6 +29,11 @@ class V4QuickBalanceTests(unittest.TestCase):
             condition_balance_line(trade),
             "📊 شروط الشراء: <b>5/7 = 71%</b> (شروط البيع: 3/7 = 43%)",
         )
+
+    def test_strength_markers_match_strength(self):
+        self.assertEqual(strength_marker("قوية"), "🟢")
+        self.assertEqual(strength_marker("متوسطة"), "🟡")
+        self.assertEqual(strength_marker("ضعيفة"), "🔴")
 
     def test_attachs_existing_correction_map_without_changing_side(self):
         setup = {"side": "BUY"}
@@ -79,7 +85,7 @@ class V4QuickBalanceTests(unittest.TestCase):
         self.assertIn("القوة: قوية", lines2[0])
         self.assertIn("الحالة: مراقبة", lines2[0])
 
-    def test_message_replaces_condition_summary_and_adds_correction_targets(self):
+    def test_message_replaces_condition_summary_adds_color_and_correction_targets(self):
         trade = {
             "side": "SELL",
             "score": 6,
@@ -112,6 +118,7 @@ class V4QuickBalanceTests(unittest.TestCase):
         message = quick_message(trade)
         self.assertIn("شروط البيع: <b>6/7 = 86%</b> (شروط الشراء: 2/7 = 29%)", message)
         self.assertNotIn("📊 تحقق الشروط:", message)
+        self.assertIn("🟡 القوة المعروضة: <b>متوسطة</b>", message)
         self.assertIn("توقع التصحيح: <b>صعود</b>", message)
         self.assertIn("الأقرب 4304.00 | الأعمق 4308.00", message)
         self.assertIn("إبطال توقع التصحيح: 4294.00", message)
