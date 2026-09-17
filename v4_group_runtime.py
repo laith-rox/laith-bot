@@ -1,11 +1,22 @@
-"""Laith V4 entrypoint with group routing, balanced quick display, emergency alerts and H4 paper trades."""
+"""Laith V4 entrypoint with smart guards, group routing, emergency alerts and H4 paper trades."""
 from datetime import datetime, timezone
 import logging
 
 import v4_runtime
+import v4_service
 from v4_emergency import scan_emergencies
 from v4_group_telegram import V4Telegram
 from v4_h4 import process_h4
+from v4_intelligence import (
+    attach_continuation_intelligence,
+    classify_trade_lesson,
+    enhance_continuation_message,
+    enhance_paper_close_message,
+    enhance_paper_open_message,
+    quick_hard_blocked,
+    record_trade_lesson,
+    wait_message,
+)
 from v4_key_config import apply_v4_twelve_key_precedence
 from v4_quick_balance import attach_condition_balance, quick_message as balanced_quick_message
 from v4_quick_guard import guard_alert_message, guard_quick_setup
@@ -14,14 +25,40 @@ from v4_shared_market import SharedV4Market, closed_bar_reference
 LOG = logging.getLogger("laith.v4.emergency")
 H4_LOG = logging.getLogger("laith.v4.h4")
 KEY_LOG = logging.getLogger("laith.v4.key")
+LEARN_LOG = logging.getLogger("laith.v4.learning")
 
 _original_build_quick = v4_runtime.build_quick
+_original_continuation_snapshot = v4_runtime.continuation_snapshot
+_original_continuation_message = v4_runtime.continuation_message
+_original_paper_open_message = v4_service.paper_open_message
+_original_paper_close_message = v4_service.paper_close_message
 _BasePaper = v4_runtime.V4PaperResilientQuick
 
 
 def _build_quick_with_balance(decision, *args, **kwargs):
+    # A V4 smart hard block means WAIT, not a high-risk quick entry.  News risk
+    # remains separately visible in the resilient quick stream.
+    if quick_hard_blocked(decision):
+        return None
     setup = _original_build_quick(decision, *args, **kwargs)
     return attach_condition_balance(setup, decision)
+
+
+def _continuation_with_intelligence(decision, trade, price=None):
+    snapshot = _original_continuation_snapshot(decision, trade, price=price)
+    return attach_continuation_intelligence(snapshot, decision, trade)
+
+
+def _continuation_message_with_intelligence(snapshot):
+    return enhance_continuation_message(_original_continuation_message(snapshot), snapshot)
+
+
+def _paper_open_message_with_intelligence(trade):
+    return enhance_paper_open_message(_original_paper_open_message(trade), trade)
+
+
+def _paper_close_message_with_intelligence(trade, stats):
+    return enhance_paper_close_message(_original_paper_close_message(trade, stats), trade)
 
 
 def _shared_quick_reference(_market, bars, now):
@@ -36,10 +73,7 @@ class QuickGuardBlocked(RuntimeError):
 
 
 class V4PaperWithEmergency(_BasePaper):
-    """Adds quick guards, reversal warnings and a separate H4 paper stream.
-
-    Official V4 entry logic, stops and targets remain unchanged.
-    """
+    """Adds smart waits, quick guards, learning, reversal warnings and H4 paper trades."""
 
     def _save_quick(self, trade):
         try:
@@ -51,6 +85,28 @@ class V4PaperWithEmergency(_BasePaper):
         if not block.get("allowed"):
             raise QuickGuardBlocked(block)
         return super()._save_quick(trade)
+
+    def _finish(self, trade):
+        annotated = dict(trade)
+        lesson = classify_trade_lesson(annotated)
+        if lesson:
+            annotated["learning"] = lesson
+            record_trade_lesson(self.store, annotated, "official")
+            LEARN_LOG.warning(
+                "official_loss_lesson id=%s reason=%s r=%s breakout=%s vol=%s confidence=%s",
+                annotated.get("id"), lesson.get("reason"), lesson.get("r"),
+                lesson.get("breakout"), lesson.get("volatility"), lesson.get("confidence"),
+            )
+        return super()._finish(annotated)
+
+    def _record_quick_lessons(self):
+        for trade in self._quick_rows():
+            if trade.get("status") != "closed":
+                continue
+            lesson = classify_trade_lesson(trade)
+            if not lesson:
+                continue
+            record_trade_lesson(self.store, trade, "quick")
 
     def _handle_guard_block(self, block):
         self.store.set("v4_quick_last_block", block.get("reason"))
@@ -72,6 +128,28 @@ class V4PaperWithEmergency(_BasePaper):
             fingerprints[side] = fingerprint
             self.store.set("v4_quick_guard_alerts", fingerprints)
 
+    def _send_smart_wait(self, decision, now):
+        if not self.notifier or not decision or not quick_hard_blocked(decision):
+            return
+        slot = int(now.timestamp() // 300)
+        if self.store.get("v4_smart_wait_slot") == slot:
+            return
+        try:
+            allowed_news, news_reason, nearby = self.news.check(now)
+        except Exception:
+            allowed_news, news_reason, nearby = False, "calendar_unavailable", []
+        extra = self.store.get("v4_quick_last_block")
+        self.notifier.send(
+            wait_message(
+                decision,
+                news_reason=news_reason,
+                nearby=bool(nearby) or not allowed_news,
+                extra_reason=extra,
+            )
+        )
+        self.store.set("v4_smart_wait_slot", slot)
+        self.store.set("v4_last_wait_plan", ((decision.get("v4") or {}).get("intelligence") or {}).get("wait_plan"))
+
     def quick_cycle(self, now):
         try:
             result = super().quick_cycle(now)
@@ -80,6 +158,9 @@ class V4PaperWithEmergency(_BasePaper):
             result = None
 
         decision = self.store.get("v4_quick_last_analysis") or {}
+        self._send_smart_wait(decision, now)
+        self._record_quick_lessons()
+
         if decision:
             alerts = scan_emergencies(
                 self.store,
@@ -117,15 +198,18 @@ class V4PaperWithEmergency(_BasePaper):
 
 
 # V4-only infrastructure wiring. Official, quick and H4 analyses share a single
-# successful XAU/USD history fetch per five-minute slot. Quick paper entries use
-# that same latest closed 5m candle as their reference, avoiding a second quote
-# API call. Official V4 confirmation logic remains unchanged.
+# successful XAU/USD history fetch per five-minute slot. The smart V4 guard may
+# convert unsafe official/quick entries into WAIT while leaving V3/old bot logic untouched.
 v4_runtime.Market = SharedV4Market
 v4_runtime.quick_reference_quote = _shared_quick_reference
 v4_runtime.build_quick = _build_quick_with_balance
+v4_runtime.continuation_snapshot = _continuation_with_intelligence
+v4_runtime.continuation_message = _continuation_message_with_intelligence
 v4_runtime.quick_message = balanced_quick_message
 v4_runtime.V4Telegram = V4Telegram
 v4_runtime.V4PaperResilientQuick = V4PaperWithEmergency
+v4_service.paper_open_message = _paper_open_message_with_intelligence
+v4_service.paper_close_message = _paper_close_message_with_intelligence
 
 
 if __name__ == "__main__":
