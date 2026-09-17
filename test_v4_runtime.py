@@ -2,7 +2,12 @@ from datetime import datetime, timedelta, timezone
 import unittest
 
 from market import Bar, DataError
-from v4_runtime import quick_market_bars, quick_reference_quote
+from v4_runtime import (
+    calibrate_quick_strength,
+    quick_history_snapshot,
+    quick_market_bars,
+    quick_reference_quote,
+)
 
 UTC = timezone.utc
 
@@ -65,6 +70,40 @@ class V4RuntimeTests(unittest.TestCase):
         bars = [Bar(now - timedelta(minutes=5), 4300, 4302, 4299, 4301, 5)]
         with self.assertRaises(DataError):
             quick_reference_quote(FakeMarket(error="market_quote_invalid"), bars, now)
+
+    def test_quick_history_snapshot_uses_only_measured_closed_results(self):
+        history = quick_history_snapshot([
+            {"status": "closed", "r": 1.5},
+            {"status": "closed", "r": 0.4},
+            {"status": "closed", "r": -1.0},
+            {"status": "closed", "r": 0.0},
+            {"status": "closed", "r": None},
+            {"status": "active", "r": 1.5},
+        ])
+        self.assertEqual(history["sample"], 4)
+        self.assertEqual(history["positive"], 2)
+        self.assertEqual(history["negative"], 1)
+        self.assertEqual(history["flat"], 1)
+        self.assertEqual(history["positive_rate"], 50)
+
+    def test_strong_is_downgraded_when_risk_is_high(self):
+        setup = {"strength": "قوية", "risk_level": "مرتفعة"}
+        calibrated = calibrate_quick_strength(setup, {"side": "BUY"})
+        self.assertEqual(calibrated["raw_strength"], "قوية")
+        self.assertEqual(calibrated["strength"], "متوسطة")
+        self.assertIn("المخاطرة مرتفعة", calibrated["strength_adjustments"])
+
+    def test_strong_is_downgraded_when_official_is_wait(self):
+        setup = {"strength": "قوية", "risk_level": "منخفضة"}
+        calibrated = calibrate_quick_strength(setup, {"side": "WAIT"})
+        self.assertEqual(calibrated["strength"], "متوسطة")
+        self.assertIn("النظام الرسمي WAIT", calibrated["strength_adjustments"])
+
+    def test_strong_remains_strong_when_risk_is_not_high_and_official_confirms(self):
+        setup = {"strength": "قوية", "risk_level": "متوسطة"}
+        calibrated = calibrate_quick_strength(setup, {"side": "BUY"})
+        self.assertEqual(calibrated["strength"], "قوية")
+        self.assertEqual(calibrated["strength_adjustments"], [])
 
 
 if __name__ == "__main__":
