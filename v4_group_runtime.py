@@ -24,6 +24,11 @@ def _build_quick_with_balance(decision, *args, **kwargs):
     return attach_condition_balance(setup, decision)
 
 
+def _shared_quick_reference(_market, bars, now):
+    """Match v4_runtime's quick-reference interface without an extra API call."""
+    return closed_bar_reference(bars, now)
+
+
 class QuickGuardBlocked(RuntimeError):
     def __init__(self, block):
         super().__init__(str(block.get("reason") or "quick_guard_blocked"))
@@ -116,7 +121,7 @@ class V4PaperWithEmergency(_BasePaper):
 # that same latest closed 5m candle as their reference, avoiding a second quote
 # API call. Official V4 confirmation logic remains unchanged.
 v4_runtime.Market = SharedV4Market
-v4_runtime.quick_reference_quote = closed_bar_reference
+v4_runtime.quick_reference_quote = _shared_quick_reference
 v4_runtime.build_quick = _build_quick_with_balance
 v4_runtime.quick_message = balanced_quick_message
 v4_runtime.V4Telegram = V4Telegram
