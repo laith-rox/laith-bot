@@ -7,6 +7,7 @@ rate-limited; every such fallback is explicitly marked high risk.
 """
 from datetime import datetime
 import logging
+import math
 import time
 
 from engine import advance_trade
@@ -57,6 +58,49 @@ def quick_market_bars(market, now, cached_bars=None):
             raise
         require_fresh(cached_bars, now, 600)
         return cached_bars, True
+
+
+def quick_history_snapshot(trades):
+    """Summarize observed quick-paper outcomes; this is not a forecast probability."""
+    measured = []
+    for trade in trades or []:
+        if trade.get("status") != "closed":
+            continue
+        try:
+            r_value = float(trade.get("r"))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(r_value):
+            measured.append(r_value)
+    positive = sum(value > 0 for value in measured)
+    negative = sum(value < 0 for value in measured)
+    flat = sum(value == 0 for value in measured)
+    sample = len(measured)
+    return {
+        "sample": sample,
+        "positive": positive,
+        "negative": negative,
+        "flat": flat,
+        "positive_rate": round(positive / sample * 100) if sample else None,
+    }
+
+
+def calibrate_quick_strength(setup, decision):
+    """Keep raw rule completion, but do not call a risky or official-WAIT setup strong."""
+    raw_strength = setup.get("strength") or "—"
+    adjusted_strength = raw_strength
+    adjustments = []
+    if raw_strength == "قوية" and setup.get("risk_level") == "مرتفعة":
+        adjusted_strength = "متوسطة"
+        adjustments.append("المخاطرة مرتفعة")
+    if raw_strength == "قوية" and decision.get("side") == "WAIT":
+        adjusted_strength = "متوسطة"
+        adjustments.append("النظام الرسمي WAIT")
+    setup["raw_strength"] = raw_strength
+    setup["strength"] = adjusted_strength
+    setup["strength_adjustments"] = list(dict.fromkeys(adjustments))
+    setup["official_decision"] = decision.get("side", "WAIT")
+    return setup
 
 
 class V4PaperResilientQuick(V4Paper):
@@ -150,13 +194,23 @@ class V4PaperResilientQuick(V4Paper):
             delayed_reference=bool(quote.get("delayed_reference")),
             cached_market_data=bool(cached_market),
         )
+        calibrate_quick_strength(setup, decision)
+        history = quick_history_snapshot(self._quick_rows())
+        setup.update(
+            historical_sample=history["sample"],
+            historical_positive=history["positive"],
+            historical_negative=history["negative"],
+            historical_flat=history["flat"],
+            historical_positive_rate=history["positive_rate"],
+        )
         self._save_quick(setup)
         self.store.set("v4_quick_last", setup)
         self.store.set("v4_quick_last_block", None)
         LOG.info(
-            "quick_open id=%s side=%s entry=%.2f stop=%.2f target=%.2f score=%s/7 strength=%s risk=%s source=%s cached=%s official_active=%s",
+            "quick_open id=%s side=%s entry=%.2f stop=%.2f target=%.2f score=%s/7 strength=%s raw_strength=%s risk=%s hist_positive=%s/%s source=%s cached=%s official_active=%s",
             setup["id"], setup["side"], setup["entry"], setup["stop"], setup["target"],
-            setup["score"], setup["strength"], setup.get("risk_level"), setup.get("quote_source"),
+            setup["score"], setup["strength"], setup.get("raw_strength"), setup.get("risk_level"),
+            setup.get("historical_positive"), setup.get("historical_sample"), setup.get("quote_source"),
             bool(cached_market), bool(active),
         )
         if self.notifier:
