@@ -1,4 +1,4 @@
-"""Condition-balance display helpers for Laith V4 quick paper signals."""
+"""Condition-balance and correction display helpers for Laith V4 quick paper signals."""
 
 from v4_telegram import quick_message as _base_quick_message
 
@@ -13,17 +13,45 @@ def _score(decision, side):
     return max(0, min(7, value))
 
 
+def _fmt_price(value):
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _direction_ar(direction):
+    return {"DOWN": "نزول", "UP": "صعود"}.get(str(direction or "").upper(), "غير متاح")
+
+
+def _strength_ar(strength):
+    return {
+        "STRONG": "قوية",
+        "MEDIUM": "متوسطة",
+        "WEAK": "ضعيفة",
+        "UNAVAILABLE": "غير متاحة",
+    }.get(str(strength or "").upper(), str(strength or "غير متاحة"))
+
+
 def attach_condition_balance(setup, decision):
-    """Attach both BUY and SELL rule counts to a quick setup without changing entry logic."""
+    """Attach both rule counts and the existing correction map; entry logic is unchanged."""
     if setup is None:
         return None
     buy_score = _score(decision, "BUY")
     sell_score = _score(decision, "SELL")
+    correction = ((decision.get("v4") or {}).get("correction") or {})
     setup.update(
         buy_score=buy_score,
         sell_score=sell_score,
         buy_percent=round(buy_score / 7 * 100),
         sell_percent=round(sell_score / 7 * 100),
+        correction_direction=correction.get("direction"),
+        correction_strength=correction.get("strength"),
+        correction_triggered=bool(correction.get("triggered")),
+        correction_target1=correction.get("target1"),
+        correction_target2=correction.get("target2"),
+        correction_invalidation=correction.get("invalidation"),
+        correction_start_zone=correction.get("start_zone"),
     )
     return setup
 
@@ -51,15 +79,43 @@ def condition_balance_line(trade):
     return None
 
 
+def correction_block(trade):
+    """Format the already-computed V4 correction map as an explanatory display block."""
+    direction = trade.get("correction_direction")
+    target1 = trade.get("correction_target1")
+    target2 = trade.get("correction_target2")
+    if not direction or (target1 is None and target2 is None):
+        return []
+    state = "مُفعّل" if trade.get("correction_triggered") else "مراقبة"
+    lines = [
+        f"↩️ توقع التصحيح: <b>{_direction_ar(direction)}</b> | القوة: {_strength_ar(trade.get('correction_strength'))} | الحالة: {state}",
+        f"🎯 نطاق التصحيح المتوقع: الأقرب {_fmt_price(target1)} | الأعمق {_fmt_price(target2)}",
+    ]
+    invalidation = trade.get("correction_invalidation")
+    if invalidation is not None:
+        lines.append(f"🚫 إبطال توقع التصحيح: {_fmt_price(invalidation)}")
+    return lines
+
+
 def quick_message(trade):
-    """Reuse the standard V4 message, replacing only the one-sided condition-count line."""
+    """Reuse the standard message, adding side balance and correction targets only."""
     message = _base_quick_message(trade)
-    balance = condition_balance_line(trade)
-    if not balance:
-        return message
     lines = message.splitlines()
-    for index, line in enumerate(lines):
-        if line.startswith("📊 تحقق الشروط:"):
-            lines[index] = balance
-            break
+    balance = condition_balance_line(trade)
+    if balance:
+        for index, line in enumerate(lines):
+            if line.startswith("📊 تحقق الشروط:"):
+                lines[index] = balance
+                break
+
+    correction = correction_block(trade)
+    if correction:
+        insert_at = None
+        for index, line in enumerate(lines):
+            if line.startswith("🎯 الهدف السريع:"):
+                insert_at = index + 1
+                break
+        if insert_at is None:
+            insert_at = len(lines)
+        lines[insert_at:insert_at] = correction
     return "\n".join(lines)
