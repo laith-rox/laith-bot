@@ -15,10 +15,10 @@ class V4KeyConfigTests(unittest.TestCase):
         self.assertEqual(key, "v4-key")
         self.assertEqual(source, "V4_TWELVE_DATA_API_KEY")
 
-    def test_shared_key_is_fallback(self):
+    def test_shared_key_is_not_a_fallback(self):
         key, source = select_v4_twelve_key({"TWELVE_DATA_API_KEY": "shared-key"})
-        self.assertEqual(key, "shared-key")
-        self.assertEqual(source, "TWELVE_DATA_API_KEY")
+        self.assertIsNone(key)
+        self.assertEqual(source, "missing")
 
     def test_apply_makes_existing_parser_use_dedicated_key(self):
         with patch.dict(os.environ, {
@@ -29,6 +29,14 @@ class V4KeyConfigTests(unittest.TestCase):
             args = parser().parse_args([])
             self.assertEqual(source, "V4_TWELVE_DATA_API_KEY")
             self.assertEqual(args.twelve_key, "v4-key")
+
+    def test_apply_removes_shared_key_when_dedicated_missing(self):
+        with patch.dict(os.environ, {"TWELVE_DATA_API_KEY": "shared-key"}, clear=False):
+            os.environ.pop("V4_TWELVE_DATA_API_KEY", None)
+            source = apply_v4_twelve_key_precedence()
+            args = parser().parse_args([])
+            self.assertEqual(source, "missing")
+            self.assertIsNone(args.twelve_key)
 
     def test_missing_keys_stay_missing(self):
         key, source = select_v4_twelve_key({})
