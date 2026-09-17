@@ -1,13 +1,42 @@
 """Validated XAU/USD candles. No network operations occur at import time."""
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import logging
 import math
 import requests
 
 UTC = timezone.utc
+LOG = logging.getLogger("laith.market")
 
 class DataError(RuntimeError):
     pass
+
+def _quota_diagnostics(response, endpoint):
+    """Log only non-secret quota metadata for provider throttling diagnostics."""
+    if response is None or response.status_code != 429:
+        return
+    headers = response.headers or {}
+    used = headers.get("api-credits-used") or headers.get("Api-Credits-Used")
+    left = headers.get("api-credits-left") or headers.get("Api-Credits-Left")
+    request = headers.get("api-credits-request") or headers.get("Api-Credits-Request")
+    retry_after = headers.get("retry-after") or headers.get("Retry-After")
+    code = None
+    status = None
+    message = None
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            code = payload.get("code")
+            status = payload.get("status")
+            raw_message = payload.get("message")
+            if raw_message is not None:
+                message = str(raw_message).replace("\n", " ")[:240]
+    except (ValueError, TypeError):
+        pass
+    LOG.warning(
+        "twelve_quota endpoint=%s http=429 credits_used=%s credits_left=%s credits_request=%s retry_after=%s provider_code=%s provider_status=%s provider_message=%s",
+        endpoint, used, left, request, retry_after, code, status, message,
+    )
 
 def timestamp(value):
     dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -95,6 +124,7 @@ class Market:
             response = self.session.get('https://api.twelvedata.com/exchange_rate',
                 params={'symbol':'XAU/USD', 'apikey':self.key}, timeout=(5, 10))
             if response.status_code != 200:
+                _quota_diagnostics(response, "exchange_rate")
                 raise DataError('market_quote_unavailable')
             payload = response.json()
         except (requests.RequestException, ValueError):
@@ -104,7 +134,9 @@ class Market:
         try:
             response=self.session.get("https://api.twelvedata.com/time_series",params={"symbol":"XAU/USD","interval":"5min","outputsize":2400,"timezone":"UTC","order":"ASC","apikey":self.key,"format":"JSON"},timeout=(5,25))
         except requests.RequestException: raise DataError("market_connection_failed") from None
-        if response.status_code != 200: raise DataError(f"market_http_{response.status_code}")
+        if response.status_code != 200:
+            _quota_diagnostics(response, "time_series")
+            raise DataError(f"market_http_{response.status_code}")
         try: payload=response.json()
         except ValueError: raise DataError("market_response_not_json") from None
         if isinstance(payload,dict) and payload.get("status")=="error":
