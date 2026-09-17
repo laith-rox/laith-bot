@@ -1,5 +1,6 @@
-"""Condition-balance and correction display helpers for Laith V4 quick paper signals."""
+"""Condition-balance, correction and intelligence display helpers for Laith V4 quick paper signals."""
 
+from v4_intelligence import enhance_quick_message
 from v4_telegram import quick_message as _base_quick_message
 
 
@@ -44,12 +45,13 @@ def strength_marker(strength):
 
 
 def attach_condition_balance(setup, decision):
-    """Attach both rule counts and the existing correction map; entry logic is unchanged."""
+    """Attach both rule counts, correction map and V4 intelligence to a quick setup."""
     if setup is None:
         return None
     buy_score = _score(decision, "BUY")
     sell_score = _score(decision, "SELL")
-    correction = ((decision.get("v4") or {}).get("correction") or {})
+    research = decision.get("v4") or {}
+    correction = research.get("correction") or {}
     setup.update(
         buy_score=buy_score,
         sell_score=sell_score,
@@ -62,6 +64,7 @@ def attach_condition_balance(setup, decision):
         correction_target2=correction.get("target2"),
         correction_invalidation=correction.get("invalidation"),
         correction_start_zone=correction.get("start_zone"),
+        intelligence=research.get("intelligence") or {},
     )
     return setup
 
@@ -108,7 +111,7 @@ def correction_block(trade):
 
 
 def quick_message(trade):
-    """Reuse the standard message, adding side balance, strength color and correction targets only."""
+    """Reuse the standard message and add balance, correction and smart V4 context."""
     message = _base_quick_message(trade)
     lines = message.splitlines()
     balance = condition_balance_line(trade)
@@ -134,4 +137,4 @@ def quick_message(trade):
         if insert_at is None:
             insert_at = len(lines)
         lines[insert_at:insert_at] = correction
-    return "\n".join(lines)
+    return enhance_quick_message("\n".join(lines), trade)
