@@ -10,23 +10,16 @@ class V4QuickGuardTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 9, 17, 8, 0, tzinfo=UTC)
 
-    def test_blocks_weak_high_risk_setup(self):
+    def test_allows_weak_high_risk_setup_for_manual_decision(self):
         setup = {"side": "BUY", "score": 4, "risk_level": "مرتفعة"}
-        block = guard_quick_setup(setup, [], self.now)
-        self.assertFalse(block["allowed"])
-        self.assertEqual(block["reason"], "weak_high_risk")
-
-    def test_allows_weak_when_not_high_risk(self):
-        setup = {"side": "BUY", "score": 4, "risk_level": "متوسطة"}
         result = guard_quick_setup(setup, [], self.now)
         self.assertTrue(result["allowed"])
 
-    def test_blocks_same_side_stacking(self):
+    def test_allows_same_side_candidate_while_previous_is_active(self):
         setup = {"side": "SELL", "score": 5, "risk_level": "متوسطة"}
         rows = [{"id": "old", "status": "active", "side": "SELL"}]
-        block = guard_quick_setup(setup, rows, self.now)
-        self.assertFalse(block["allowed"])
-        self.assertEqual(block["reason"], "same_side_active")
+        result = guard_quick_setup(setup, rows, self.now)
+        self.assertTrue(result["allowed"])
 
     def test_opposite_side_active_does_not_block(self):
         setup = {"side": "SELL", "score": 5, "risk_level": "متوسطة"}
