@@ -16,6 +16,7 @@ from v4_intelligence import (
 )
 from v4_key_config import apply_v4_twelve_key_precedence
 from v4_learning import classify_trade_lesson, record_trade_lesson
+from v4_quick_5m import quick_5m_wait_message
 from v4_quick_balance import attach_condition_balance, quick_message as balanced_quick_message
 from v4_quick_guard import guard_alert_message, guard_quick_setup
 from v4_shared_market import SharedV4Market, closed_bar_reference
@@ -132,6 +133,23 @@ class V4PaperWithEmergency(_BasePaper):
             fingerprints[side] = fingerprint
             self.store.set("v4_quick_guard_alerts", fingerprints)
 
+    def _send_quick_5m_wait(self, higher_decision, now):
+        if not self.notifier or self.store.get("v4_quick_last_block") != "quick_5m_wait":
+            return
+        # If the higher-level smart safety gate is already blocking, its richer
+        # WAIT message takes priority so Telegram does not receive duplicate waits.
+        if higher_decision and quick_hard_blocked(higher_decision):
+            return
+        slot = int(now.timestamp() // 300)
+        if self.store.get("v4_quick_5m_wait_slot") == slot:
+            return
+        decision = self.store.get("v4_quick_5m_analysis") or {}
+        reference = self.store.get("v4_quick_5m_reference") or {}
+        message = quick_5m_wait_message(decision, reference)
+        if message:
+            self.notifier.send(message)
+            self.store.set("v4_quick_5m_wait_slot", slot)
+
     def _send_smart_wait(self, decision, now):
         if not self.notifier or not decision or not quick_hard_blocked(decision):
             return
@@ -165,6 +183,7 @@ class V4PaperWithEmergency(_BasePaper):
             result = None
 
         decision = self.store.get("v4_quick_last_analysis") or {}
+        self._send_quick_5m_wait(decision, now)
         self._send_smart_wait(decision, now)
         self._record_quick_lessons()
 
@@ -206,8 +225,8 @@ class V4PaperWithEmergency(_BasePaper):
 
 
 # V4-only infrastructure wiring. Official/H4 analysis remains based on closed
-# bars. New quick entries are additionally tied to the real current 5m candle and
-# only accepted when its provider timestamp matches the current five-minute slot.
+# bars. New quick entries are tied to the real current 5m candle and the dedicated
+# 5m decision engine while M15/H1 context remains a filter only.
 v4_runtime.Market = SharedV4Market
 v4_runtime.quick_reference_quote = _shared_quick_reference
 v4_runtime.quick_entry_reference = _shared_quick_entry_reference
