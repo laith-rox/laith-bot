@@ -118,12 +118,13 @@ class SharedV4Market(Market):
         return self._store_snapshot(now, bars, current)
 
     def current_candle_reference(self, now, max_entry_delay_seconds=45):
-        """Return the real current 5m candle OPEN only when timing is aligned.
+        """Return a live reference from the real current 5m candle when aligned.
 
         A quick setup is allowed only during the first ``max_entry_delay_seconds``
         of the slot and only when the provider actually supplied a candle whose
-        start timestamp exactly equals that slot's start.  Cached/previous candles
-        are never substituted for a new quick entry.
+        start timestamp exactly equals that slot's start. Cached/previous candles
+        are never substituted for a new quick entry. ``price`` is the latest
+        observed price inside that candle; ``candle_open`` is retained separately.
         """
         slot = self._slot(now)
         slot_start = self._slot_start(slot)
@@ -134,7 +135,7 @@ class SharedV4Market(Market):
         current = self._shared_current_bar if self._shared_slot == slot else None
         if current is None and self._current_retry_slot != slot:
             # The official cycle can fetch a few seconds before the provider has
-            # published the new forming candle.  Permit one same-slot refresh for
+            # published the new forming candle. Permit one same-slot refresh for
             # the quick cycle, never an unlimited retry loop.
             self._current_retry_slot = slot
             bars, current = self._fetch_provider_snapshot(now)
@@ -144,14 +145,14 @@ class SharedV4Market(Market):
             raise DataError("quick_current_candle_unavailable")
 
         return {
-            "price": float(current.open),
-            "observed_price": float(current.close),
-            "time": current.start.timestamp(),
+            "price": float(current.close),
+            "candle_open": float(current.open),
+            "time": now.timestamp(),
             "candle_start": current.start.timestamp(),
             "candle_start_iso": current.start.isoformat(),
             "observed_at": now.timestamp(),
             "entry_delay_seconds": round(elapsed, 3),
-            "source": "Twelve Data - افتتاح شمعة 5د الحالية",
+            "source": "Twelve Data - شمعة 5د الحالية",
             "delayed_reference": False,
             "shared_candle_reference": True,
             "current_five_minute_candle": True,
@@ -162,7 +163,7 @@ class SharedV4Market(Market):
 def closed_bar_reference(bars, now):
     """Reference monitoring to the latest CLOSED fresh 5m candle.
 
-    This remains useful for continuity monitoring.  New quick entries use
+    This remains useful for continuity monitoring. New quick entries use
     ``SharedV4Market.current_candle_reference`` instead.
     """
     require_fresh(bars, now, 600)
