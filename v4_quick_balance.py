@@ -33,6 +33,16 @@ def _strength_ar(strength):
     }.get(str(strength or "").upper(), str(strength or "غير متاحة"))
 
 
+def strength_marker(strength):
+    """Telegram has no portable text-color API, so use stable color markers."""
+    return {
+        "قوية": "🟢",
+        "متوسطة": "🟡",
+        "ضعيفة": "🔴",
+        "تحذير": "🚨",
+    }.get(str(strength or ""), "⚪")
+
+
 def attach_condition_balance(setup, decision):
     """Attach both rule counts and the existing correction map; entry logic is unchanged."""
     if setup is None:
@@ -98,7 +108,7 @@ def correction_block(trade):
 
 
 def quick_message(trade):
-    """Reuse the standard message, adding side balance and correction targets only."""
+    """Reuse the standard message, adding side balance, strength color and correction targets only."""
     message = _base_quick_message(trade)
     lines = message.splitlines()
     balance = condition_balance_line(trade)
@@ -107,6 +117,12 @@ def quick_message(trade):
             if line.startswith("📊 تحقق الشروط:"):
                 lines[index] = balance
                 break
+
+    marker = strength_marker(trade.get("strength"))
+    for index, line in enumerate(lines):
+        if line.startswith("🧭 القوة المعروضة:"):
+            lines[index] = f"{marker} القوة المعروضة: <b>{trade.get('strength', '—')}</b>"
+            break
 
     correction = correction_block(trade)
     if correction:
