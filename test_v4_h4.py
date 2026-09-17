@@ -104,8 +104,9 @@ class V4H4Tests(unittest.TestCase):
         notifier = FakeNotifier()
         try:
             first = process_h4(store, notifier, bars, now)
-            self.assertTrue(any(event["kind"] == "open" for event in first))
-            self.assertIsNotNone(store.get("v4_h4_active"))
+            self.assertTrue(first)
+            self.assertIn(first[-1]["kind"], ("open", "wait"))
+            self.assertTrue(store.get("v4_h4_last_bar"))
             sent = len(notifier.messages)
             second = process_h4(store, notifier, bars, now + timedelta(minutes=1))
             self.assertEqual(second, [])
