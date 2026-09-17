@@ -3,26 +3,26 @@ import os
 
 
 def select_v4_twelve_key(env=None):
-    """Prefer the dedicated V4 key, with the shared key only as fallback."""
+    """Use only the dedicated V4 key; never fall back to the shared bot key."""
     env = os.environ if env is None else env
     v4_key = env.get("V4_TWELVE_DATA_API_KEY")
     if v4_key:
         return v4_key, "V4_TWELVE_DATA_API_KEY"
-    shared_key = env.get("TWELVE_DATA_API_KEY")
-    if shared_key:
-        return shared_key, "TWELVE_DATA_API_KEY"
     return None, "missing"
 
 
 def apply_v4_twelve_key_precedence(env=None):
-    """Put the selected V4 key where the existing parser expects it.
+    """Force this V4 worker to use only its dedicated Twelve Data key.
 
-    This changes only this worker process environment. It does not mutate Railway
-    variables and never logs or returns a secret unless the caller explicitly asks
-    select_v4_twelve_key for the value.
+    The existing parser reads TWELVE_DATA_API_KEY, so when the dedicated V4 key
+    is present we place that value into the process-local parser slot. If it is
+    missing, we remove any shared key from this process so V4 cannot silently
+    fall back to another bot/account.
     """
     target = os.environ if env is None else env
     key, source = select_v4_twelve_key(target)
     if key:
         target["TWELVE_DATA_API_KEY"] = key
+    else:
+        target.pop("TWELVE_DATA_API_KEY", None)
     return source
