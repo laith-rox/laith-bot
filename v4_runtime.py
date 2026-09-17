@@ -93,18 +93,22 @@ def quick_history_snapshot(trades):
 
 
 def calibrate_quick_strength(setup, decision):
-    """Keep raw rule completion, but do not call a high-risk quick setup strong."""
+    """Keep raw rule completion while preserving higher-timeframe safety downgrades."""
     raw_strength = setup.get("strength") or "—"
     adjusted_strength = raw_strength
     adjustments = []
+    higher_side = ((decision.get("quick5m") or {}).get("higher_side")
+                   or decision.get("side", "WAIT"))
     if raw_strength == "قوية" and setup.get("risk_level") == "مرتفعة":
         adjusted_strength = "متوسطة"
         adjustments.append("المخاطرة مرتفعة")
+    if raw_strength == "قوية" and higher_side == "WAIT":
+        adjusted_strength = "متوسطة"
+        adjustments.append("النظام الرسمي WAIT")
     setup["raw_strength"] = raw_strength
     setup["strength"] = adjusted_strength
     setup["strength_adjustments"] = list(dict.fromkeys(adjustments))
-    setup["official_decision"] = ((decision.get("quick5m") or {}).get("higher_side")
-                                  or decision.get("side", "WAIT"))
+    setup["official_decision"] = higher_side
     return setup
 
 
@@ -159,8 +163,6 @@ class V4PaperResilientQuick(V4Paper):
 
         allowed_news, news_reason, nearby = self.news.check(now)
 
-        # Cached bars may keep monitoring alive, but they can never create a NEW
-        # quick setup. Laith requested a real 5m candle for every quick trade.
         if cached_market:
             self.store.set("v4_quick_last_block", "quick_requires_live_current_candle")
             LOG.warning("quick_entry_block reason=quick_requires_live_current_candle cached_market=true")
