@@ -127,4 +127,6 @@ if __name__ == "__main__":
     key_source = apply_v4_twelve_key_precedence()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     KEY_LOG.info("market_key_source=%s", key_source)
+    if key_source != "V4_TWELVE_DATA_API_KEY":
+        raise RuntimeError("V4_TWELVE_DATA_API_KEY is required for isolated V4 worker")
     v4_runtime.run(v4_runtime.parser().parse_args())
