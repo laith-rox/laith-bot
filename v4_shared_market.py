@@ -1,10 +1,10 @@
 """V4-only shared XAU/USD market snapshot.
 
 One Twelve Data 5-minute history request is shared by V4 official, quick, and H4
-analysis inside the same five-minute slot.  Unlike the generic Market adapter,
+analysis inside the same five-minute slot. Unlike the generic Market adapter,
 this V4-only adapter also retains the provider's currently-forming five-minute
 candle so quick paper setups can be tied to the real candle that opened in the
-same slot.  Closed candles remain the only input to the strategy indicators.
+same slot. Closed candles remain the only input to the official strategy indicators.
 """
 from datetime import datetime, timezone
 import logging
@@ -27,7 +27,7 @@ LOG = logging.getLogger("laith.v4.market")
 class SharedV4Market(Market):
     """Cache one provider snapshot per five-minute UTC slot.
 
-    The returned value from ``fetch`` is still CLOSED candles only.  The current
+    The returned value from ``fetch`` is still CLOSED candles only. The current
     forming candle is retained separately and can be requested through
     ``current_candle_reference`` for a time-aligned quick setup.
     """
@@ -124,7 +124,8 @@ class SharedV4Market(Market):
         of the slot and only when the provider actually supplied a candle whose
         start timestamp exactly equals that slot's start. Cached/previous candles
         are never substituted for a new quick entry. ``price`` is the latest
-        observed price inside that candle; ``candle_open`` is retained separately.
+        observed price inside that candle; full current OHLC is exposed to the
+        quick-only 5m decision engine.
         """
         slot = self._slot(now)
         slot_start = self._slot_start(slot)
@@ -134,9 +135,6 @@ class SharedV4Market(Market):
 
         current = self._shared_current_bar if self._shared_slot == slot else None
         if current is None and self._current_retry_slot != slot:
-            # The official cycle can fetch a few seconds before the provider has
-            # published the new forming candle. Permit one same-slot refresh for
-            # the quick cycle, never an unlimited retry loop.
             self._current_retry_slot = slot
             bars, current = self._fetch_provider_snapshot(now)
             self._store_snapshot(now, bars, current)
@@ -147,6 +145,8 @@ class SharedV4Market(Market):
         return {
             "price": float(current.close),
             "candle_open": float(current.open),
+            "candle_high": float(current.high),
+            "candle_low": float(current.low),
             "time": now.timestamp(),
             "candle_start": current.start.timestamp(),
             "candle_start_iso": current.start.isoformat(),
