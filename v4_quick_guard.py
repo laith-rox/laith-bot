@@ -1,7 +1,9 @@
 """Safety guard for Laith V4 quick paper signals only.
 
-The official V4 strategy is untouched. This module filters only the five-minute
-quick paper stream after a setup has already been built.
+Quick candidates are now shown even when weak/high-risk or when another quick
+candidate in the same direction is active, because Laith explicitly wants to
+make the manual entry decision himself. The stop-streak cooldown remains the
+one suppression guard to prevent immediate repeated losses after two stops.
 """
 
 STOP_STREAK_LIMIT = 2
@@ -33,34 +35,8 @@ def _stop_streak(trades, side):
 
 
 def guard_quick_setup(setup, trades, now):
-    """Return whether a quick setup may be emitted under the approved guard rules."""
+    """Block only a same-side stop-streak cooldown; expose other candidates with warnings."""
     side = setup.get("side")
-    try:
-        score = int(setup.get("score", 0))
-    except (TypeError, ValueError):
-        score = 0
-
-    if score <= 4 and setup.get("risk_level") == "مرتفعة":
-        return {
-            "allowed": False,
-            "reason": "weak_high_risk",
-            "side": side,
-            "detail": "صفقة ضعيفة 4/7 أو أقل مع مخاطرة مرتفعة",
-        }
-
-    same_side_active = [
-        trade for trade in (trades or [])
-        if trade.get("status") == "active" and trade.get("side") == side
-    ]
-    if same_side_active:
-        return {
-            "allowed": False,
-            "reason": "same_side_active",
-            "side": side,
-            "detail": "توجد صفقة سريعة قائمة بالفعل بنفس الاتجاه",
-            "active_count": len(same_side_active),
-        }
-
     streak, last_stop_time = _stop_streak(trades, side)
     if streak >= STOP_STREAK_LIMIT and last_stop_time:
         cooldown_until = last_stop_time + STOP_COOLDOWN_SECONDS
@@ -91,6 +67,6 @@ def guard_alert_message(block):
         f"الاتجاه: <b>{side_ar}</b>\n"
         f"السبب: {block.get('detail', 'ستوبات متتالية')}\n"
         f"⏳ المهلة المتبقية: حوالي <b>{minutes} دقيقة</b>\n\n"
-        "لن تُفتح صفقة سريعة جديدة بنفس الاتجاه أثناء المهلة. "
-        "الصفقات الرسمية V4 وشروطها والستوب والأهداف لم تتغير."
+        "بعد ستوبين متتاليين بنفس الاتجاه يتوقف إرسال صفقة جديدة مؤقتًا. "
+        "هذا لا يغيّر مسار صفقة الربع ساعة."
     )
