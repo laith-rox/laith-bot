@@ -17,12 +17,39 @@ def _fmt(value):
         return "—"
 
 
+def _quick_history_line(trade):
+    try:
+        sample = int(trade.get("historical_sample", 0) or 0)
+    except (TypeError, ValueError):
+        sample = 0
+    rate = trade.get("historical_positive_rate")
+    positive = trade.get("historical_positive")
+    if sample > 0 and rate is not None:
+        return (
+            f"📚 النتائج المرصودة: <b>{positive}/{sample} موجبة ({rate}%)</b> "
+            "— وصف تاريخي للعينة، وليس احتمال نجاح للصفقة الحالية."
+        )
+    return "📚 النتائج المرصودة: لا توجد عينة مقاسة كافية بعد."
+
+
+def _strength_adjustment_line(trade):
+    raw = trade.get("raw_strength")
+    shown = trade.get("strength")
+    adjustments = trade.get("strength_adjustments") or []
+    if raw and shown and raw != shown:
+        reason = " — ".join(str(x) for x in adjustments) if adjustments else "معايرة المخاطرة"
+        return f"🧭 القوة الخام: {raw} → المعروضة: <b>{shown}</b> ({reason})"
+    return None
+
+
 def welcome_message():
     return (
         "🥇 <b>Laith V4 — مختبر الذهب</b>\n\n"
         "تم ربط تيليجرام بالنسخة التجريبية المستقلة.\n"
         "⚡ يفحص صفقة سريعة كل 5 دقائق، وتبقى السريعة مستقلة حتى لو كانت صفقة V4 الرسمية قائمة.\n"
         "🔴 إذا كانت الظروف خطرة لا تختفي الصفقة السريعة؛ يظهر عليها مستوى المخاطرة وأسباب التحذير.\n"
+        "🧭 كلمة قوية تُعاير الآن: لا تبقى قوية إذا كانت المخاطرة مرتفعة أو القرار الرسمي WAIT.\n"
+        "📚 تظهر النتائج المرصودة من الصفقات السريعة السابقة كبيانات تاريخية، وليست احتمال نجاح.\n"
         "🔄 الصفقة الرسمية القائمة تحصل على تحديث استمرارية كل 5 دقائق.\n"
         "📄 كل الصفقات هنا <b>ورقية/بحثية فقط</b> وليست تنفيذًا على حساب حقيقي.\n\n"
         "الأوامر:\n"
@@ -76,9 +103,15 @@ def status_message(store):
         lines.extend([
             "",
             "⚡ <b>آخر صفقة سريعة</b>",
-            f"الاتجاه: {quick.get('side', '—')} | القوة: {quick.get('strength', '—')}",
+            f"الاتجاه: {quick.get('side', '—')} | القوة المعروضة: {quick.get('strength', '—')}",
             f"المخاطرة: {quick.get('risk_level', '—')}",
             f"الشروط: {quick.get('score', '—')}/7 = {quick.get('condition_percent', '—')}%",
+        ])
+        adjusted = _strength_adjustment_line(quick)
+        if adjusted:
+            lines.append(adjusted)
+        lines.extend([
+            _quick_history_line(quick),
             f"RSI: {_fmt(quick.get('rsi'))}",
             f"الدخول: {_fmt(quick.get('entry'))} | الهدف: {_fmt(quick.get('target'))}",
         ])
@@ -119,10 +152,15 @@ def quick_message(trade):
     risk_marker = "🔴" if risk_level == "مرتفعة" else "🟡" if risk_level == "متوسطة" else "🟢"
     reasons = trade.get("risk_reasons") or []
     risk_text = " — ".join(str(x) for x in reasons) if reasons else "لا توجد تحذيرات إضافية"
+    adjustment = _strength_adjustment_line(trade)
+    adjustment_text = (adjustment + "\n") if adjustment else ""
     return (
         "⚡ <b>صفقة سريعة — V4 (ورقية)</b>\n\n"
         f"الاتجاه: <b>{trade.get('side', '—')}</b>\n"
-        f"📊 تحقق الشروط: <b>{trade.get('score', '—')}/7 = {trade.get('condition_percent', '—')}% — {trade.get('strength', '—')}</b>\n"
+        f"📊 تحقق الشروط: <b>{trade.get('score', '—')}/7 = {trade.get('condition_percent', '—')}%</b>\n"
+        f"🧭 القوة المعروضة: <b>{trade.get('strength', '—')}</b>\n"
+        f"{adjustment_text}"
+        f"{_quick_history_line(trade)}\n"
         f"{risk_marker} المخاطرة: <b>{risk_level}</b>\n"
         f"⚠️ ملاحظات: {risk_text}\n"
         f"📈 RSI: <b>{_fmt(trade.get('rsi'))}</b>\n\n"
@@ -134,7 +172,7 @@ def quick_message(trade):
         "⏱️ الصلاحية: 20 دقيقة\n\n"
         f"الجلسة: {trade.get('session', '—')} | التذبذب: {trade.get('volatility_regime', '—')}\n"
         "↔️ المسار السريع مستقل عن الصفقة الرسمية وقد يعمل معها بنفس الوقت.\n"
-        "⚠️ القوة = اكتمال شروط، وليست نسبة نجاح. الصفقة بحثية ورقية فقط."
+        "⚠️ نسبة الشروط والقوة ليستا احتمال ربح. الصفقة بحثية ورقية فقط."
     )
 
 
