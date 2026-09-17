@@ -60,6 +60,13 @@ class V4RuntimeTests(unittest.TestCase):
         self.assertTrue(reused)
         self.assertEqual(bars[-1].close, 4301)
 
+    def test_connection_failure_bars_use_fresh_cache(self):
+        now = datetime(2026, 9, 16, 22, 10, tzinfo=UTC)
+        cached = [Bar(now - timedelta(minutes=5), 4300, 4302, 4299, 4301, 5)]
+        bars, reused = quick_market_bars(FakeMarket(fetch_error="market_connection_failed"), now, cached)
+        self.assertTrue(reused)
+        self.assertEqual(bars[-1].close, 4301)
+
     def test_rate_limited_bars_without_cache_still_fail(self):
         now = datetime(2026, 9, 16, 22, 10, tzinfo=UTC)
         with self.assertRaises(DataError):
@@ -92,14 +99,15 @@ class V4RuntimeTests(unittest.TestCase):
         self.assertEqual(calibrated["raw_strength"], "قوية")
         self.assertEqual(calibrated["strength"], "متوسطة")
         self.assertIn("المخاطرة مرتفعة", calibrated["strength_adjustments"])
+        self.assertFalse(calibrated["strength_is_probability"])
 
-    def test_strong_is_downgraded_when_official_is_wait(self):
+    def test_strong_is_downgraded_when_higher_timeframe_is_wait(self):
         setup = {"strength": "قوية", "risk_level": "منخفضة"}
         calibrated = calibrate_quick_strength(setup, {"side": "WAIT"})
         self.assertEqual(calibrated["strength"], "متوسطة")
-        self.assertIn("النظام الرسمي WAIT", calibrated["strength_adjustments"])
+        self.assertIn("الاتجاه الأكبر غير مؤكد", calibrated["strength_adjustments"])
 
-    def test_strong_remains_strong_when_risk_is_not_high_and_official_confirms(self):
+    def test_strong_remains_strong_when_risk_is_not_high_and_higher_confirms(self):
         setup = {"strength": "قوية", "risk_level": "متوسطة"}
         calibrated = calibrate_quick_strength(setup, {"side": "BUY"})
         self.assertEqual(calibrated["strength"], "قوية")
