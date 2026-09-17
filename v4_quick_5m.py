@@ -1,15 +1,16 @@
 """True five-minute decision layer for Laith V4 quick paper setups.
 
-The official V4 strategy remains untouched.  This module creates a quick-only
-view of the market from CLOSED 5m bars plus the provider's currently-forming 5m
-candle.  M15/H1 context is used only as a higher-timeframe filter.
+The official V4 strategy remains untouched. This module creates a quick-only
+view of the market from CLOSED 5m bars plus a live reference inside the current
+5m slot. M15/H1 context is a filter and risk input, not a reason to hide every
+quick candidate. Strength describes rule completion, never guaranteed profit.
 """
 from copy import deepcopy
 import math
 
 
 QUICK_5M_CONDITION_NAMES = (
-    "اتجاه شمعة 5د الحالية",
+    "اتجاه حركة شمعة 5د الحالية",
     "السعر مقابل EMA9 على 5د",
     "اتجاه EMA9/21 على 5د",
     "زخم آخر 3 شموع 5د",
@@ -62,13 +63,21 @@ def _safe_score(value):
         return 0
 
 
+def _strength(score):
+    if score >= 6:
+        return "قوية"
+    if score == 5:
+        return "متوسطة"
+    return "ضعيفة"
+
+
 def analyze_quick_5m(bars, current, higher_decision):
     """Return a quick-only decision driven by 5m evidence.
 
-    Entry requires at least 5/7 checks, a two-check advantage over the opposite
-    side, agreement from the current 5m candle direction, and no conflict with
-    the M15/H1 filter.  A non-qualified slot becomes WAIT rather than forcing a
-    trade.  Scores describe rule completion, not probability of profit.
+    A directional candidate is exposed when one side has at least 4/7 checks,
+    leads the opposite side, and agrees with the current-slot price movement.
+    This lets Laith see weak, medium and strong candidates and decide manually.
+    WAIT is reserved for ties, directionless current movement, or unsafe data.
     """
     decision = deepcopy(higher_decision or {})
     if len(bars or []) < 22 or not isinstance(current, dict):
@@ -146,13 +155,19 @@ def analyze_quick_5m(bars, current, higher_decision):
 
     side = "WAIT"
     reason = "quick_5m_wait"
-    if buy >= 5 and buy - sell >= 2 and buy_checks[0] and buy_checks[6]:
+    active_score = 0
+    # Current-slot movement is mandatory: if price has not moved away from the
+    # slot opening reference, there is no honest fast direction to expose.
+    if buy >= 4 and buy > sell and buy_checks[0]:
         side = "BUY"
-        reason = "quick_5m_buy_confirmed"
-    elif sell >= 5 and sell - buy >= 2 and sell_checks[0] and sell_checks[6]:
+        active_score = buy
+        reason = "quick_5m_buy_candidate"
+    elif sell >= 4 and sell > buy and sell_checks[0]:
         side = "SELL"
-        reason = "quick_5m_sell_confirmed"
+        active_score = sell
+        reason = "quick_5m_sell_candidate"
 
+    strength = _strength(active_score) if side in ("BUY", "SELL") else None
     decision.update(
         side=side,
         reason=reason,
@@ -166,10 +181,14 @@ def analyze_quick_5m(bars, current, higher_decision):
     )
     decision["quick5m"] = {
         "entry_allowed": side in ("BUY", "SELL"),
+        "manual_candidate": side in ("BUY", "SELL"),
         "side": side,
         "reason": reason,
         "buy": buy,
         "sell": sell,
+        "strength": strength,
+        "rule_completion_percent": round(active_score / 7 * 100) if active_score else 0,
+        "calibrated_probability": False,
         "ema9": float(ema9),
         "ema21": float(ema21),
         "atr5": float(atr5),
@@ -178,6 +197,7 @@ def analyze_quick_5m(bars, current, higher_decision):
         "current_price": price,
         "current_high": candle_high,
         "current_low": candle_low,
+        "current_open_estimated": bool(current.get("candle_open_estimated")),
         "previous_mid": previous_mid,
         "higher_buy": higher_buy,
         "higher_sell": higher_sell,
@@ -188,7 +208,7 @@ def analyze_quick_5m(bars, current, higher_decision):
 
 
 def quick_5m_wait_message(decision, current=None):
-    """Compact Telegram WAIT message for an aligned 5m slot with weak/mixed evidence."""
+    """Compact Telegram WAIT message when 5m evidence has no honest direction."""
     q = (decision or {}).get("quick5m") or {}
     if q.get("entry_allowed"):
         return None
@@ -200,11 +220,11 @@ def quick_5m_wait_message(decision, current=None):
         "⏸️ <b>Quick 5د — WAIT</b>",
         "",
         f"📊 شراء: <b>{buy}/7</b> | بيع: <b>{sell}/7</b>",
-        "السبب: شروط شمعة 5د الحالية غير كافية أو متعارضة؛ لا يتم إجبار صفقة.",
+        "السبب: الاتجاه اللحظي متعادل/غير واضح أو البيانات غير كافية؛ لا يتم اختراع صفقة.",
     ]
     if price is not None:
         lines.append(f"💰 السعر المرصود: <b>{float(price):.2f}</b>")
     if start:
         lines.append(f"🕯️ شمعة المصدر: {start}")
-    lines.append("⚠️ هذه قراءة قواعد وليست احتمال ربح.")
+    lines.append("⚠️ تصنيف القوة هو اكتمال قواعد، وليس احتمال ربح مضمون.")
     return "\n".join(lines)
