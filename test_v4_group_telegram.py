@@ -38,7 +38,7 @@ class GroupTelegramTests(unittest.TestCase):
         tg = V4Telegram("token", store, client_cls=FakeTelegram)
         return tmp, store, tg
 
-    def test_paired_owner_can_bind_group_and_broadcast(self):
+    def test_paired_owner_can_bind_group_and_automatic_alerts_go_group_only(self):
         tmp, store, tg = self.make()
         try:
             tg.client.updates = [{
@@ -53,7 +53,16 @@ class GroupTelegramTests(unittest.TestCase):
             self.assertEqual(store.get("v4_telegram_group_id"), "-999")
             tg.client.sent.clear()
             self.assertTrue(tg.send("signal"))
-            self.assertEqual([x[0] for x in tg.client.sent], ["111", "-999"])
+            self.assertEqual([x[0] for x in tg.client.sent], ["-999"])
+        finally:
+            store.close(); tmp.cleanup()
+
+    def test_private_is_fallback_when_no_group_is_bound(self):
+        tmp, store, tg = self.make()
+        try:
+            self.assertFalse(store.get("v4_telegram_group_id"))
+            self.assertTrue(tg.send("signal"))
+            self.assertEqual([x[0] for x in tg.client.sent], ["111"])
         finally:
             store.close(); tmp.cleanup()
 
