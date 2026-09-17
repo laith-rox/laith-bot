@@ -9,6 +9,7 @@ from v4_h4 import process_h4
 from v4_key_config import apply_v4_twelve_key_precedence
 from v4_quick_balance import attach_condition_balance, quick_message as balanced_quick_message
 from v4_quick_guard import guard_alert_message, guard_quick_setup
+from v4_shared_market import SharedV4Market, closed_bar_reference
 
 LOG = logging.getLogger("laith.v4.emergency")
 H4_LOG = logging.getLogger("laith.v4.h4")
@@ -110,6 +111,12 @@ class V4PaperWithEmergency(_BasePaper):
         return result
 
 
+# V4-only infrastructure wiring. Official, quick and H4 analyses share a single
+# successful XAU/USD history fetch per five-minute slot. Quick paper entries use
+# that same latest closed 5m candle as their reference, avoiding a second quote
+# API call. Official V4 confirmation logic remains unchanged.
+v4_runtime.Market = SharedV4Market
+v4_runtime.quick_reference_quote = closed_bar_reference
 v4_runtime.build_quick = _build_quick_with_balance
 v4_runtime.quick_message = balanced_quick_message
 v4_runtime.V4Telegram = V4Telegram
