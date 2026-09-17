@@ -1,14 +1,16 @@
-"""Laith V4 entrypoint with group routing, balanced quick display and emergency alerts."""
+"""Laith V4 entrypoint with group routing, balanced quick display, emergency alerts and H4 paper trades."""
 from datetime import datetime, timezone
 import logging
 
 import v4_runtime
 from v4_emergency import scan_emergencies
 from v4_group_telegram import V4Telegram
+from v4_h4 import process_h4
 from v4_quick_balance import attach_condition_balance, quick_message as balanced_quick_message
 from v4_quick_guard import guard_alert_message, guard_quick_setup
 
 LOG = logging.getLogger("laith.v4.emergency")
+H4_LOG = logging.getLogger("laith.v4.h4")
 
 _original_build_quick = v4_runtime.build_quick
 _BasePaper = v4_runtime.V4PaperResilientQuick
@@ -26,7 +28,7 @@ class QuickGuardBlocked(RuntimeError):
 
 
 class V4PaperWithEmergency(_BasePaper):
-    """Adds approved quick guards plus read-only reversal warnings.
+    """Adds quick guards, reversal warnings and a separate H4 paper stream.
 
     Official V4 entry logic, stops and targets remain unchanged.
     """
@@ -70,22 +72,39 @@ class V4PaperWithEmergency(_BasePaper):
             result = None
 
         decision = self.store.get("v4_quick_last_analysis") or {}
-        if not decision:
-            return result
-        alerts = scan_emergencies(
-            self.store,
-            self.notifier,
-            decision,
-            self.store.get("v4_active"),
-            self._quick_rows(),
-            now,
-        )
-        for alert in alerts:
-            LOG.warning(
-                "emergency_reversal trade_id=%s kind=%s side=%s severity=%s own=%s/7 opposite=%s/7",
-                alert.get("trade_id"), alert.get("kind"), alert.get("side"), alert.get("severity"),
-                alert.get("own_score"), alert.get("opposite_score"),
+        if decision:
+            alerts = scan_emergencies(
+                self.store,
+                self.notifier,
+                decision,
+                self.store.get("v4_active"),
+                self._quick_rows(),
+                now,
             )
+            for alert in alerts:
+                LOG.warning(
+                    "emergency_reversal trade_id=%s kind=%s side=%s severity=%s own=%s/7 opposite=%s/7",
+                    alert.get("trade_id"), alert.get("kind"), alert.get("side"), alert.get("severity"),
+                    alert.get("own_score"), alert.get("opposite_score"),
+                )
+
+        # Independent H4 paper stream reuses the already-fetched 5m bars, so it
+        # does not add another Twelve Data request and cannot alter quick/official logic.
+        bars = getattr(self, "_last_quick_bars", None)
+        if bars:
+            try:
+                h4_events = process_h4(self.store, self.notifier, bars, now)
+                for event in h4_events:
+                    kind = event.get("kind")
+                    trade = event.get("trade") or {}
+                    h4_decision = event.get("decision") or {}
+                    H4_LOG.info(
+                        "h4_event kind=%s id=%s side=%s buy=%s/7 sell=%s/7 outcome=%s",
+                        kind, trade.get("id"), trade.get("side") or h4_decision.get("side"),
+                        h4_decision.get("buy"), h4_decision.get("sell"), trade.get("outcome"),
+                    )
+            except Exception:
+                H4_LOG.exception("h4_cycle_failed")
         return result
 
 
