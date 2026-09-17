@@ -3,7 +3,8 @@
 Official V4 entries remain strict and unchanged. Existing trades can still be
 monitored with usable closed/cached data, but NEW quick setups require a real
 currently-forming five-minute candle from the provider whose start time matches
-the quick slot. Cached/previous candles are never used to create a new quick entry.
+the quick slot. The quick trade direction itself is decided by the dedicated 5m
+engine; M15/H1 context is only a filter.
 """
 from datetime import datetime
 import logging
@@ -16,6 +17,7 @@ from news import NewsGuard
 from storage import Store
 from v3_global_data import GlobalContextProvider
 from v4_quick import advance_quick, build_quick, continuation_snapshot
+from v4_quick_5m import analyze_quick_5m
 from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
 from v4_telegram import V4Telegram, continuation_message, quick_message
@@ -91,26 +93,24 @@ def quick_history_snapshot(trades):
 
 
 def calibrate_quick_strength(setup, decision):
-    """Keep raw rule completion, but do not call a risky or official-WAIT setup strong."""
+    """Keep raw rule completion, but do not call a high-risk quick setup strong."""
     raw_strength = setup.get("strength") or "—"
     adjusted_strength = raw_strength
     adjustments = []
     if raw_strength == "قوية" and setup.get("risk_level") == "مرتفعة":
         adjusted_strength = "متوسطة"
         adjustments.append("المخاطرة مرتفعة")
-    if raw_strength == "قوية" and decision.get("side") == "WAIT":
-        adjusted_strength = "متوسطة"
-        adjustments.append("النظام الرسمي WAIT")
     setup["raw_strength"] = raw_strength
     setup["strength"] = adjusted_strength
     setup["strength_adjustments"] = list(dict.fromkeys(adjustments))
-    setup["official_decision"] = decision.get("side", "WAIT")
+    setup["official_decision"] = ((decision.get("quick5m") or {}).get("higher_side")
+                                  or decision.get("side", "WAIT"))
     return setup
 
 
 class V4PaperResilientQuick(V4Paper):
     def quick_cycle(self, now):
-        """Five-minute stream: monitor broadly, but open quick setups only on an aligned live candle."""
+        """Five-minute stream: monitor broadly, open quick setups only from aligned live 5m evidence."""
         bars, cached_market = quick_market_bars(
             self.market, now, getattr(self, "_last_quick_bars", None)
         )
@@ -158,10 +158,6 @@ class V4PaperResilientQuick(V4Paper):
                     self.notifier.send(continuation_message(snap))
 
         allowed_news, news_reason, nearby = self.news.check(now)
-        setup_preview = build_quick(decision, now)
-        if setup_preview is None:
-            self.store.set("v4_quick_last_block", "quick_data_incomplete")
-            return
 
         # Cached bars may keep monitoring alive, but they can never create a NEW
         # quick setup. Laith requested a real 5m candle for every quick trade.
@@ -183,21 +179,43 @@ class V4PaperResilientQuick(V4Paper):
             LOG.warning("quick_entry_block reason=quick_candle_time_not_aligned")
             return
 
+        quick_decision = analyze_quick_5m(bars, entry_ref, decision)
+        self.store.set("v4_quick_5m_analysis", quick_decision)
+        self.store.set("v4_quick_5m_reference", entry_ref)
+        quick5m = quick_decision.get("quick5m") or {}
+        if not quick5m.get("entry_allowed"):
+            self.store.set("v4_quick_last_block", "quick_5m_wait")
+            LOG.info(
+                "quick_5m_wait buy=%s/7 sell=%s/7 reason=%s candle_start=%s",
+                quick_decision.get("buy"), quick_decision.get("sell"),
+                quick5m.get("reason"), entry_ref.get("candle_start_iso"),
+            )
+            return
+
         observed_at = float(entry_ref.get("observed_at", now.timestamp()))
         quote_now = datetime.fromtimestamp(observed_at, UTC)
-        setup = build_quick(decision, quote_now, quote_price=entry_ref["price"])
+        setup = build_quick(quick_decision, quote_now, quote_price=entry_ref["price"])
         if setup is None:
             self.store.set("v4_quick_last_block", "quick_recheck_failed")
             return
+
+        condition_names = quick_decision.get("quick_condition_names") or []
+        side_checks = (quick_decision.get("checks") or {}).get(setup.get("side")) or []
+        if len(condition_names) == 7 and len(side_checks) == 7:
+            setup["conditions"] = [
+                {"name": name, "ok": bool(ok)}
+                for name, ok in zip(condition_names, side_checks)
+            ]
 
         reasons = list(setup.get("risk_reasons") or [])
         if not allowed_news or nearby:
             reasons.append("خبر/حدث اقتصادي قريب")
             setup["risk_level"] = "مرتفعة"
         try:
-            tolerance = min(1.0, float(decision["atr"]) * 0.25)
-            if abs(float(entry_ref["price"]) - float(decision["price"])) > tolerance:
-                reasons.append("سعر الشمعة الحالية تحرك عن آخر سعر تحليل مغلق")
+            atr5 = float(quick_decision["atr"])
+            move_from_open = abs(float(entry_ref["price"]) - float(entry_ref["candle_open"]))
+            if move_from_open > 0.35 * atr5:
+                reasons.append("شمعة 5د الحالية تحركت بقوة قبل الدخول")
                 setup["risk_level"] = "مرتفعة"
         except (KeyError, TypeError, ValueError):
             pass
@@ -211,13 +229,17 @@ class V4PaperResilientQuick(V4Paper):
             candle_start=entry_ref.get("candle_start"),
             candle_start_iso=entry_ref.get("candle_start_iso"),
             candle_open=entry_ref.get("candle_open"),
+            candle_high=entry_ref.get("candle_high"),
+            candle_low=entry_ref.get("candle_low"),
             signal_observed_at=entry_ref.get("observed_at"),
             entry_delay_seconds=entry_ref.get("entry_delay_seconds"),
             current_five_minute_candle=True,
             timing_aligned=True,
             trade_slot_time=entry_ref.get("candle_start"),
+            quick_timeframe="5m",
+            quick5m=quick5m,
         )
-        calibrate_quick_strength(setup, decision)
+        calibrate_quick_strength(setup, quick_decision)
         history = quick_history_snapshot(self._quick_rows())
         setup.update(
             historical_sample=history["sample"],
@@ -230,11 +252,11 @@ class V4PaperResilientQuick(V4Paper):
         self.store.set("v4_quick_last", setup)
         self.store.set("v4_quick_last_block", None)
         LOG.info(
-            "quick_open id=%s side=%s entry=%.2f candle_start=%s delay=%ss stop=%.2f target=%.2f score=%s/7 strength=%s raw_strength=%s risk=%s hist_positive=%s/%s source=%s timing_aligned=%s official_active=%s",
+            "quick_open id=%s side=%s entry=%.2f candle_start=%s delay=%ss stop=%.2f target=%.2f quick5m_buy=%s/7 quick5m_sell=%s/7 score=%s/7 strength=%s risk=%s source=%s timing_aligned=%s official_active=%s",
             setup["id"], setup["side"], setup["entry"], setup.get("candle_start_iso"),
-            setup.get("entry_delay_seconds"), setup["stop"], setup["target"], setup["score"],
-            setup["strength"], setup.get("raw_strength"), setup.get("risk_level"),
-            setup.get("historical_positive"), setup.get("historical_sample"), setup.get("quote_source"),
+            setup.get("entry_delay_seconds"), setup["stop"], setup["target"],
+            quick_decision.get("buy"), quick_decision.get("sell"), setup["score"],
+            setup["strength"], setup.get("risk_level"), setup.get("quote_source"),
             setup.get("timing_aligned"), bool(active),
         )
         if self.notifier:
