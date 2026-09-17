@@ -1,7 +1,8 @@
 """Group-capable Telegram transport for Laith V4.
 
-Only the already-paired private owner can bind a group. Automatic V4 paper
-notifications are then mirrored to the owner's private chat and the bound group.
+Only the already-paired private owner can bind a group. When a group is bound,
+automatic V4 paper notifications go to that group only; private chat remains
+available for owner commands and as the fallback destination when no group is bound.
 """
 import logging
 
@@ -32,13 +33,11 @@ class V4Telegram(BaseV4Telegram):
         return outcome.status == "sent"
 
     def send(self, message):
-        """Mirror automatic notifications to private owner and bound group."""
-        private_ok = self._send_to(self.paired_chat(), message, "private")
+        """Send automatic notifications to the bound group, else private fallback."""
         group_id = self.group_chat()
-        group_ok = True
         if group_id:
-            group_ok = self._send_to(group_id, message, "group")
-        return private_ok and group_ok
+            return self._send_to(group_id, message, "group")
+        return self._send_to(self.paired_chat(), message, "private")
 
     def poll(self):
         if not self.client:
@@ -97,7 +96,8 @@ class V4Telegram(BaseV4Telegram):
                 self.client.chat_id = chat_id
                 self.client.send(
                     "✅ <b>تم ربط المجموعة بـ Laith V4</b>\n"
-                    "من الآن إشارات V4 السريعة والرسمية وتحديثات الاستمرارية ستصل هنا أيضًا.\n"
+                    "من الآن إشارات V4 السريعة والرسمية وتحديثات الاستمرارية والطوارئ ستصل إلى هذه المجموعة فقط بدل الخاص.\n"
+                    "يبقى الخاص متاحًا للأوامر مثل /status و /stats و /quickstats.\n"
                     "📄 الإشارات ورقية/بحثية وليست تنفيذًا على حساب حقيقي."
                 )
                 LOG.info("telegram_group_paired chat_id_suffix=%s", chat_id[-4:])
@@ -106,7 +106,10 @@ class V4Telegram(BaseV4Telegram):
                 if self.group_chat() == chat_id:
                     self.store.set("v4_telegram_group_id", None)
                     self.client.chat_id = chat_id
-                    self.client.send("✅ تم إيقاف إرسال إشارات V4 إلى هذه المجموعة.")
+                    self.client.send(
+                        "✅ تم إيقاف إرسال إشارات V4 إلى هذه المجموعة.\n"
+                        "ستعود الإشعارات التلقائية إلى الخاص ما دام لا توجد مجموعة مربوطة."
+                    )
                     LOG.info("telegram_group_unpaired chat_id_suffix=%s", chat_id[-4:])
 
             if isinstance(uid, int):
