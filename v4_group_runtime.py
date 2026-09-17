@@ -32,11 +32,19 @@ _original_paper_open_message = v4_service.paper_open_message
 _original_paper_close_message = v4_service.paper_close_message
 _BasePaper = v4_runtime.V4PaperResilientQuick
 
+DATA_HARD_BLOCKS = {"recent_data_gap", "stale_market_data"}
+
+
+def _quick_data_hard_blocked(decision):
+    intelligence = ((decision.get("v4") or {}).get("intelligence") or {})
+    reasons = ((intelligence.get("entry_gate") or {}).get("reasons") or [])
+    return any(reason in DATA_HARD_BLOCKS for reason in reasons)
+
 
 def _build_quick_with_balance(decision, *args, **kwargs):
-    # A V4 smart hard block means WAIT, not a high-risk quick entry. News risk
-    # remains separately visible in the resilient quick stream.
-    if quick_hard_blocked(decision):
+    # Quick candidates remain visible through market-risk warnings so Laith can
+    # decide manually. Only genuinely unsafe/stale/gapped data hides the signal.
+    if _quick_data_hard_blocked(decision):
         return None
     setup = _original_build_quick(decision, *args, **kwargs)
     return attach_condition_balance(setup, decision)
@@ -65,7 +73,7 @@ def _shared_quick_reference(_market, bars, now):
 
 
 def _shared_quick_entry_reference(market, _bars, now):
-    """New quick entries require the real current 5m candle and an aligned slot start."""
+    """Quick entry requires a timestamped current 5m slot reference."""
     return market.current_candle_reference(now)
 
 
@@ -76,7 +84,7 @@ class QuickGuardBlocked(RuntimeError):
 
 
 class V4PaperWithEmergency(_BasePaper):
-    """Adds smart waits, quick guards, learning and reversal warnings to 5m/15m V4."""
+    """Adds quick guards, learning and reversal warnings to 5m/15m V4."""
 
     def _save_quick(self, trade):
         try:
@@ -131,12 +139,8 @@ class V4PaperWithEmergency(_BasePaper):
             fingerprints[side] = fingerprint
             self.store.set("v4_quick_guard_alerts", fingerprints)
 
-    def _send_quick_5m_wait(self, higher_decision, now):
+    def _send_quick_5m_wait(self, _higher_decision, now):
         if not self.notifier or self.store.get("v4_quick_last_block") != "quick_5m_wait":
-            return
-        # If the higher-level smart safety gate is already blocking, its richer
-        # WAIT message takes priority so Telegram does not receive duplicate waits.
-        if higher_decision and quick_hard_blocked(higher_decision):
             return
         slot = int(now.timestamp() // 300)
         if self.store.get("v4_quick_5m_wait_slot") == slot:
@@ -149,6 +153,11 @@ class V4PaperWithEmergency(_BasePaper):
             self.store.set("v4_quick_5m_wait_slot", slot)
 
     def _send_smart_wait(self, decision, now):
+        # Do not send a generic higher-timeframe WAIT on top of a valid quick
+        # candidate or a dedicated Quick-5m WAIT; that was confusing in Telegram.
+        last_block = self.store.get("v4_quick_last_block")
+        if last_block in (None, "quick_5m_wait"):
+            return
         if not self.notifier or not decision or not quick_hard_blocked(decision):
             return
         slot = int(now.timestamp() // 300)
@@ -158,13 +167,12 @@ class V4PaperWithEmergency(_BasePaper):
             allowed_news, news_reason, nearby = self.news.check(now)
         except Exception:
             allowed_news, news_reason, nearby = False, "calendar_unavailable", []
-        extra = self.store.get("v4_quick_last_block")
         self.notifier.send(
             smart_wait_message(
                 decision,
                 news_reason=news_reason,
                 nearby=bool(nearby) or not allowed_news,
-                extra_reason=extra,
+                extra_reason=last_block,
             )
         )
         self.store.set("v4_smart_wait_slot", slot)
@@ -201,14 +209,10 @@ class V4PaperWithEmergency(_BasePaper):
                     alert.get("own_score"), alert.get("opposite_score"),
                 )
 
-        # H4 trade processing is intentionally disabled. Laith V4 now focuses on:
-        # 1) true quick 5m setups, and 2) the official 15m trade stream.
+        # H4 trade processing remains disabled. V4 focuses on quick 5m + official 15m.
         return result
 
 
-# V4-only infrastructure wiring. Official 15m analysis remains based on closed
-# bars. New quick entries are tied to the real current 5m candle and the dedicated
-# 5m decision engine while M15/H1 context remains a filter only.
 v4_runtime.Market = SharedV4Market
 v4_runtime.quick_reference_quote = _shared_quick_reference
 v4_runtime.quick_entry_reference = _shared_quick_entry_reference
