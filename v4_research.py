@@ -5,6 +5,7 @@ then exposes a V4-only contract so future V4 changes cannot alter the live bot o
 V3 paper worker.
 """
 from v3_research import analyze_v3
+from v4_intelligence import enrich_decision
 
 
 def analyze_v4(bars, now, macro=None):
@@ -19,4 +20,4 @@ def analyze_v4(bars, now, macro=None):
     if isinstance(reason, str) and reason.startswith("v3_"):
         result["reason"] = "v4_" + reason[3:]
     result["v4"] = research
-    return result
+    return enrich_decision(result, bars, now)
