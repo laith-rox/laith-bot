@@ -61,8 +61,13 @@ def _paper_close_message_with_intelligence(trade, stats):
 
 
 def _shared_quick_reference(_market, bars, now):
-    """Match v4_runtime's quick-reference interface without an extra API call."""
+    """Use the latest closed 5m candle for continuity monitoring without an extra API call."""
     return closed_bar_reference(bars, now)
+
+
+def _shared_quick_entry_reference(market, _bars, now):
+    """New quick entries require the real current 5m candle and an aligned slot start."""
+    return market.current_candle_reference(now)
 
 
 class QuickGuardBlocked(RuntimeError):
@@ -179,8 +184,9 @@ class V4PaperWithEmergency(_BasePaper):
                     alert.get("own_score"), alert.get("opposite_score"),
                 )
 
-        # Independent H4 paper stream reuses the already-fetched 5m bars, so it
-        # does not add another Twelve Data request and cannot alter quick/official logic.
+        # Independent H4 paper stream reuses the already-fetched 5m CLOSED bars,
+        # so it does not add another Twelve Data request or consume the forming
+        # candle as if it were a completed H4 observation.
         bars = getattr(self, "_last_quick_bars", None)
         if bars:
             try:
@@ -199,11 +205,12 @@ class V4PaperWithEmergency(_BasePaper):
         return result
 
 
-# V4-only infrastructure wiring. Official, quick and H4 analyses share a single
-# successful XAU/USD history fetch per five-minute slot. The smart V4 guard may
-# convert unsafe official/quick entries into WAIT while leaving V3/old bot logic untouched.
+# V4-only infrastructure wiring. Official/H4 analysis remains based on closed
+# bars. New quick entries are additionally tied to the real current 5m candle and
+# only accepted when its provider timestamp matches the current five-minute slot.
 v4_runtime.Market = SharedV4Market
 v4_runtime.quick_reference_quote = _shared_quick_reference
+v4_runtime.quick_entry_reference = _shared_quick_entry_reference
 v4_runtime.build_quick = _build_quick_with_balance
 v4_runtime.continuation_snapshot = _continuation_with_intelligence
 v4_runtime.continuation_message = _continuation_message_with_intelligence
