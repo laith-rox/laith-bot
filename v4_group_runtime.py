@@ -9,18 +9,17 @@ from v4_group_telegram import V4Telegram
 from v4_h4 import process_h4
 from v4_intelligence import (
     attach_continuation_intelligence,
-    classify_trade_lesson,
     enhance_continuation_message,
     enhance_paper_close_message,
     enhance_paper_open_message,
     quick_hard_blocked,
-    record_trade_lesson,
-    wait_message,
 )
 from v4_key_config import apply_v4_twelve_key_precedence
+from v4_learning import classify_trade_lesson, record_trade_lesson
 from v4_quick_balance import attach_condition_balance, quick_message as balanced_quick_message
 from v4_quick_guard import guard_alert_message, guard_quick_setup
 from v4_shared_market import SharedV4Market, closed_bar_reference
+from v4_wait_display import smart_wait_message
 
 LOG = logging.getLogger("laith.v4.emergency")
 H4_LOG = logging.getLogger("laith.v4.h4")
@@ -36,7 +35,7 @@ _BasePaper = v4_runtime.V4PaperResilientQuick
 
 
 def _build_quick_with_balance(decision, *args, **kwargs):
-    # A V4 smart hard block means WAIT, not a high-risk quick entry.  News risk
+    # A V4 smart hard block means WAIT, not a high-risk quick entry. News risk
     # remains separately visible in the resilient quick stream.
     if quick_hard_blocked(decision):
         return None
@@ -140,7 +139,7 @@ class V4PaperWithEmergency(_BasePaper):
             allowed_news, news_reason, nearby = False, "calendar_unavailable", []
         extra = self.store.get("v4_quick_last_block")
         self.notifier.send(
-            wait_message(
+            smart_wait_message(
                 decision,
                 news_reason=news_reason,
                 nearby=bool(nearby) or not allowed_news,
@@ -148,7 +147,10 @@ class V4PaperWithEmergency(_BasePaper):
             )
         )
         self.store.set("v4_smart_wait_slot", slot)
-        self.store.set("v4_last_wait_plan", ((decision.get("v4") or {}).get("intelligence") or {}).get("wait_plan"))
+        self.store.set(
+            "v4_last_wait_plan",
+            ((decision.get("v4") or {}).get("intelligence") or {}).get("wait_plan"),
+        )
 
     def quick_cycle(self, now):
         try:
