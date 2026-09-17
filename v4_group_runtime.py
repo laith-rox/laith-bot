@@ -6,11 +6,13 @@ import v4_runtime
 from v4_emergency import scan_emergencies
 from v4_group_telegram import V4Telegram
 from v4_h4 import process_h4
+from v4_key_config import apply_v4_twelve_key_precedence
 from v4_quick_balance import attach_condition_balance, quick_message as balanced_quick_message
 from v4_quick_guard import guard_alert_message, guard_quick_setup
 
 LOG = logging.getLogger("laith.v4.emergency")
 H4_LOG = logging.getLogger("laith.v4.h4")
+KEY_LOG = logging.getLogger("laith.v4.key")
 
 _original_build_quick = v4_runtime.build_quick
 _BasePaper = v4_runtime.V4PaperResilientQuick
@@ -115,4 +117,7 @@ v4_runtime.V4PaperResilientQuick = V4PaperWithEmergency
 
 
 if __name__ == "__main__":
+    key_source = apply_v4_twelve_key_precedence()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    KEY_LOG.info("market_key_source=%s", key_source)
     v4_runtime.run(v4_runtime.parser().parse_args())
