@@ -1,7 +1,12 @@
-"""Condition-balance, correction and intelligence display helpers for Laith V4 quick paper signals."""
+"""Condition-balance, correction, timing and intelligence display helpers for Laith V4 quick paper signals."""
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from v4_intelligence import enhance_quick_message
 from v4_telegram import quick_message as _base_quick_message
+
+HEBRON = ZoneInfo("Asia/Hebron")
 
 
 def _score(decision, side):
@@ -110,8 +115,34 @@ def correction_block(trade):
     return lines
 
 
+def timing_block(trade):
+    """Show the exact local 5m slot and the real observation delay transparently."""
+    if not trade.get("timing_aligned") or trade.get("candle_start") is None:
+        return []
+    try:
+        stamp = float(trade.get("candle_start"))
+        local = datetime.fromtimestamp(stamp, HEBRON)
+        candle_time = local.strftime("%H:%M:%S")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return []
+    try:
+        delay = max(0.0, float(trade.get("entry_delay_seconds", 0.0)))
+        delay_text = f"{delay:.0f}ث"
+    except (TypeError, ValueError):
+        delay_text = "—"
+    lines = [
+        f"🕯️ بداية شمعة 5د: <b>{candle_time}</b>",
+        f"🧾 وقت دورة الصفقة: <b>{candle_time}</b> ✅ مطابق للشمعة",
+        f"📡 التحقق من السعر: بعد {delay_text} من بداية الشمعة",
+    ]
+    if trade.get("candle_open") is not None:
+        lines.append(f"🔓 افتتاح الشمعة: {_fmt_price(trade.get('candle_open'))}")
+    lines.append("📍 مرجع الدخول: السعر المرصود داخل نفس شمعة 5د الحالية")
+    return lines
+
+
 def quick_message(trade):
-    """Reuse the standard message and add balance, correction and smart V4 context."""
+    """Reuse the standard message and add balance, live-candle timing, correction and smart V4 context."""
     message = _base_quick_message(trade)
     lines = message.splitlines()
     balance = condition_balance_line(trade)
@@ -126,6 +157,17 @@ def quick_message(trade):
         if line.startswith("🧭 القوة المعروضة:"):
             lines[index] = f"{marker} القوة المعروضة: <b>{trade.get('strength', '—')}</b>"
             break
+
+    timing = timing_block(trade)
+    if timing:
+        insert_at = None
+        for index, line in enumerate(lines):
+            if line.startswith("💰 الدخول:"):
+                insert_at = index
+                break
+        if insert_at is None:
+            insert_at = len(lines)
+        lines[insert_at:insert_at] = timing + [""]
 
     correction = correction_block(trade)
     if correction:
