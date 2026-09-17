@@ -1,10 +1,10 @@
 """V4-only shared XAU/USD market snapshot.
 
-One Twelve Data 5-minute history request is shared by V4 official, quick, and H4
-analysis inside the same five-minute slot. Unlike the generic Market adapter,
-this V4-only adapter also retains the provider's currently-forming five-minute
-candle so quick paper setups can be tied to the real candle that opened in the
-same slot. Closed candles remain the only input to the official strategy indicators.
+One Twelve Data 5-minute history request is shared by V4 official and quick
+analysis inside the same five-minute slot. Closed candles remain the indicator
+input. For quick entries, the provider's forming 5m candle is preferred; when
+that candle is omitted by time_series, a timestamped live quote from the same
+5m slot is allowed as a fallback instead of forcing WAIT.
 """
 from datetime import datetime, timezone
 import logging
@@ -25,12 +25,7 @@ LOG = logging.getLogger("laith.v4.market")
 
 
 class SharedV4Market(Market):
-    """Cache one provider snapshot per five-minute UTC slot.
-
-    The returned value from ``fetch`` is still CLOSED candles only. The current
-    forming candle is retained separately and can be requested through
-    ``current_candle_reference`` for a time-aligned quick setup.
-    """
+    """Cache one provider snapshot per five-minute UTC slot."""
 
     def __init__(self, key, session=None):
         super().__init__(key, session=session)
@@ -117,15 +112,46 @@ class SharedV4Market(Market):
         bars, current = self._fetch_provider_snapshot(now)
         return self._store_snapshot(now, bars, current)
 
-    def current_candle_reference(self, now, max_entry_delay_seconds=45):
-        """Return a live reference from the real current 5m candle when aligned.
+    def _live_quote_slot_reference(self, now, slot_start, elapsed):
+        """Fallback to a live quote whose provider timestamp is inside this 5m slot."""
+        if not self._shared_bars:
+            raise DataError("quick_current_candle_unavailable")
+        quote = self.quote(lambda: now)
+        quote_stamp = float(quote["time"])
+        if quote_stamp < slot_start.timestamp() or quote_stamp > now.timestamp() + 5:
+            raise DataError("quick_live_quote_not_in_current_slot")
+        previous_close = float(self._shared_bars[-1].close)
+        price = float(quote["price"])
+        LOG.warning(
+            "quick_current_candle_fallback source=live_quote slot_start=%s quote_time=%s previous_close_proxy=%.2f",
+            slot_start.isoformat(), datetime.fromtimestamp(quote_stamp, UTC).isoformat(), previous_close,
+        )
+        return {
+            "price": price,
+            "candle_open": previous_close,
+            "candle_high": max(previous_close, price),
+            "candle_low": min(previous_close, price),
+            "time": quote_stamp,
+            "candle_start": slot_start.timestamp(),
+            "candle_start_iso": slot_start.isoformat(),
+            "observed_at": quote_stamp,
+            "entry_delay_seconds": round(max(0.0, quote_stamp - slot_start.timestamp()), 3),
+            "source": "Twelve Data live quote — نفس دورة 5د",
+            "delayed_reference": False,
+            "shared_candle_reference": False,
+            "current_five_minute_candle": True,
+            "timing_aligned": True,
+            "candle_open_estimated": True,
+            "candle_open_source": "إغلاق آخر شمعة 5د مغلقة كمرجع افتتاح احتياطي",
+        }
 
-        A quick setup is allowed only during the first ``max_entry_delay_seconds``
-        of the slot and only when the provider actually supplied a candle whose
-        start timestamp exactly equals that slot's start. Cached/previous candles
-        are never substituted for a new quick entry. ``price`` is the latest
-        observed price inside that candle; full current OHLC is exposed to the
-        quick-only 5m decision engine.
+    def current_candle_reference(self, now, max_entry_delay_seconds=60):
+        """Return a current-slot 5m reference for a quick candidate.
+
+        The actual forming 5m candle is preferred. If time_series has not exposed
+        it yet, a fresh exchange-rate quote is accepted only when the quote's own
+        timestamp falls inside the current 5m slot. The prior closed 5m close is
+        used transparently as an opening reference in that fallback case.
         """
         slot = self._slot(now)
         slot_start = self._slot_start(slot)
@@ -136,11 +162,14 @@ class SharedV4Market(Market):
         current = self._shared_current_bar if self._shared_slot == slot else None
         if current is None and self._current_retry_slot != slot:
             self._current_retry_slot = slot
-            bars, current = self._fetch_provider_snapshot(now)
-            self._store_snapshot(now, bars, current)
+            try:
+                bars, current = self._fetch_provider_snapshot(now)
+                self._store_snapshot(now, bars, current)
+            except DataError as exc:
+                LOG.warning("quick_current_candle_refresh_failed reason=%s", exc)
 
         if current is None or current.start != slot_start:
-            raise DataError("quick_current_candle_unavailable")
+            return self._live_quote_slot_reference(now, slot_start, elapsed)
 
         return {
             "price": float(current.close),
@@ -157,15 +186,13 @@ class SharedV4Market(Market):
             "shared_candle_reference": True,
             "current_five_minute_candle": True,
             "timing_aligned": True,
+            "candle_open_estimated": False,
+            "candle_open_source": "افتتاح شمعة 5د من time_series",
         }
 
 
 def closed_bar_reference(bars, now):
-    """Reference monitoring to the latest CLOSED fresh 5m candle.
-
-    This remains useful for continuity monitoring. New quick entries use
-    ``SharedV4Market.current_candle_reference`` instead.
-    """
+    """Reference monitoring to the latest CLOSED fresh 5m candle."""
     require_fresh(bars, now, 600)
     last = bars[-1]
     return {
