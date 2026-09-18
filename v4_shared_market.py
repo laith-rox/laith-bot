@@ -151,6 +151,8 @@ class SharedV4Market(Market):
         slot_end = slot_start.timestamp() + 300
         if stamp < slot_start.timestamp() or stamp >= slot_end or stamp > now.timestamp() + 5:
             raise DataError("quick_quote_not_current_5m_slot")
+        if now.timestamp() - stamp > 90:
+            raise DataError("quick_quote_stale")
         if not (candle_low <= min(candle_open, price) <= max(candle_open, price) <= candle_high):
             raise DataError("market_quote_ohlc_invalid")
         return {
@@ -180,6 +182,8 @@ class SharedV4Market(Market):
         quote_stamp = float(quote["time"])
         if quote_stamp < slot_start.timestamp() or quote_stamp > now.timestamp() + 5:
             raise DataError("quick_live_quote_not_in_current_slot")
+        if now.timestamp() - quote_stamp > 90:
+            raise DataError("quick_live_quote_stale")
         previous_close = float(self._shared_bars[-1].close)
         price = float(quote["price"])
         LOG.warning(
@@ -205,7 +209,7 @@ class SharedV4Market(Market):
             "candle_open_source": "إغلاق آخر شمعة 5د مغلقة كمرجع افتتاح احتياطي",
         }
 
-    def current_candle_reference(self, now, max_entry_delay_seconds=60):
+    def current_candle_reference(self, now, max_entry_delay_seconds=300):
         """Return a current-slot 5m reference for a quick candidate.
 
         The actual forming 5m candle is preferred. If time_series has not exposed
@@ -216,8 +220,13 @@ class SharedV4Market(Market):
         slot = self._slot(now)
         slot_start = self._slot_start(slot)
         elapsed = now.timestamp() - slot_start.timestamp()
-        if elapsed < 0 or elapsed > max_entry_delay_seconds:
+        if elapsed < 0:
             raise DataError("quick_candle_entry_window_missed")
+        # Quick entries are allowed throughout the active 5m slot. Freshness is
+        # determined by the provider observation timestamp, not by proximity to
+        # the candle boundary.
+        if elapsed > max_entry_delay_seconds:
+            max_entry_delay_seconds = 300
 
         current = self._shared_current_bar if self._shared_slot == slot else None
         if current is None and self._current_retry_slot != slot:
