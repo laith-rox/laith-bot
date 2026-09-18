@@ -74,10 +74,10 @@ def _strength(score):
 def analyze_quick_5m(bars, current, higher_decision):
     """Return a quick-only decision driven by 5m evidence.
 
-    A directional candidate is exposed when one side has at least 4/7 checks,
-    leads the opposite side, and agrees with the current-slot price movement.
-    This lets Laith see weak, medium and strong candidates and decide manually.
-    WAIT is reserved for ties, directionless current movement, or unsafe data.
+    A directional candidate is exposed whenever one side leads the other and the
+    current-slot movement agrees with that side. Scores below 5/7 are explicitly
+    labelled weak instead of being hidden. WAIT is reserved for ties,
+    directionless current movement, or unsafe/invalid data.
     """
     decision = deepcopy(higher_decision or {})
     if len(bars or []) < 22 or not isinstance(current, dict):
@@ -158,11 +158,11 @@ def analyze_quick_5m(bars, current, higher_decision):
     active_score = 0
     # Current-slot movement is mandatory: if price has not moved away from the
     # slot opening reference, there is no honest fast direction to expose.
-    if buy >= 4 and buy > sell and buy_checks[0]:
+    if buy > sell and buy_checks[0]:
         side = "BUY"
         active_score = buy
         reason = "quick_5m_buy_candidate"
-    elif sell >= 4 and sell > buy and sell_checks[0]:
+    elif sell > buy and sell_checks[0]:
         side = "SELL"
         active_score = sell
         reason = "quick_5m_sell_candidate"

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from market import Bar, DataError
 from v4_shared_market import SharedV4Market, closed_bar_reference
@@ -84,10 +84,54 @@ class V4SharedMarketTests(unittest.TestCase):
             with self.assertRaisesRegex(DataError, "quick_candle_entry_window_missed"):
                 market.current_candle_reference(self.now + timedelta(seconds=70))
 
+    def test_missing_current_candle_uses_current_slot_quote_endpoint(self):
+        market = SharedV4Market("dummy")
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "symbol": "XAU/USD",
+            "timestamp": int(datetime(2026, 9, 17, 12, 0, tzinfo=UTC).timestamp()),
+            "open": "4302.10",
+            "high": "4303.20",
+            "low": "4301.90",
+            "close": "4302.80",
+            "status": "ok",
+        }
+        market.session.get = Mock(return_value=response)
+        with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, None)):
+            market.fetch(self.now)
+            reference = market.current_candle_reference(self.now)
+        self.assertEqual(reference["price"], 4302.8)
+        self.assertEqual(reference["candle_open"], 4302.1)
+        self.assertFalse(reference["candle_open_estimated"])
+        self.assertTrue(reference["timing_aligned"])
+        self.assertEqual(reference["candle_start"], datetime(2026, 9, 17, 12, 0, tzinfo=UTC).timestamp())
+        self.assertIn("/quote", reference["source"])
+
+    def test_quote_endpoint_rejects_previous_slot_then_live_quote_guard_applies(self):
+        market = SharedV4Market("dummy")
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "symbol": "XAU/USD",
+            "timestamp": int(datetime(2026, 9, 17, 11, 55, tzinfo=UTC).timestamp()),
+            "open": "4300.0", "high": "4303.0", "low": "4299.0", "close": "4302.0",
+            "status": "ok",
+        }
+        market.session.get = Mock(return_value=response)
+        stale_slot_stamp = datetime(2026, 9, 17, 11, 59, 50, tzinfo=UTC).timestamp()
+        with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, None)), \
+             patch.object(market, "_quote_slot_reference", side_effect=DataError("quick_quote_not_current_5m_slot")), \
+             patch.object(market, "quote", return_value={"price": 4302.7, "time": stale_slot_stamp, "source": "Twelve Data"}):
+            market.fetch(self.now)
+            with self.assertRaisesRegex(DataError, "quick_live_quote_not_in_current_slot"):
+                market.current_candle_reference(self.now)
+
     def test_missing_current_candle_uses_current_slot_live_quote(self):
         market = SharedV4Market("dummy")
         quote_stamp = self.now.timestamp() - 2
         with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, None)), \
+             patch.object(market, "_quote_slot_reference", side_effect=DataError("market_quote_unavailable")), \
              patch.object(market, "quote", return_value={"price": 4302.7, "time": quote_stamp, "source": "Twelve Data"}):
             market.fetch(self.now)
             reference = market.current_candle_reference(self.now)

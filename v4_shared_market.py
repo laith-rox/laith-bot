@@ -112,8 +112,64 @@ class SharedV4Market(Market):
         bars, current = self._fetch_provider_snapshot(now)
         return self._store_snapshot(now, bars, current)
 
+    def _quote_slot_reference(self, now, slot_start):
+        """Try /quote because it exposes the 5m bar timestamp and OHLC directly."""
+        try:
+            response = self.session.get(
+                "https://api.twelvedata.com/quote",
+                params={
+                    "symbol": "XAU/USD",
+                    "interval": "5min",
+                    "timezone": "UTC",
+                    "apikey": self.key,
+                    "format": "JSON",
+                },
+                timeout=(5, 10),
+            )
+        except requests.RequestException:
+            raise DataError("market_quote_unavailable") from None
+        if response.status_code != 200:
+            _quota_diagnostics(response, "quote")
+            raise DataError("market_quote_unavailable")
+        try:
+            payload = response.json()
+        except ValueError:
+            raise DataError("market_quote_unavailable") from None
+        if not isinstance(payload, dict) or payload.get("status") == "error":
+            raise DataError("market_quote_unavailable")
+        try:
+            stamp = float(payload["timestamp"])
+            price = float(payload["close"])
+            candle_open = float(payload["open"])
+            candle_high = float(payload["high"])
+            candle_low = float(payload["low"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise DataError("market_quote_invalid") from None
+        if stamp != slot_start.timestamp():
+            raise DataError("quick_quote_not_current_5m_slot")
+        if not (candle_low <= min(candle_open, price) <= max(candle_open, price) <= candle_high):
+            raise DataError("market_quote_ohlc_invalid")
+        return {
+            "price": price,
+            "candle_open": candle_open,
+            "candle_high": candle_high,
+            "candle_low": candle_low,
+            "time": now.timestamp(),
+            "candle_start": stamp,
+            "candle_start_iso": slot_start.isoformat(),
+            "observed_at": now.timestamp(),
+            "entry_delay_seconds": round(max(0.0, now.timestamp() - stamp), 3),
+            "source": "Twelve Data /quote - شمعة 5د الحالية",
+            "delayed_reference": False,
+            "shared_candle_reference": False,
+            "current_five_minute_candle": True,
+            "timing_aligned": True,
+            "candle_open_estimated": False,
+            "candle_open_source": "افتتاح شمعة 5د من /quote",
+        }
+
     def _live_quote_slot_reference(self, now, slot_start, elapsed):
-        """Fallback to a live quote whose provider timestamp is inside this 5m slot."""
+        """Fallback to exchange_rate only when its own timestamp is in this slot."""
         if not self._shared_bars:
             raise DataError("quick_current_candle_unavailable")
         quote = self.quote(lambda: now)
@@ -169,6 +225,10 @@ class SharedV4Market(Market):
                 LOG.warning("quick_current_candle_refresh_failed reason=%s", exc)
 
         if current is None or current.start != slot_start:
+            try:
+                return self._quote_slot_reference(now, slot_start)
+            except DataError as exc:
+                LOG.warning("quick_current_candle_quote_fallback_failed reason=%s", exc)
             return self._live_quote_slot_reference(now, slot_start, elapsed)
 
         return {
