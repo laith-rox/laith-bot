@@ -228,6 +228,11 @@ class App:
             uid=update.get("update_id"); message=update.get("message",{}); chat=message.get("chat",{}); sender=message.get("from",{})
             authorized=chat.get("type")=="private" and str(chat.get("id"))==self.telegram.chat_id and str(sender.get("id"))==self.telegram.chat_id
             words=message.get("text","").split(); command=words[0].split("@")[0].lower() if words else ""; text=None
+            group_setup=chat.get("type") in ("group","supergroup") and command=="/emergencyhere"
+            if group_setup:
+                self.store.set("emergency_chat_id",str(chat.get("id")))
+                outcome=self.telegram.send_to(str(chat.get("id")),"🚨 تم ربط مجموعة إنذارات الطوارئ — بوت ليث")
+                LOG.info("emergency_group_setup status=%s error=%s",outcome.status,outcome.error)
             if authorized:
                 if command in ("/start","/help"): text="🥇 بوت ليث لإشارات الذهب ومتابعتها.\n/status حالة البوت\n/pause إيقاف الدخول\n/resume استئناف الدخول"
                 elif command=="/status": text=status(self.store)
