@@ -77,12 +77,13 @@ class V4SharedMarketTests(unittest.TestCase):
         self.assertTrue(reference["timing_aligned"])
         self.assertFalse(reference["candle_open_estimated"])
 
-    def test_current_candle_reference_rejects_late_entry(self):
+    def test_current_candle_reference_accepts_late_fresh_entry(self):
         market = SharedV4Market("dummy")
         with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, self.current)):
             market.fetch(self.now)
-            with self.assertRaisesRegex(DataError, "quick_candle_entry_window_missed"):
-                market.current_candle_reference(self.now + timedelta(seconds=70))
+            reference = market.current_candle_reference(self.now + timedelta(seconds=70))
+        self.assertTrue(reference["current_five_minute_candle"])
+        self.assertTrue(reference["timing_aligned"])
 
     def test_missing_current_candle_uses_current_slot_quote_endpoint(self):
         market = SharedV4Market("dummy")
