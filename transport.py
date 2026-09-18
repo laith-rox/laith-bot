@@ -68,6 +68,14 @@ class Telegram:
         LOG.info("telegram_identity_verified username=%s", me["username"])
         return not self.read("getWebhookInfo").get("url")
 
+    def send_to(self, chat_id, message):
+        original=self.chat_id
+        try:
+            self.chat_id=str(chat_id)
+            return self.send(message)
+        finally:
+            self.chat_id=original
+
     def send(self, message, reply_to_message_id=None):
         payload = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML",
                    "link_preview_options": {"is_disabled": True}}
