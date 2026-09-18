@@ -333,6 +333,11 @@ class V4Paper:
             experiment_id=self.experiment["id"],
             paper_only=True,
             generation="V4",
+            signal_score=adjusted.get("signal_score"),
+            signal_total=adjusted.get("signal_total", 7),
+            signal_strength=adjusted.get("signal_strength"),
+            relaxed_candidate=bool(adjusted.get("relaxed_candidate")),
+            original_veto=adjusted.get("original_veto"),
         )
         self.store.set("v4_active", trade)
         self.store.set("v4_last_entry", now2.timestamp())
