@@ -218,7 +218,8 @@ class App:
             except DataError as exc:
                 reason=str(exc); self.store.set('last_error',reason)
                 LOG.warning('entry_blocked reason=%s',reason)
-        self.quick_v4_update(raw_decision,bars,now)\n        self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
+        self.quick_v4_update(raw_decision,bars,now)
+        self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
 
     def commands(self,now):
         offset=self.store.get("update_offset",0); updates=self.telegram.read("getUpdates",offset=offset,timeout=0,allowed_updates='["message"]',limit=20)
