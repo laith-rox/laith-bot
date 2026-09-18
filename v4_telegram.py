@@ -144,35 +144,20 @@ def quick_stats_message(store):
 
 
 def quick_message(trade):
-    conditions = []
-    for item in trade.get("conditions") or []:
-        conditions.append(("✅" if item.get("ok") else "❌") + " " + str(item.get("name", "شرط")))
-    checklist = "\n".join(conditions)
+    """Compact five-minute quick alert; display-only change, strategy untouched."""
     risk_level = trade.get("risk_level", "—")
     risk_marker = "🔴" if risk_level == "مرتفعة" else "🟡" if risk_level == "متوسطة" else "🟢"
     reasons = trade.get("risk_reasons") or []
-    risk_text = " — ".join(str(x) for x in reasons) if reasons else "لا توجد تحذيرات إضافية"
-    adjustment = _strength_adjustment_line(trade)
-    adjustment_text = (adjustment + "\n") if adjustment else ""
+    warning = ("\n⚠️ " + " — ".join(str(x) for x in reasons[:2])) if reasons else ""
     return (
-        "⚡ <b>صفقة سريعة — V4 (ورقية)</b>\n\n"
-        f"الاتجاه: <b>{trade.get('side', '—')}</b>\n"
-        f"📊 تحقق الشروط: <b>{trade.get('score', '—')}/7 = {trade.get('condition_percent', '—')}%</b>\n"
-        f"🧭 القوة المعروضة: <b>{trade.get('strength', '—')}</b>\n"
-        f"{adjustment_text}"
-        f"{_quick_history_line(trade)}\n"
-        f"{risk_marker} المخاطرة: <b>{risk_level}</b>\n"
-        f"⚠️ ملاحظات: {risk_text}\n"
-        f"📈 RSI: <b>{_fmt(trade.get('rsi'))}</b>\n\n"
-        f"{checklist}\n\n"
-        f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
-        f"🛑 وقف الخسارة: {_fmt(trade.get('stop'))}\n"
-        f"🎯 الهدف السريع: {_fmt(trade.get('target'))}\n"
-        f"⚖️ R:R: 1:{float(trade.get('rr', 0)):.2f}\n"
-        "⏱️ الصلاحية: 20 دقيقة\n\n"
-        f"الجلسة: {trade.get('session', '—')} | التذبذب: {trade.get('volatility_regime', '—')}\n"
-        "↔️ المسار السريع مستقل عن الصفقة الرسمية وقد يعمل معها بنفس الوقت.\n"
-        "⚠️ نسبة الشروط والقوة ليستا احتمال ربح. الصفقة بحثية ورقية فقط."
+        "⚡ <b>V4 سريع — 5د</b>\n"
+        f"الاتجاه: <b>{trade.get('side', '—')}</b> | القوة: <b>{trade.get('strength', '—')}</b> "
+        f"({trade.get('score', '—')}/7)\n"
+        f"💰 دخول: <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🛑 وقف: <b>{_fmt(trade.get('stop'))}</b>\n"
+        f"🎯 هدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
+        f"{risk_marker} المخاطرة: <b>{risk_level}</b>{warning}\n"
+        "⏱️ صلاحية 20د | 📄 ورقية/بحثية"
     )
 
 
