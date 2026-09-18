@@ -17,7 +17,7 @@ from fast_service import start_worker, fast_status
 from timing import DecisionClock, decision_metadata
 from safety_monitor import start_safety_worker
 
-VERSION = "2.7.0"
+VERSION = "2.7.1"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -131,10 +131,26 @@ class App:
         LOG.info("analysis side=%s reason=%s buy=%s sell=%s closed_5m=%s last_close=%s",decision["side"],decision.get("reason"),raw_decision.get("buy"),raw_decision.get("sell"),len(bars),bars[-1].end.isoformat())
         if decision["side"] in ("BUY","SELL"):
             try:
-                require_fresh(bars,clock.now(),120)
-                quote=self.market.quote(clock.now)
+                # A closed 5m candle remains usable briefly after its close. The provider's
+                # exchange-rate timestamp can lag even while the candle feed is current.
+                # Prefer the live provider quote, but fall back to the latest *fresh closed*
+                # candle only; never bypass genuinely stale market data.
+                require_fresh(bars,clock.now(),180)
+                try:
+                    quote=self.market.quote(clock.now)
+                    quote_fallback=False
+                except DataError as quote_error:
+                    if str(quote_error) not in ('market_quote_stale','market_quote_unavailable','market_quote_invalid'):
+                        raise
+                    fallback_now=clock.now()
+                    age=require_fresh(bars,fallback_now,180)
+                    quote={'price':bars[-1].close,'time':bars[-1].end.timestamp(),
+                           'source':'latest closed 5m'}
+                    quote_fallback=True
+                    LOG.warning('entry_quote_fallback live_reason=%s closed_age=%.1f',
+                                str(quote_error),age)
                 now=clock.now(); epoch=now.timestamp()
-                require_fresh(bars,now,120)
+                require_fresh(bars,now,180)
                 if not entry_window(now): raise DataError('outside_entry_window')
                 tolerance=min(1.0,decision['atr']*0.25)
                 shift=quote['price']-decision['price']
@@ -146,7 +162,7 @@ class App:
                 trade.update(entry_buy=decision.get('buy'),entry_sell=decision.get('sell'),
                              quote_time=quote['time'],quote_source=quote['source'],
                              price_tolerance=tolerance,
-                             entry_expires=min(quote['time']+90,bars[-1].end.timestamp()+120))
+                             entry_expires=min(quote['time']+(180 if quote_fallback else 90),bars[-1].end.timestamp()+180))
                 self.store.prepare_entry(trade,entry(trade,decision),epoch)
                 LOG.info('entry_quote_verified id=%s price=%.2f source_age=%.1f',
                          trade['id'],trade['entry'],epoch-quote['time'])
