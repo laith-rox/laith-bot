@@ -220,6 +220,9 @@ class V4PaperResilientQuick(V4Paper):
             setup["risk_level"] = "مرتفعة"
         if entry_ref.get("candle_open_estimated"):
             reasons.append("افتتاح شمعة 5د مرجعي من إغلاق الشمعة السابقة؛ سعر الدخول نفسه حي")
+        if entry_ref.get("delayed_reference"):
+            reasons.append("مرجع الدخول آخر شمعة 5د مغلقة حديثة لأن السعر الحي لم يكن موثوق التوقيت")
+            setup["risk_level"] = "مرتفعة"
         gate_reasons = (((quick_decision.get("v4") or {}).get("intelligence") or {}).get("entry_gate") or {}).get("reasons") or []
         for reason in gate_reasons:
             if reason not in ("recent_data_gap", "stale_market_data"):
@@ -238,7 +241,7 @@ class V4PaperResilientQuick(V4Paper):
         setup.update(
             quote_time=entry_ref.get("time"),
             quote_source=entry_ref.get("source"),
-            delayed_reference=False,
+            delayed_reference=bool(entry_ref.get("delayed_reference")),
             cached_market_data=bool(cached_market),
             candle_start=entry_ref.get("candle_start"),
             candle_start_iso=entry_ref.get("candle_start_iso"),
@@ -249,8 +252,8 @@ class V4PaperResilientQuick(V4Paper):
             candle_open_source=entry_ref.get("candle_open_source"),
             signal_observed_at=entry_ref.get("observed_at"),
             entry_delay_seconds=entry_ref.get("entry_delay_seconds"),
-            current_five_minute_candle=True,
-            timing_aligned=True,
+            current_five_minute_candle=bool(entry_ref.get("current_five_minute_candle")),
+            timing_aligned=bool(entry_ref.get("timing_aligned")),
             trade_slot_time=entry_ref.get("candle_start"),
             quick_timeframe="5m",
             quick5m=quick5m,

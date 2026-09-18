@@ -20,6 +20,7 @@ from v4_quick_balance import attach_condition_balance, quick_message as balanced
 from v4_quick_guard import guard_alert_message, guard_quick_setup
 from v4_shared_market import SharedV4Market, closed_bar_reference
 from v4_wait_display import smart_wait_message
+from market import DataError
 
 LOG = logging.getLogger("laith.v4.emergency")
 KEY_LOG = logging.getLogger("laith.v4.key")
@@ -72,9 +73,45 @@ def _shared_quick_reference(_market, bars, now):
     return closed_bar_reference(bars, now)
 
 
-def _shared_quick_entry_reference(market, _bars, now):
-    """Quick entry requires a timestamped current 5m slot reference."""
-    return market.current_candle_reference(now)
+def _shared_quick_entry_reference(market, bars, now):
+    """Prefer a live current-slot reference; fall back to the just-closed 5m bar.
+
+    The original Laith signal bot makes decisions from completed fresh candles.
+    V4 keeps the live reference when Twelve Data exposes it, but must not suppress
+    the entire quick stream merely because the provider omits the forming candle
+    or serves a quote timestamp that is not the current 5m slot.
+    """
+    try:
+        return market.current_candle_reference(now)
+    except DataError as exc:
+        if not bars:
+            raise
+        last = bars[-1]
+        age = (now - last.end).total_seconds()
+        if age < 0 or age > 90:
+            raise
+        LOG.warning(
+            "quick_entry_reference_fallback source=latest_closed_5m live_reason=%s age=%.1fs bar_end=%s",
+            exc, age, last.end.isoformat(),
+        )
+        return {
+            "price": float(last.close),
+            "candle_open": float(last.open),
+            "candle_high": float(last.high),
+            "candle_low": float(last.low),
+            "time": last.end.timestamp(),
+            "candle_start": last.start.timestamp(),
+            "candle_start_iso": last.start.isoformat(),
+            "observed_at": last.end.timestamp(),
+            "entry_delay_seconds": round(age, 3),
+            "source": "آخر شمعة 5د مغلقة حديثة — fallback موثوق",
+            "delayed_reference": True,
+            "shared_candle_reference": True,
+            "current_five_minute_candle": False,
+            "timing_aligned": True,
+            "candle_open_estimated": False,
+            "candle_open_source": "افتتاح آخر شمعة 5د مغلقة",
+        }
 
 
 class QuickGuardBlocked(RuntimeError):
