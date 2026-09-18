@@ -210,6 +210,8 @@ def paper_open_message(trade):
     return (
         "✅ <b>صفقة V4 الرسمية — ورقية</b>\n\n"
         f"الاتجاه: <b>{trade.get('side')}</b>\n"
+        f"📊 تحقق الشروط: <b>{trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}</b>\n"
+        f"🧭 قوة الإشارة: <b>{trade.get('signal_strength', '—')}</b>\n"
         f"الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🛑 الوقف: {_fmt(trade.get('stop'))}\n"
         f"🎯 TP1: {_fmt(trade.get('tp1'))}\n"
