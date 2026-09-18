@@ -16,8 +16,10 @@ from transport import Telegram, dispatch
 from fast_service import start_worker, fast_status
 from timing import DecisionClock, decision_metadata
 from safety_monitor import start_safety_worker
+from v4_quick_5m import analyze_quick_5m
+from v4_quick import build_quick
 
-VERSION = "2.7.1"
+VERSION = "2.8.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -52,6 +54,53 @@ class App:
         if updated["status"]=="closed" or epoch-watch["announced"]>=14400: self.store.set("early_watch",None)
         else:
             self.store.set("early_watch",updated); self.monitor_reversal(updated,decision,epoch,True)
+
+    def quick_v4_update(self, higher_decision, bars, now):
+        """User-visible 5m quick stream using the same decision layer as Laith V4."""
+        if not entry_window(now) or self.store.get("paused", False) or len(bars) < 22:
+            return
+        slot = int(now.timestamp() // 300)
+        event_id = "laith-v4quick:" + str(slot)
+        if self.store.db.execute("SELECT 1 FROM outbox WHERE id=?", (event_id,)).fetchone():
+            return
+        try:
+            require_fresh(bars, now, 180)
+            try:
+                quote = self.market.quote(lambda: now)
+                price = float(quote["price"])
+            except DataError as exc:
+                if str(exc) not in ("market_quote_stale", "market_quote_unavailable", "market_quote_invalid"):
+                    raise
+                price = float(bars[-1].close)
+            slot_start = datetime.fromtimestamp(slot * 300, UTC)
+            # Closed-bar feed cannot honestly supply the current unfinished candle open.
+            # Use the latest closed close as the opening reference, matching V4's guarded fallback semantics.
+            current = {"price": price, "candle_open": float(bars[-1].close),
+                       "candle_high": max(price, float(bars[-1].close)),
+                       "candle_low": min(price, float(bars[-1].close)),
+                       "candle_start_iso": slot_start.isoformat(),
+                       "candle_open_estimated": True}
+            qd = analyze_quick_5m(bars, current, higher_decision)
+            quick = build_quick(qd, now, quote_price=price) if qd.get("side") in ("BUY", "SELL") else None
+            if quick:
+                risk = quick.get("risk_level", "—")
+                marker_risk = "🔴" if risk == "مرتفعة" else "🟡" if risk == "متوسطة" else "🟢"
+                msg = ("⚡ <b>بوت ليث — صفقة سريعة 5د</b>\n"
+                       f"الاتجاه: <b>{quick['side']}</b> | القوة: <b>{quick['strength']}</b> ({quick['score']}/7)\n"
+                       f"💰 دخول: <b>{quick['entry']:.2f}</b>\n"
+                       f"🛑 وقف: <b>{quick['stop']:.2f}</b>\n"
+                       f"🎯 هدف: <b>{quick['target']:.2f}</b> | R:R 1:{quick['rr']:.2f}\n"
+                       f"{marker_risk} المخاطرة: <b>{risk}</b>\n"
+                       "⏱️ صلاحية 20د | Twelve Data؛ ليست صفقة مضمونة ولا تنفيذًا آليًا.")
+            else:
+                q = qd.get("quick5m") or {}
+                msg = ("⏸️ <b>بوت ليث — Quick 5د WAIT</b>\n"
+                       f"شراء <b>{q.get('buy', qd.get('buy', '—'))}/7</b> | بيع <b>{q.get('sell', qd.get('sell', '—'))}/7</b>\n"
+                       "لا اتجاه لحظي واضح؛ لا يتم اختراع صفقة.")
+            self.store.enqueue(event_id, "follow", msg, now.timestamp(), expires=now.timestamp()+300)
+            LOG.info("laith_v4quick_prepared slot=%s side=%s", slot, qd.get("side"))
+        except DataError as exc:
+            LOG.warning("laith_v4quick_unavailable reason=%s", str(exc))
 
     def periodic_reports(self,decision,bars,now,blocked=None):
         epoch=now.timestamp(); slot=int(epoch//900); current=self.store.get("current_report")
@@ -169,7 +218,7 @@ class App:
             except DataError as exc:
                 reason=str(exc); self.store.set('last_error',reason)
                 LOG.warning('entry_blocked reason=%s',reason)
-        self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
+        self.quick_v4_update(raw_decision,bars,now)\n        self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
 
     def commands(self,now):
         offset=self.store.get("update_offset",0); updates=self.telegram.read("getUpdates",offset=offset,timeout=0,allowed_updates='["message"]',limit=20)
