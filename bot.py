@@ -232,7 +232,8 @@ class App:
                 if command in ("/start","/help"): text="🥇 بوت ليث لإشارات الذهب ومتابعتها.\n/status حالة البوت\n/pause إيقاف الدخول\n/resume استئناف الدخول"
                 elif command=="/status": text=status(self.store)
                 elif command=="/stats": text=stats(self.store)
-                elif command=="/fast": text=fast_status(self.store)\n                elif command=="/testalert": text="🚨 <b>اختبار إنذار الطوارئ — بوت ليث</b>\nهذا اختبار فقط، لا توجد صفقة طوارئ حقيقية."
+                elif command=="/fast": text=fast_status(self.store)
+                elif command=="/testalert": text="🚨 اختبار إنذار الطوارئ — بوت ليث"
                 elif command=="/pause": self.store.set("paused",True); text="⏸️ تم إيقاف إشارات الدخول الجديدة."
                 elif command=="/resume": self.store.set("paused",False); text="▶️ تم استئناف إشارات الدخول الجديدة."
             if text: self.store.enqueue("command:"+str(uid),"command",text,now.timestamp(),expires=now.timestamp()+300)
