@@ -145,7 +145,11 @@ class SharedV4Market(Market):
             candle_low = float(payload["low"])
         except (KeyError, TypeError, ValueError, OverflowError):
             raise DataError("market_quote_invalid") from None
-        if stamp != slot_start.timestamp():
+        # /quote timestamp is the observation/update time, not guaranteed to be
+        # the candle-open timestamp. Accept it when it belongs to the current 5m
+        # slot instead of requiring exact equality with the slot boundary.
+        slot_end = slot_start.timestamp() + 300
+        if stamp < slot_start.timestamp() or stamp >= slot_end or stamp > now.timestamp() + 5:
             raise DataError("quick_quote_not_current_5m_slot")
         if not (candle_low <= min(candle_open, price) <= max(candle_open, price) <= candle_high):
             raise DataError("market_quote_ohlc_invalid")
@@ -154,11 +158,11 @@ class SharedV4Market(Market):
             "candle_open": candle_open,
             "candle_high": candle_high,
             "candle_low": candle_low,
-            "time": now.timestamp(),
-            "candle_start": stamp,
+            "time": stamp,
+            "candle_start": slot_start.timestamp(),
             "candle_start_iso": slot_start.isoformat(),
-            "observed_at": now.timestamp(),
-            "entry_delay_seconds": round(max(0.0, now.timestamp() - stamp), 3),
+            "observed_at": stamp,
+            "entry_delay_seconds": round(max(0.0, stamp - slot_start.timestamp()), 3),
             "source": "Twelve Data /quote - شمعة 5د الحالية",
             "delayed_reference": False,
             "shared_candle_reference": False,
