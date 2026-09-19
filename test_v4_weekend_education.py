@@ -41,15 +41,15 @@ class FakePaper:
 
 
 class WeekendEducationTests(unittest.TestCase):
-    def test_window_excludes_friday_evening_but_includes_saturday(self):
-        friday_close = datetime(2026, 9, 18, 21, 30, tzinfo=UTC)  # 17:30 New York
-        saturday = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
-        self.assertFalse(weekend_education_window(friday_close))
-        self.assertTrue(weekend_education_window(saturday))
+    def test_window_starts_at_local_saturday_midnight(self):
+        before_local_saturday = datetime(2026, 9, 18, 20, 59, tzinfo=UTC)  # 23:59 Hebron
+        local_saturday = datetime(2026, 9, 18, 21, 0, tzinfo=UTC)          # 00:00 Hebron
+        self.assertFalse(weekend_education_window(before_local_saturday))
+        self.assertTrue(weekend_education_window(local_saturday))
 
-    def test_window_stops_at_sunday_reopen(self):
-        before_open = datetime(2026, 9, 20, 21, 59, tzinfo=UTC)  # 17:59 New York
-        at_open = datetime(2026, 9, 20, 22, 0, tzinfo=UTC)       # 18:00 New York
+    def test_window_stops_at_sunday_new_york_reopen(self):
+        before_open = datetime(2026, 9, 20, 21, 59, tzinfo=UTC)  # 17:59 New York / Mon 00:59 Hebron
+        at_open = datetime(2026, 9, 20, 22, 0, tzinfo=UTC)       # 18:00 New York / Mon 01:00 Hebron
         self.assertTrue(weekend_education_window(before_open))
         self.assertFalse(weekend_education_window(at_open))
 
