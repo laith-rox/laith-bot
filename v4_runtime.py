@@ -284,6 +284,26 @@ class V4PaperResilientQuick(V4Paper):
             self.notifier.send(quick_message(setup))
 
 
+NY_TZ = ZoneInfo("America/New_York")
+
+
+def market_weekend_closed(now):
+    """Return True during the regular XAU/FX weekend closure.
+
+    Uses New York session time so DST changes are handled automatically.
+    Conservative window: Friday from 17:00 NY through Sunday before 18:00 NY.
+    """
+    local = now.astimezone(NY_TZ)
+    weekday = local.weekday()  # Mon=0 ... Sun=6
+    if weekday == 5:
+        return True
+    if weekday == 4 and local.hour >= 17:
+        return True
+    if weekday == 6 and local.hour < 18:
+        return True
+    return False
+
+
 def run(args):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     store = Store(args.db)
@@ -305,6 +325,17 @@ def run(args):
                 telegram.poll()
             except Exception:
                 LOG.exception("telegram_cycle_failed")
+            if market_weekend_closed(now):
+                # Keep Telegram polling alive, but do not request market data or
+                # publish trading/monitoring messages while XAU is closed.
+                store.set("v4_market_status", "WEEKEND_CLOSED")
+                store.set("v4_last_error", None)
+                store.set("v4_quick_last_error", None)
+                next_cycle = time.time() + args.interval
+                next_quick = time.time() + args.quick_interval
+                time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
+                continue
+            store.set("v4_market_status", "OPEN")
             if time.time() >= next_cycle:
                 try:
                     paper.cycle(now)
