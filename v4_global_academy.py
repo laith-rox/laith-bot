@@ -729,6 +729,37 @@ def visual_kind_for_lesson(lesson):
     return "structure"
 
 
+def _arabicize_visible(text):
+    """Convert common platform/trading abbreviations to simple Arabic for lessons."""
+    value = str(text or "")
+    replacements = (
+        ("XAU/USD", "الذهب مقابل الدولار"),
+        ("BUY", "شراء"),
+        ("SELL", "بيع"),
+        ("WAIT", "انتظار"),
+        ("M5", "فريم ٥ دقائق"),
+        ("M15", "فريم ١٥ دقيقة"),
+        ("H1", "فريم الساعة"),
+        ("H4", "فريم ٤ ساعات"),
+        ("Bid", "سعر البيع"),
+        ("Ask", "سعر الشراء"),
+        ("SPREAD", "السبريد"),
+        ("ATR", "متوسط مدى الحركة"),
+        ("R:R", "العائد مقابل المخاطرة"),
+        ("Drawdown", "السحب من الرصيد"),
+        ("COT", "تقرير تمركز المتداولين"),
+        ("Market", "أمر سوق"),
+        ("Limit", "أمر محدد"),
+        ("Stop", "أمر إيقاف"),
+        ("ENTRY", "الدخول"),
+        ("SL", "وقف الخسارة"),
+        ("TP", "الهدف"),
+    )
+    for old, new in replacements:
+        value = value.replace(old, new)
+    return value
+
+
 def _lesson_visual_side(lesson, variant=0):
     """Give every picture an explicit BUY/SELL/WAIT meaning in Arabic."""
     title = str((lesson or {}).get("title") or "")
@@ -830,8 +861,8 @@ def _lesson_hook(lesson):
 def academy_parts(slot, lesson_number=1):
     """Teach one lesson visually, in simple Arabic, with an explicit trade meaning."""
     lesson = academy_lesson(slot)
-    checks = lesson["checks"]
-    title = lesson["title"]
+    checks = tuple(_arabicize_visible(x) for x in lesson["checks"])
+    title = _arabicize_visible(lesson["title"])
     visual = visual_kind_for_lesson(lesson)
     hook = _lesson_hook(lesson)
     rule = _lesson_rule_ar(lesson)
@@ -865,7 +896,7 @@ def academy_parts(slot, lesson_number=1):
         {
             "text": (
                 "🔓 <b>هون الفكرة ببساطة</b>\n\n"
-                f"{lesson['edge']}\n\n"
+                f"{_arabicize_visible(lesson['edge'])}\n\n"
                 f"🧠 <b>القاعدة اللي بدنا تثبت براسك:</b>\n{rule}\n\n"
                 f"والشيء الثاني المهم: {checks[1]}"
             ),
@@ -886,7 +917,7 @@ def academy_parts(slot, lesson_number=1):
         {
             "text": (
                 "🎯 <b>هسا دورك إنت</b>\n\n"
-                f"{lesson['drill']}\n\n"
+                f"{_arabicize_visible(lesson['drill'])}\n\n"
                 "جاوب حالك بثلاث كلمات قبل أي دخول: <b>شراء، بيع، ولا انتظار؟</b>\n"
                 "وبعدها اسأل: <b>وين المستوى اللي إذا انكسر بتبطل فكرتي؟</b>"
             ),
