@@ -401,3 +401,96 @@ def academy_message(slot):
         f"📚 أصل الفكرة: {lesson['source']}\n"
         "🏁 لا تبحث عن يقين؛ ابحث عن قرار يمكن تفسيره، إبطاله، وقياسه."
     )
+
+
+def visual_kind_for_lesson(lesson):
+    """Map a research lesson to a compact educational diagram family."""
+    title = str((lesson or {}).get("title") or "")
+    if any(x in title for x in ("الخبر", "ردة فعل")):
+        return "event"
+    if any(x in title for x in ("التقلب", "الستوب")):
+        return "volatility"
+    if any(x in title for x in ("اختراق", "الكسر")):
+        return "breakout"
+    if any(x in title for x in ("السيولة", "الإلكتروني")):
+        return "execution"
+    if any(x in title for x in ("جلسة",)):
+        return "sessions"
+    if any(x in title for x in ("COT", "التمركز")):
+        return "positioning"
+    if any(x in title for x in ("التوقع الرياضي", "نسبة النجاح", "البقاء")):
+        return "expectancy"
+    if any(x in title for x in ("اختبار الماضي",)):
+        return "backtest"
+    if any(x in title for x in ("الذهب", "مصفوفة", "سببي", "الارتباط")):
+        return "matrix"
+    if any(x in title for x in ("الصفقة الجيدة", "أين أنا غلطان", "الانتظار", "الرابحين")):
+        return "process"
+    if any(x in title for x in ("الترند", "الإطار", "المكان", "التمدد", "النظام السوقي")):
+        return "trend"
+    return "structure"
+
+
+def academy_parts(slot, lesson_number=1):
+    """Split one academy lesson into paced five-minute teaching parts."""
+    lesson = academy_lesson(slot)
+    checks = lesson["checks"]
+    title = lesson["title"]
+    visual = visual_kind_for_lesson(lesson)
+    return [
+        {
+            "text": (
+                f"🧠 <b>أكاديمية Laith V4 — الدرس {lesson_number}</b>\n"
+                f"🎓 <b>{title}</b>\n\n"
+                "هذا الدرس سيأتيك على أجزاء كل 5 دقائق حتى يأخذ حقه في الفهم.\n"
+                "⚠️ تعليم فقط — ليس إشارة دخول."
+            ),
+        },
+        {
+            "text": (
+                f"📘 <b>الجزء 2 — الفكرة العميقة</b>\n\n"
+                f"{lesson['edge']}\n\n"
+                f"🧩 النموذج الذهني:\n<b>{lesson['model']}</b>"
+            ),
+            "visual": visual,
+            "visual_variant": 0,
+            "visual_title": title,
+        },
+        {
+            "text": (
+                "🔎 <b>الجزء 3 — كيف تطبقها عمليًا؟</b>\n\n"
+                f"1) {checks[0]}\n"
+                f"2) {checks[1]}\n"
+                f"3) {checks[2]}\n\n"
+                "لا تحفظ الخطوات ككلمات؛ اسأل في كل نقطة: ماذا سيجعل هذه القراءة خاطئة؟"
+            ),
+        },
+        {
+            "text": (
+                "🚫 <b>الجزء 4 — الفخ الذي يقع فيه أغلب المتداولين</b>\n\n"
+                f"{lesson['trap']}\n\n"
+                "الصورة الثانية توضح أن الخطر غالبًا ليس في معرفة الاتجاه فقط، "
+                "بل في مكان الدخول والتوقيت وحجم المخاطرة."
+            ),
+            "visual": visual,
+            "visual_variant": 1,
+            "visual_title": title + " — TRAP",
+        },
+        {
+            "text": (
+                "🧪 <b>الجزء 5 — تدريب المتداول</b>\n\n"
+                f"{lesson['drill']}\n\n"
+                f"📚 أصل الفكرة: {lesson['source']}\n\n"
+                "قيّم نفسك على جودة التفكير، لا على ما إذا كان المثال انتهى رابحًا أو خاسرًا."
+            ),
+        },
+        {
+            "text": (
+                f"✅ <b>انتهى الدرس {lesson_number}</b>\n\n"
+                "الخلاصة: لا تبحث عن يقين؛ ابحث عن قرار تستطيع تفسيره، "
+                "وتحديد أين يصبح خاطئًا، وقياس مخاطره.\n\n"
+                "⏳ <b>انتظر الدرس التالي بعد ساعة.</b>\n"
+                "الهدف: أن تتعلم كيف يفكر المتداول، لا أن تحفظ صفقة."
+            ),
+        },
+    ]

@@ -68,6 +68,38 @@ class Telegram:
         LOG.info("telegram_identity_verified username=%s", me["username"])
         return not self.read("getWebhookInfo").get("url")
 
+    def send_photo(self, photo_bytes, caption=None):
+        data = {"chat_id": self.chat_id, "parse_mode": "HTML"}
+        if caption:
+            data["caption"] = caption
+        files = {"photo": ("lesson.png", photo_bytes, "image/png")}
+        try:
+            response = self.session.post(self.base + "/sendPhoto", data=data, files=files, timeout=(5, 30))
+        except requests.ConnectTimeout:
+            return Delivery("retry", error="telegram_connect_timeout")
+        except requests.RequestException:
+            return Delivery("uncertain", error="telegram_delivery_unknown")
+        try:
+            payload = response.json()
+        except ValueError:
+            return Delivery("uncertain", error="telegram_response_unknown")
+        if not isinstance(payload, dict):
+            return Delivery("uncertain", error="telegram_response_unknown")
+        if payload.get("ok") is True:
+            result = payload.get("result", {})
+            message_id = result.get("message_id")
+            if not isinstance(message_id, int) or str(result.get("chat", {}).get("id")) != self.chat_id:
+                return Delivery("uncertain", error="telegram_ack_invalid")
+            return Delivery("sent", message_id=message_id)
+        code = payload.get("error_code", response.status_code)
+        if code == 429:
+            delay = payload.get("parameters", {}).get("retry_after", 30)
+            delay = min(3600, max(1, int(delay))) if isinstance(delay, (int, float)) else 30
+            return Delivery("retry", error="telegram_rate_limited", retry_after=delay)
+        if isinstance(code, int) and code >= 500:
+            return Delivery("retry", error="telegram_server_rejected")
+        return Delivery("failed", error="telegram_request_rejected")
+
     def send(self, message, reply_to_message_id=None):
         payload = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML",
                    "link_preview_options": {"is_disabled": True}}
