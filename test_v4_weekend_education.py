@@ -66,7 +66,7 @@ class WeekendEducationTests(unittest.TestCase):
         visuals = [p for p in lesson["parts"] if p.get("visual")]
         self.assertGreaterEqual(len(visuals), 2)
         self.assertIn("الدرس 1", lesson["parts"][0]["text"])
-        self.assertIn("انتهى الدرس 1", lesson["parts"][-1]["text"])
+        self.assertIn("خلصت جولة السوق #1", lesson["parts"][-1]["text"])
 
     def test_first_part_sends_immediately_and_no_duplicate_before_five_minutes(self):
         store = FakeStore()
@@ -95,7 +95,7 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertEqual(len(notifier.photos), 1)
         photo, caption = notifier.photos[0]
         self.assertTrue(photo.startswith(b"\x89PNG"))
-        self.assertIn("الجزء 2", caption)
+        self.assertIn("شوف بعينك", caption)
 
     def test_complete_lesson_then_wait_full_hour(self):
         store = FakeStore()
@@ -113,8 +113,8 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertEqual(store.get("v4_weekend_lesson_number"), 2)
 
         all_text = notifier.messages + [caption for _, caption in notifier.photos]
-        self.assertTrue(any("انتهى الدرس 1" in text for text in all_text))
-        self.assertTrue(any("انتظر الدرس التالي بعد ساعة" in text for text in all_text))
+        self.assertTrue(any("خلصت جولة السوق #1" in text for text in all_text))
+        self.assertTrue(any("الجولة الجاية بعد ساعة" in text for text in all_text))
 
         finished = start + timedelta(minutes=5 * (len(lesson["parts"]) - 1))
         self.assertFalse(maybe_send_weekend_education(
@@ -145,6 +145,32 @@ class WeekendEducationTests(unittest.TestCase):
             store, notifier, paper, start + timedelta(minutes=5)
         ))
         self.assertEqual(store.get("v4_weekend_lesson_state")["part_index"], 2)
+
+    def test_lesson_style_is_story_not_classroom(self):
+        lesson = build_weekend_lesson(FakePaper(), 1)
+        joined = "\n".join(part["text"] for part in lesson["parts"])
+        self.assertIn("🎬", joined)
+        self.assertIn("هون السر", joined)
+        self.assertIn("خدعة السوق", joined)
+        self.assertIn("هسا دورك إنت", joined)
+        self.assertNotIn("الجزء 3 — كيف تطبقها عمليًا", joined)
+        self.assertNotIn("تدريب المتداول", joined)
+
+    def test_style_update_preserves_lesson_number(self):
+        store = FakeStore()
+        store.set("v4_weekend_curriculum_version", 3)
+        store.set("v4_weekend_lesson_style_version", 0)
+        store.set("v4_weekend_lesson_number", 6)
+        store.set("v4_weekend_lesson_state", {"status": "active", "part_index": 2})
+        notifier = FakeNotifier()
+        paper = FakePaper()
+        start = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+
+        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
+        self.assertEqual(store.get("v4_weekend_lesson_number"), 6)
+        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 1)
+        sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
+        self.assertIn("جولة السوق #6", sent)
 
     def test_curriculum_starts_fast_and_direct(self):
         first = academy_lesson(0)
