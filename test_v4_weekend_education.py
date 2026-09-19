@@ -65,7 +65,7 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertGreaterEqual(len(lesson["parts"]), 6)
         visuals = [p for p in lesson["parts"] if p.get("visual")]
         self.assertGreaterEqual(len(visuals), 2)
-        self.assertIn("الدرس 1", lesson["parts"][0]["text"])
+        self.assertIn("جولة السوق #1", lesson["parts"][0]["text"])
         self.assertIn("خلصت جولة السوق #1", lesson["parts"][-1]["text"])
 
     def test_first_part_sends_immediately_and_no_duplicate_before_five_minutes(self):
@@ -124,7 +124,7 @@ class WeekendEducationTests(unittest.TestCase):
             store, notifier, paper, finished + timedelta(hours=1)
         ))
         all_text = notifier.messages + [caption for _, caption in notifier.photos]
-        self.assertTrue(any("الدرس 2" in text for text in all_text))
+        self.assertTrue(any("جولة السوق #2" in text for text in all_text))
 
     def test_progress_survives_repeated_calls_like_restart(self):
         store = FakeStore()
@@ -215,7 +215,7 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertEqual(store.get("v4_weekend_lesson_number"), 1)
         self.assertEqual(store.get("unrelated_trade_state"), {"keep": True})
         sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
-        self.assertIn("الدرس 1", sent)
+        self.assertIn("جولة السوق #1", sent)
         self.assertIn("كيف تقرأ سوق الذهب", sent)
 
     def test_profitable_saved_trade_becomes_full_case_study_after_graduation(self):

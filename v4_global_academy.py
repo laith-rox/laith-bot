@@ -718,11 +718,11 @@ def visual_kind_for_lesson(lesson):
         return "expectancy"
     if any(x in title for x in ("اختبار الماضي",)):
         return "backtest"
-    if any(x in title for x in ("الذهب", "مصفوفة", "سببي", "الارتباط")):
+    if any(x in title for x in ("مصفوفة", "سببي", "الارتباط")):
         return "matrix"
     if any(x in title for x in ("الصفقة الجيدة", "أين أنا غلطان", "الانتظار", "الرابحين")):
         return "process"
-    if any(x in title for x in ("الترند", "الإطار", "الفريم", "المكان", "التمدد", "النظام السوقي", "الاتجاه", "الدعم", "المقاومة", "الشمعة", "التداول", "BUY", "SELL")):
+    if any(x in title for x in ("الترند", "الإطار", "الفريم", "المكان", "التمدد", "النظام السوقي", "الاتجاه", "الدعم", "المقاومة", "الشمعة", "التداول", "تقرأ سوق", "BUY", "SELL")):
         return "trend"
     return "structure"
 
