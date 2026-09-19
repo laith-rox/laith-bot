@@ -79,8 +79,11 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertFalse(maybe_send_weekend_education(
             store, notifier, paper, start + timedelta(minutes=4, seconds=59)
         ))
-        self.assertEqual(len(notifier.messages), 1)
-        self.assertEqual(len(notifier.photos), 0)
+        self.assertEqual(len(notifier.messages), 0)
+        self.assertEqual(len(notifier.photos), 1)
+        first_photo, first_caption = notifier.photos[0]
+        self.assertTrue(first_photo.startswith(b"\x89PNG"))
+        self.assertIn("نوع المثال في الصورة", first_caption)
         self.assertEqual(store.get("v4_weekend_lesson_state")["part_index"], 1)
 
     def test_second_part_arrives_after_five_minutes_with_image(self):
@@ -96,7 +99,7 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertEqual(len(notifier.photos), 1)
         photo, caption = notifier.photos[0]
         self.assertTrue(photo.startswith(b"\x89PNG"))
-        self.assertIn("شوف بعينك", caption)
+        self.assertIn("جولة السوق #1", caption)
 
     def test_tonight_intensive_window_only_before_local_midnight(self):
         self.assertTrue(tonight_intensive_window(datetime(2026, 9, 19, 20, 30, tzinfo=UTC)))
@@ -216,9 +219,30 @@ class WeekendEducationTests(unittest.TestCase):
 
         self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
         self.assertEqual(store.get("v4_weekend_lesson_number"), 6)
-        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 1)
+        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 2)
         sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
         self.assertIn("جولة السوق #6", sent)
+
+    def test_first_visual_is_explicit_arabic_buy_sell_or_wait(self):
+        lesson = build_weekend_lesson(FakePaper(), 1)
+        first = lesson["parts"][0]
+        self.assertIn(first.get("visual_side"), ("شراء", "بيع", "انتظار", "شرح"))
+        self.assertIn("نوع المثال في الصورة", first["text"])
+        self.assertNotIn("ENTRY", first["text"])
+        self.assertNotIn("SL", first["text"])
+        self.assertNotIn("TP", first["text"])
+
+    def test_correction_and_breakout_have_dedicated_visual_families(self):
+        correction = academy_lesson(4)
+        breakout = academy_lesson(5)
+        self.assertIn("التصحيح", correction["title"])
+        self.assertIn("اختراق", breakout["title"])
+        correction_lesson = build_weekend_lesson(FakePaper(), 5)
+        breakout_lesson = build_weekend_lesson(FakePaper(), 6)
+        self.assertEqual(correction_lesson["parts"][0]["visual"], "correction")
+        self.assertEqual(breakout_lesson["parts"][0]["visual"], "breakout")
+        self.assertEqual(correction_lesson["parts"][3]["visual_side"], "انتظار")
+        self.assertEqual(breakout_lesson["parts"][3]["visual_side"], "انتظار")
 
     def test_curriculum_starts_fast_and_direct(self):
         first = academy_lesson(0)
