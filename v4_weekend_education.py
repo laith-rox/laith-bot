@@ -15,6 +15,23 @@ NY_TZ = ZoneInfo("America/New_York")
 LOCAL_TZ = ZoneInfo("Asia/Hebron")
 
 
+INTENSIVE_LOCAL_DATE = (2026, 9, 19)
+
+
+def tonight_intensive_window(now):
+    """One-off intensive study mode for Laith until local midnight tonight."""
+    local = now.astimezone(LOCAL_TZ)
+    return (
+        (local.year, local.month, local.day) == INTENSIVE_LOCAL_DATE
+        and local.hour == 23
+    )
+
+
+def _between_lesson_cooldown(now):
+    """Five minutes tonight before midnight, otherwise the normal one hour."""
+    return 300 if tonight_intensive_window(now) else 3600
+
+
 def weekend_education_window(now):
     """From local Saturday 00:00 until the regular Sunday 18:00 New York reopen."""
     local = now.astimezone(LOCAL_TZ)
@@ -488,7 +505,14 @@ def maybe_send_weekend_education(store, notifier, paper, now):
     lesson_number = int(store.get("v4_weekend_lesson_number", 1) or 1)
 
     if state.get("status") == "cooldown":
-        if now_ts < float(state.get("next_lesson_at", 0) or 0):
+        normal_next = float(state.get("next_lesson_at", 0) or 0)
+        if tonight_intensive_window(now):
+            # A lesson that previously entered the normal 1h cooldown may resume
+            # tonight after only 5 minutes from its actual finish.
+            accelerated_next = float(state.get("finished_at", now_ts) or now_ts) + 300
+            if now_ts < accelerated_next:
+                return False
+        elif now_ts < normal_next:
             return False
         state = {}
 
@@ -512,7 +536,11 @@ def maybe_send_weekend_education(store, notifier, paper, now):
     parts = lesson.get("parts") or []
     part_index = int(state.get("part_index", 0) or 0)
     if part_index >= len(parts):
-        state.update(status="cooldown", next_lesson_at=now_ts + 3600)
+        state.update(
+            status="cooldown",
+            finished_at=now_ts,
+            next_lesson_at=now_ts + _between_lesson_cooldown(now),
+        )
         store.set("v4_weekend_lesson_state", state)
         return False
 
@@ -536,7 +564,7 @@ def maybe_send_weekend_education(store, notifier, paper, now):
     if part_index >= len(parts):
         state["status"] = "cooldown"
         state["finished_at"] = now_ts
-        state["next_lesson_at"] = now_ts + 3600
+        state["next_lesson_at"] = now_ts + _between_lesson_cooldown(now)
         store.set("v4_weekend_lesson_number", lesson_number + 1)
     else:
         state["next_part_at"] = now_ts + 300
