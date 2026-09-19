@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import unittest
 
 from v4_weekend_education import (
-    build_weekend_education_message,
+    build_weekend_lesson,
     maybe_send_weekend_education,
     weekend_education_window,
 )
@@ -24,9 +24,15 @@ class FakeStore:
 class FakeNotifier:
     def __init__(self):
         self.messages = []
+        self.photos = []
 
     def send(self, message):
         self.messages.append(message)
+        return True
+
+    def send_photo(self, photo_bytes, caption=None):
+        self.photos.append((photo_bytes, caption))
+        return True
 
 
 class FakePaper:
@@ -42,39 +48,104 @@ class FakePaper:
 
 class WeekendEducationTests(unittest.TestCase):
     def test_window_starts_at_local_saturday_midnight(self):
-        before_local_saturday = datetime(2026, 9, 18, 20, 59, tzinfo=UTC)  # 23:59 Hebron
-        local_saturday = datetime(2026, 9, 18, 21, 0, tzinfo=UTC)          # 00:00 Hebron
+        before_local_saturday = datetime(2026, 9, 18, 20, 59, tzinfo=UTC)
+        local_saturday = datetime(2026, 9, 18, 21, 0, tzinfo=UTC)
         self.assertFalse(weekend_education_window(before_local_saturday))
         self.assertTrue(weekend_education_window(local_saturday))
 
     def test_window_stops_at_sunday_new_york_reopen(self):
-        before_open = datetime(2026, 9, 20, 21, 59, tzinfo=UTC)  # 17:59 New York / Mon 00:59 Hebron
-        at_open = datetime(2026, 9, 20, 22, 0, tzinfo=UTC)       # 18:00 New York / Mon 01:00 Hebron
+        before_open = datetime(2026, 9, 20, 21, 59, tzinfo=UTC)
+        at_open = datetime(2026, 9, 20, 22, 0, tzinfo=UTC)
         self.assertTrue(weekend_education_window(before_open))
         self.assertFalse(weekend_education_window(at_open))
 
-    def test_sends_only_once_per_hour(self):
+    def test_lesson_has_multiple_parts_and_visuals(self):
+        lesson = build_weekend_lesson(FakePaper(), 1)
+        self.assertGreaterEqual(len(lesson["parts"]), 6)
+        visuals = [p for p in lesson["parts"] if p.get("visual")]
+        self.assertGreaterEqual(len(visuals), 2)
+        self.assertIn("الدرس 1", lesson["parts"][0]["text"])
+        self.assertIn("انتهى الدرس 1", lesson["parts"][-1]["text"])
+
+    def test_first_part_sends_immediately_and_no_duplicate_before_five_minutes(self):
         store = FakeStore()
         notifier = FakeNotifier()
         paper = FakePaper()
-        now = datetime(2026, 9, 19, 16, 5, tzinfo=UTC)
-        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, now))
-        self.assertFalse(maybe_send_weekend_education(store, notifier, paper, now.replace(minute=55)))
+        start = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+
+        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
+        self.assertFalse(maybe_send_weekend_education(
+            store, notifier, paper, start + timedelta(minutes=4, seconds=59)
+        ))
         self.assertEqual(len(notifier.messages), 1)
-        self.assertIn("صفقة تعليمية", notifier.messages[0])
-        self.assertIn("ليست إشارة دخول", notifier.messages[0])
+        self.assertEqual(len(notifier.photos), 0)
+        self.assertEqual(store.get("v4_weekend_lesson_state")["part_index"], 1)
 
-    def test_next_hour_sends_again(self):
+    def test_second_part_arrives_after_five_minutes_with_image(self):
         store = FakeStore()
         notifier = FakeNotifier()
         paper = FakePaper()
-        first = datetime(2026, 9, 19, 16, 5, tzinfo=UTC)
-        second = datetime(2026, 9, 19, 17, 5, tzinfo=UTC)
-        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, first))
-        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, second))
-        self.assertEqual(len(notifier.messages), 2)
+        start = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
 
-    def test_profitable_saved_trade_is_used_as_real_lesson(self):
+        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
+        self.assertTrue(maybe_send_weekend_education(
+            store, notifier, paper, start + timedelta(minutes=5)
+        ))
+        self.assertEqual(len(notifier.photos), 1)
+        photo, caption = notifier.photos[0]
+        self.assertTrue(photo.startswith(b"\x89PNG"))
+        self.assertIn("الجزء 2", caption)
+
+    def test_complete_lesson_then_wait_full_hour(self):
+        store = FakeStore()
+        notifier = FakeNotifier()
+        paper = FakePaper()
+        start = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+
+        lesson = build_weekend_lesson(paper, 1)
+        for index in range(len(lesson["parts"])):
+            current = start + timedelta(minutes=5 * index)
+            self.assertTrue(maybe_send_weekend_education(store, notifier, paper, current))
+
+        state = store.get("v4_weekend_lesson_state")
+        self.assertEqual(state["status"], "cooldown")
+        self.assertEqual(store.get("v4_weekend_lesson_number"), 2)
+
+        all_text = notifier.messages + [caption for _, caption in notifier.photos]
+        self.assertTrue(any("انتهى الدرس 1" in text for text in all_text))
+        self.assertTrue(any("انتظر الدرس التالي بعد ساعة" in text for text in all_text))
+
+        finished = start + timedelta(minutes=5 * (len(lesson["parts"]) - 1))
+        self.assertFalse(maybe_send_weekend_education(
+            store, notifier, paper, finished + timedelta(minutes=59, seconds=59)
+        ))
+        self.assertTrue(maybe_send_weekend_education(
+            store, notifier, paper, finished + timedelta(hours=1)
+        ))
+        all_text = notifier.messages + [caption for _, caption in notifier.photos]
+        self.assertTrue(any("الدرس 2" in text for text in all_text))
+
+    def test_progress_survives_repeated_calls_like_restart(self):
+        store = FakeStore()
+        notifier = FakeNotifier()
+        paper = FakePaper()
+        start = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+
+        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
+        saved = dict(store.get("v4_weekend_lesson_state"))
+        self.assertEqual(saved["part_index"], 1)
+
+        self.assertFalse(maybe_send_weekend_education(
+            store, notifier, paper, start + timedelta(minutes=2)
+        ))
+        self.assertEqual(store.get("v4_weekend_lesson_state")["part_index"], 1)
+
+        self.assertTrue(maybe_send_weekend_education(
+            store, notifier, paper, start + timedelta(minutes=5)
+        ))
+        self.assertEqual(store.get("v4_weekend_lesson_state")["part_index"], 2)
+
+    def test_profitable_saved_trade_becomes_full_case_study(self):
         winner = {
             "id": "q-win",
             "status": "closed",
@@ -86,36 +157,12 @@ class WeekendEducationTests(unittest.TestCase):
             "score": 6,
             "conditions": [{"name": "اتجاه 15د", "ok": True}],
         }
-        paper = FakePaper([winner])
-        # Pick a four-hour rotation slot reserved for a saved V4 winner.
-        now = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
-        while int(now.timestamp() // 3600) % 4 != 0:
-            now = now.replace(hour=now.hour + 1)
-        message = build_weekend_education_message(paper, now)
-        self.assertIn("من سجل Laith V4", message)
-        self.assertIn("4300.00", message)
-        self.assertIn("+1.80R", message)
-        self.assertIn("ليست إشارة دخول", message)
-
-    def test_academy_rotation_contains_research_source_and_no_promise(self):
-        paper = FakePaper()
-        now = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
-        while int(now.timestamp() // 3600) % 4 not in (1, 3):
-            now = now.replace(hour=now.hour + 1)
-        message = build_weekend_education_message(paper, now)
-        self.assertIn("أكاديمية Laith V4", message)
-        self.assertIn("أصل الفكرة", message)
-        self.assertIn("ليست إشارة دخول", message)
-        self.assertNotIn("مضمونة", message)
-
-    def test_rotation_still_has_concrete_scenario_drill(self):
-        paper = FakePaper()
-        now = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
-        while int(now.timestamp() // 3600) % 4 != 2:
-            now = now.replace(hour=now.hour + 1)
-        message = build_weekend_education_message(paper, now)
-        self.assertIn("مثال افتراضي", message)
-        self.assertIn("كيف نحللها", message)
+        lesson = build_weekend_lesson(FakePaper([winner]), 4)
+        self.assertEqual(lesson["kind"], "historical")
+        joined = "\n".join(part["text"] for part in lesson["parts"])
+        self.assertIn("تشريح صفقة V4 حقيقية", joined)
+        self.assertIn("4300.00", joined)
+        self.assertIn("+1.80R", joined)
 
 
 if __name__ == "__main__":
