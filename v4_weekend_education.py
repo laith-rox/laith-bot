@@ -1,5 +1,7 @@
 """Weekend-only educational stream for Laith V4.
 
+# Arabic visual lesson release trigger
+
 The stream is intentionally offline: it never requests live market data and never
 creates or saves a tradable signal. It alternates between a completed profitable
 paper trade from V4's own journal and a clearly marked hypothetical example.
