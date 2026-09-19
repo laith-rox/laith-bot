@@ -1,26 +1,31 @@
-"""Generate offline educational visuals for V4 lessons.
+"""Generate clear Arabic educational visuals for Laith V4.
 
-Price-reading lessons use synthetic candlestick charts so the student sees a
-real trading-chart shape instead of an abstract line diagram. All visuals are
-clearly marked as training examples and never use live prices.
+All chart prices are synthetic training examples. The goal is to teach the eye:
+direction, correction, breakout, invalidation, entry, stop and target.
 """
 from io import BytesIO
+
+import arabic_reshaper
+from bidi.algorithm import get_display
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1200, 675
-BG = (14, 17, 22)
-PANEL = (19, 23, 30)
-GRID = (44, 50, 60)
-TEXT = (235, 238, 242)
-MUTED = (151, 158, 170)
-UP = (38, 181, 130)
-DOWN = (225, 78, 78)
-LEVEL = (148, 157, 171)
-ACCENT = (233, 194, 89)
+W, H = 1200, 760
+
+BG = (13, 16, 21)
+PANEL = (20, 24, 31)
+GRID = (45, 51, 61)
+TEXT = (239, 241, 245)
+MUTED = (157, 164, 176)
+UP = (39, 184, 132)
+DOWN = (226, 79, 79)
+WAIT = (229, 187, 70)
+INFO = (91, 157, 219)
+LEVEL = (145, 154, 169)
 
 
-def _font(size=34):
-    for name in ("DejaVuSans-Bold.ttf", "Arial Bold.ttf"):
+def _font(size=34, bold=False):
+    names = ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf") if bold else ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf")
+    for name in names:
         try:
             return ImageFont.truetype(name, size)
         except OSError:
@@ -28,71 +33,115 @@ def _font(size=34):
     return ImageFont.load_default()
 
 
-def _small(size=24):
-    for name in ("DejaVuSans.ttf", "Arial.ttf"):
-        try:
-            return ImageFont.truetype(name, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+def _shape(text):
+    text = str(text or "")
+    if any("\u0600" <= ch <= "\u06ff" for ch in text):
+        return get_display(arabic_reshaper.reshape(text))
+    return text
 
 
-def _base():
+def _draw_ar(d, xy, text, size=24, fill=TEXT, bold=False, anchor="la"):
+    d.text(xy, _shape(text), font=_font(size, bold=bold), fill=fill, anchor=anchor)
+
+
+def _text_width(d, text, size=22, bold=False):
+    box = d.textbbox((0, 0), _shape(text), font=_font(size, bold=bold))
+    return box[2] - box[0]
+
+
+def _base(side="شرح"):
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((30, 24, W - 30, H - 24), radius=26, fill=PANEL, outline=(61, 67, 77), width=2)
-    d.text((60, 48), "XAU/USD TRAINING CHART", font=_font(31), fill=TEXT)
-    d.text((60, 88), "Synthetic educational example  •  NOT LIVE MARKET DATA", font=_small(20), fill=MUTED)
+    d.rounded_rectangle((28, 22, W - 28, H - 22), radius=26, fill=PANEL, outline=(63, 69, 80), width=2)
+
+    _draw_ar(d, (58, 48), "شرح تعليمي للذهب", size=32, bold=True)
+    _draw_ar(d, (58, 91), "مثال تدريبي فقط — الأسعار داخل الصورة ليست أسعارًا حية", size=20, fill=MUTED)
+
+    side = side if side in ("شراء", "بيع", "انتظار", "شرح") else "شرح"
+    side_color = {"شراء": UP, "بيع": DOWN, "انتظار": WAIT, "شرح": INFO}[side]
+    label = {"شراء": "نوع المثال: شراء", "بيع": "نوع المثال: بيع", "انتظار": "القرار هنا: انتظار", "شرح": "شرح بصري"}[side]
+    shaped = _shape(label)
+    fw = _text_width(d, label, size=24, bold=True) + 34
+    x1 = W - 58 - fw
+    d.rounded_rectangle((x1, 48, W - 58, 92), radius=13, fill=side_color)
+    d.text((W - 75, 70), shaped, font=_font(24, bold=True), fill=(10, 14, 18), anchor="rm")
     return img, d
 
 
 def _chart_box(d):
-    left, top, right, bottom = 72, 140, 1090, 585
+    left, top, right, bottom = 68, 150, 1094, 626
     for i in range(6):
         y = top + (bottom - top) * i / 5
         d.line((left, y, right, y), fill=GRID, width=1)
-    for i in range(8):
-        x = left + (right - left) * i / 7
+    for i in range(9):
+        x = left + (right - left) * i / 8
         d.line((x, top, x, bottom), fill=GRID, width=1)
-    d.rectangle((left, top, right, bottom), outline=(74, 81, 92), width=2)
+    d.rectangle((left, top, right, bottom), outline=(76, 83, 95), width=2)
     return left, top, right, bottom
 
 
-def _ohlc_from_closes(closes):
+def _ohlc(closes):
     rows = []
-    prev = closes[0] - 0.8
-    wick_pattern = (1.8, 2.5, 1.4, 2.1, 1.6, 2.8)
+    previous = closes[0] - 0.7
+    wicks = (1.4, 2.2, 1.7, 2.6, 1.5, 2.0)
     for i, close in enumerate(closes):
-        open_ = prev
-        wick = wick_pattern[i % len(wick_pattern)]
+        open_ = previous
+        wick = wicks[i % len(wicks)]
         high = max(open_, close) + wick
         low = min(open_, close) - wick * 0.82
         rows.append((open_, high, low, close))
-        prev = close
+        previous = close
     return rows
 
 
-def _price_series(kind, variant=0):
-    if kind == "breakout":
-        closes = [4295, 4298, 4296, 4300, 4298, 4302, 4301, 4304, 4307, 4313, 4317, 4311, 4314, 4319, 4323, 4328, 4326, 4332]
-        meta = {"level": 4308.0, "entry": 4312.5, "stop": 4304.0, "target": 4328.0, "retest": 11}
+def _mirror(closes, pivot=4310.0):
+    return [pivot * 2 - x for x in closes]
+
+
+def _series(kind, side="شراء", variant=0):
+    side = side if side in ("شراء", "بيع", "انتظار") else "شراء"
+
+    if kind == "correction":
+        closes = [4290, 4295, 4300, 4305, 4311, 4317, 4314, 4310, 4307, 4310, 4314, 4319, 4324, 4329, 4326, 4332, 4336, 4340]
+        meta = {
+            "support": 4306.0,
+            "entry": 4311.0,
+            "stop": 4303.0,
+            "target": 4334.0,
+            "corr_start": 5,
+            "corr_end": 8,
+            "key_index": 8,
+        }
+        if variant:
+            closes = [4290, 4295, 4300, 4305, 4311, 4317, 4313, 4308, 4304, 4299, 4295, 4291, 4287, 4284, 4281, 4278, 4274, 4271]
+            meta.update({"entry": 4302.0, "stop": 4310.0, "target": 4280.0, "break_index": 9})
+    elif kind == "breakout":
+        closes = [4294, 4297, 4296, 4300, 4298, 4302, 4300, 4304, 4306, 4312, 4317, 4310, 4314, 4319, 4323, 4327, 4325, 4330]
+        meta = {"level": 4308.0, "entry": 4312.0, "stop": 4303.0, "target": 4327.0, "break_index": 9, "retest_index": 11}
+        if variant:
+            closes = [4294, 4297, 4296, 4300, 4298, 4302, 4300, 4304, 4306, 4314, 4306, 4301, 4298, 4295, 4292, 4290, 4288, 4286]
+            meta.update({"entry": 0.0, "stop": 0.0, "target": 0.0, "fake_index": 10})
     elif kind == "event":
         closes = [4300, 4301, 4299, 4300, 4302, 4301, 4300, 4301, 4300, 4318, 4309, 4314, 4311, 4317, 4321, 4318, 4324, 4327]
-        meta = {"level": 4300.0, "entry": 4313.0, "stop": 4305.0, "target": 4325.0, "news": 9}
+        meta = {"entry": 4314.0, "stop": 4305.0, "target": 4325.0, "news_index": 9}
     elif kind == "volatility":
         closes = [4300, 4301, 4300, 4302, 4301, 4303, 4302, 4304, 4303, 4310, 4305, 4314, 4307, 4317, 4310, 4321, 4315, 4325]
-        meta = {"level": 4303.0, "entry": 4310.0, "stop": 4301.0, "target": 4324.0}
+        meta = {"entry": 4310.0, "stop": 4300.0, "target": 4324.0}
     else:
         closes = [4290, 4295, 4293, 4299, 4297, 4304, 4301, 4308, 4305, 4312, 4309, 4316, 4313, 4320, 4317, 4324, 4321, 4328]
-        meta = {"level": 4296.0, "entry": 4307.0, "stop": 4299.0, "target": 4325.0}
-    if variant:
-        # The trap version visually shows a late chase followed by a pullback.
-        closes = list(closes)
-        closes[-4:] = [closes[-5] + 7, closes[-5] + 11, closes[-5] + 4, closes[-5] + 1]
-        meta = dict(meta)
-        meta["entry"] = closes[-4] + 0.5
-        meta["target"] = closes[-4] + 7.0
-    return _ohlc_from_closes(closes), meta
+        meta = {"support": 4296.0, "entry": 4307.0, "stop": 4299.0, "target": 4325.0}
+
+    if side == "بيع" and kind not in ("correction",):
+        closes = _mirror(closes)
+        for key in ("entry", "stop", "target", "level", "support"):
+            if key in meta and meta[key]:
+                meta[key] = 8620.0 - meta[key]
+
+    return _ohlc(closes), meta
+
+
+def _price_to_y(price, top, bottom, lo, hi):
+    return bottom - (price - lo) / (hi - lo) * (bottom - top)
 
 
 def _draw_price_axis(d, box, lo, hi):
@@ -100,30 +149,26 @@ def _draw_price_axis(d, box, lo, hi):
     for i in range(6):
         price = hi - (hi - lo) * i / 5
         y = top + (bottom - top) * i / 5
-        d.text((right + 10, y - 10), f"{price:.1f}", font=_small(17), fill=MUTED)
-    labels = ("09:00", "10:00", "11:00", "12:00", "13:00", "14:00")
-    for i, label in enumerate(labels):
-        x = left + (right - left) * i / (len(labels) - 1)
-        d.text((x - 20, bottom + 10), label, font=_small(16), fill=MUTED)
-
-
-def _price_to_y(price, top, bottom, lo, hi):
-    return bottom - (price - lo) / (hi - lo) * (bottom - top)
+        d.text((right + 8, y - 9), f"{price:.1f}", font=_font(16), fill=MUTED)
+    times = ("09:00", "10:00", "11:00", "12:00", "13:00", "14:00")
+    for i, label in enumerate(times):
+        x = left + (right - left) * i / (len(times) - 1)
+        d.text((x - 19, bottom + 9), label, font=_font(15), fill=MUTED)
 
 
 def _draw_candles(d, box, rows):
     left, top, right, bottom = box
-    lo = min(r[2] for r in rows)
-    hi = max(r[1] for r in rows)
+    lo = min(x[2] for x in rows)
+    hi = max(x[1] for x in rows)
     pad = max(2.0, (hi - lo) * 0.08)
     lo -= pad
     hi += pad
-    step = (right - left - 26) / len(rows)
-    body_w = max(10, int(step * 0.55))
-
+    step = (right - left - 28) / len(rows)
+    body_w = max(11, int(step * 0.55))
     centers = []
+
     for i, (open_, high, low, close) in enumerate(rows):
-        x = left + 13 + step * (i + 0.5)
+        x = left + 14 + step * (i + 0.5)
         centers.append(x)
         yh = _price_to_y(high, top, bottom, lo, hi)
         yl = _price_to_y(low, top, bottom, lo, hi)
@@ -135,148 +180,211 @@ def _draw_candles(d, box, rows):
         if y2 - y1 < 4:
             y2 = y1 + 4
         d.rectangle((x - body_w / 2, y1, x + body_w / 2, y2), fill=color, outline=color)
+
     _draw_price_axis(d, box, lo, hi)
     return centers, lo, hi
 
 
-def _tag(d, x, y, text, fill=(35, 41, 51)):
-    font = _small(18)
-    bbox = d.textbbox((0, 0), text, font=font)
-    w = max(88, bbox[2] - bbox[0] + 22)
-    h = 34
-    x = max(48, min(W - w - 48, x))
-    y = max(126, min(H - h - 45, y))
-    d.rounded_rectangle((x, y, x + w, y + h), radius=8, fill=fill, outline=(97, 105, 118), width=1)
-    d.text((x + 11, y + 7), text, font=font, fill=TEXT)
+def _tag(d, x, y, text, color=(37, 43, 53), text_color=TEXT, size=19):
+    shaped = _shape(text)
+    font = _font(size, bold=True)
+    box = d.textbbox((0, 0), shaped, font=font)
+    w = max(90, box[2] - box[0] + 24)
+    h = 36
+    x = max(42, min(W - w - 42, x))
+    y = max(126, min(H - h - 43, y))
+    d.rounded_rectangle((x, y, x + w, y + h), radius=9, fill=color, outline=(99, 107, 120), width=1)
+    d.text((x + w - 12, y + 18), shaped, font=font, fill=text_color, anchor="rm")
+    return x, y, w, h
 
 
-def _hline(d, box, price, lo, hi, text, color=LEVEL):
+def _arrow(d, start, end, color=INFO, width=4):
+    d.line((start[0], start[1], end[0], end[1]), fill=color, width=width)
+    x, y = end
+    if end[0] >= start[0]:
+        head = [(x, y), (x - 14, y - 9), (x - 11, y + 11)]
+    else:
+        head = [(x, y), (x + 14, y - 9), (x + 11, y + 11)]
+    d.polygon(head, fill=color)
+
+
+def _hline(d, box, price, lo, hi, label, color=LEVEL):
     left, top, right, bottom = box
     y = _price_to_y(price, top, bottom, lo, hi)
     d.line((left, y, right, y), fill=color, width=2)
-    _tag(d, left + 12, y - 40, text)
+    _tag(d, left + 15, y - 40, label)
     return y
 
 
-def _zone(d, box, low_price, high_price, lo, hi, text):
+def _trade_levels(d, box, meta, lo, hi, side):
     left, top, right, bottom = box
-    y1 = _price_to_y(high_price, top, bottom, lo, hi)
-    y2 = _price_to_y(low_price, top, bottom, lo, hi)
-    d.rectangle((left + 6, y1, right - 6, y2), outline=(98, 111, 128), width=2)
-    _tag(d, left + 18, y1 + 8, text)
+    if not meta.get("entry"):
+        return
+    labels = (
+        ("entry", "منطقة الدخول", WAIT),
+        ("stop", "وقف الخسارة", DOWN),
+        ("target", "الهدف", UP),
+    )
+    for key, label, color in labels:
+        value = meta.get(key)
+        if not value:
+            continue
+        y = _price_to_y(value, top, bottom, lo, hi)
+        d.line((right - 300, y, right - 14, y), fill=color, width=2)
+        _tag(d, right - 292, y - 39 if key != "stop" else y + 5, label, color=(34, 40, 49))
 
 
-def _draw_trade_chart(d, kind, variant):
-    box = _chart_box(d)
-    rows, meta = _price_series(kind, variant)
-    centers, lo, hi = _draw_candles(d, box, rows)
+def _draw_correction_explanation(d, box, rows, centers, meta, lo, hi, variant):
     left, top, right, bottom = box
-
-    if kind == "breakout":
-        _hline(d, box, meta["level"], lo, hi, "RESISTANCE")
-        idx = meta.get("retest", 11)
-        y = _price_to_y(rows[idx][3], top, bottom, lo, hi)
-        _tag(d, centers[idx] - 50, y + 18, "RETEST")
-    elif kind == "event":
-        idx = meta.get("news", 9)
-        d.line((centers[idx], top, centers[idx], bottom), fill=ACCENT, width=3)
-        _tag(d, centers[idx] - 40, top + 10, "NEWS")
-    elif kind == "volatility":
-        _tag(d, left + 75, top + 25, "LOW VOL")
-        _tag(d, right - 190, top + 25, "HIGH VOL")
+    if not variant:
+        y_support = _hline(d, box, meta["support"], lo, hi, "القاع المهم — ما زال صامدًا", INFO)
+        s = meta["corr_start"]
+        e = meta["corr_end"]
+        sy = _price_to_y(rows[s][3], top, bottom, lo, hi)
+        ey = _price_to_y(rows[e][3], top, bottom, lo, hi)
+        _arrow(d, (centers[s], sy - 12), (centers[e], ey + 10), color=WAIT, width=5)
+        _tag(d, centers[s] + 20, (sy + ey) / 2 - 35, "هذا نزول تصحيحي", color=(76, 62, 26))
+        _tag(d, left + 22, top + 16, "الاتجاه العام صاعد", color=(24, 82, 62))
+        _tag(d, left + 22, top + 58, "الفكرة: نراقب شراء بعد انتهاء التصحيح", color=(24, 82, 62), size=18)
+        _tag(d, left + 22, y_support + 8, "إذا حافظ على القاع = التصحيح ما زال سليمًا", size=17)
     else:
-        _zone(d, box, meta["level"] - 2.0, meta["level"] + 2.0, lo, hi, "SUPPORT ZONE")
-
-    y_entry = _price_to_y(meta["entry"], top, bottom, lo, hi)
-    y_stop = _price_to_y(meta["stop"], top, bottom, lo, hi)
-    y_target = _price_to_y(meta["target"], top, bottom, lo, hi)
-    d.line((right - 330, y_entry, right - 18, y_entry), fill=ACCENT, width=2)
-    _tag(d, right - 320, y_entry - 40, "ENTRY")
-    d.line((right - 250, y_stop, right - 18, y_stop), fill=DOWN, width=2)
-    _tag(d, right - 240, y_stop + 6, "SL")
-    d.line((right - 250, y_target, right - 18, y_target), fill=UP, width=2)
-    _tag(d, right - 240, y_target - 40, "TP")
-
-    badge = "LATE ENTRY / TRAP" if variant else "M15 EXAMPLE"
-    _tag(d, left + 18, bottom - 45, badge)
+        break_i = meta.get("break_index", 9)
+        by = _price_to_y(rows[break_i][3], top, bottom, lo, hi)
+        _hline(d, box, 4306.0, lo, hi, "القاع البنيوي", INFO)
+        _arrow(d, (centers[break_i - 2], by - 55), (centers[break_i], by), color=DOWN, width=5)
+        _tag(d, centers[break_i] + 20, by + 8, "كسر القاع", color=(91, 33, 33))
+        _tag(d, left + 22, top + 16, "هنا لم يعد نزولًا عاديًا", color=(91, 33, 33))
+        _tag(d, left + 22, top + 58, "الكسر + ثبات تحته = احتمال انعكاس", color=(91, 33, 33), size=18)
+        _tag(d, left + 22, top + 100, "القرار: لا نشتري مباشرة — ننتظر تأكيدًا", color=(78, 63, 25), size=17)
 
 
-def _diagram_base(d):
-    box = _chart_box(d)
-    return box
+def _draw_breakout_explanation(d, box, rows, centers, meta, lo, hi, variant):
+    left, top, right, bottom = box
+    level = meta["level"]
+    y = _hline(d, box, level, lo, hi, "منطقة مقاومة", INFO)
 
-
-def _arrow(d, a, b):
-    d.line((a[0], a[1], b[0], b[1]), fill=TEXT, width=4)
-    x, y = b
-    d.polygon([(x, y), (x - 15, y - 9), (x - 12, y + 11)], fill=TEXT)
-
-
-def _draw_nonprice_diagram(d, kind, variant):
-    left, top, right, bottom = _diagram_base(d)
-    if kind == "execution":
-        d.rectangle((left + 130, top + 100, left + 410, top + 260), outline=LEVEL, width=3)
-        d.rectangle((right - 410, top + 100, right - 130, top + 260), outline=LEVEL, width=3)
-        _tag(d, left + 210, top + 55, "BID")
-        _tag(d, right - 330, top + 55, "ASK")
-        _arrow(d, (left + 430, top + 180), (right - 430, top + 180))
-        _tag(d, left + 455, top + 205, "SPREAD")
-        d.text((left + 250, bottom - 78), "SLIPPAGE  •  FEES  •  IMPACT", font=_small(25), fill=TEXT)
-    elif kind == "matrix":
-        labels = ["USD", "REAL YIELD", "RISK", "FLOWS", "MOMENTUM"]
-        x0 = left + 70
-        for i, label in enumerate(labels):
-            x = x0 + i * 185
-            d.ellipse((x, top + 135, x + 102, top + 237), outline=LEVEL, width=3)
-            d.text((x + 14, top + 173), label, font=_small(17), fill=TEXT)
-            if i < 4:
-                _arrow(d, (x + 105, top + 186), (x + 169, top + 186))
-        d.text((left + 280, bottom - 90), "READ THE SYSTEM — NOT ONE VARIABLE", font=_small(25), fill=TEXT)
-    elif kind == "sessions":
-        blocks = [("ASIA", left + 80, left + 265), ("LONDON", left + 300, left + 505),
-                  ("NEW YORK", left + 540, left + 775), ("OVERLAP", left + 810, right - 45)]
-        for name, x1, x2 in blocks:
-            d.rounded_rectangle((x1, top + 125, x2, top + 285), radius=18, outline=LEVEL, width=3)
-            d.text((x1 + 18, top + 190), name, font=_small(20), fill=TEXT)
-        d.text((left + 250, bottom - 85), "LIQUIDITY CHANGES THROUGH THE DAY", font=_small(24), fill=TEXT)
-    elif kind == "expectancy":
-        d.rounded_rectangle((left + 120, top + 80, left + 440, top + 300), radius=18, outline=LEVEL, width=3)
-        d.rounded_rectangle((right - 440, top + 80, right - 120, top + 300), radius=18, outline=LEVEL, width=3)
-        d.text((left + 205, top + 125), "WIN RATE", font=_font(28), fill=TEXT)
-        d.text((right - 355, top + 125), "PAYOFF", font=_font(28), fill=TEXT)
-        d.text((left + 225, top + 205), "40%", font=_font(44), fill=TEXT)
-        d.text((right - 330, top + 205), "2.5R", font=_font(44), fill=TEXT)
-        d.text((left + 310, bottom - 80), "EXPECTANCY > WIN RATE ALONE", font=_small(24), fill=TEXT)
-    elif kind == "backtest":
-        d.rounded_rectangle((left + 110, top + 90, left + 470, top + 300), radius=18, outline=LEVEL, width=3)
-        d.rounded_rectangle((right - 470, top + 90, right - 110, top + 300), radius=18, outline=LEVEL, width=3)
-        d.text((left + 225, top + 165), "TRAIN", font=_font(31), fill=TEXT)
-        d.text((right - 350, top + 165), "TEST", font=_font(31), fill=TEXT)
-        _arrow(d, (left + 490, top + 195), (right - 490, top + 195))
-        d.text((left + 350, bottom - 80), "NO LOOK-AHEAD", font=_small(25), fill=TEXT)
+    if not variant:
+        bi = meta["break_index"]
+        ri = meta["retest_index"]
+        by = _price_to_y(rows[bi][3], top, bottom, lo, hi)
+        ry = _price_to_y(rows[ri][3], top, bottom, lo, hi)
+        _tag(d, centers[bi] - 55, by - 52, "هنا حصل الكسر", color=(24, 82, 62))
+        _arrow(d, (centers[bi] - 25, y + 25), (centers[bi], by), color=UP, width=5)
+        _tag(d, centers[ri] - 40, ry + 22, "إعادة اختبار", color=(56, 62, 72))
+        _tag(d, left + 22, top + 16, "ثبت فوق المقاومة = فكرة شراء أقوى", color=(24, 82, 62), size=18)
     else:
-        items = ["THESIS", "INVALIDATE", "SIZE", "EXECUTE", "REVIEW"]
-        x = left + 35
-        for i, item in enumerate(items):
-            d.rounded_rectangle((x, top + 150, x + 165, top + 250), radius=15, outline=LEVEL, width=3)
-            d.text((x + 15, top + 190), item, font=_small(18), fill=TEXT)
-            if i < 4:
-                _arrow(d, (x + 170, top + 200), (x + 195, top + 200))
-            x += 195
+        fi = meta["fake_index"]
+        fy = _price_to_y(rows[fi][3], top, bottom, lo, hi)
+        _tag(d, centers[fi] - 65, fy + 18, "رجع تحت المقاومة", color=(91, 33, 33))
+        _tag(d, left + 22, top + 16, "هذا كسر كاذب", color=(91, 33, 33))
+        _tag(d, left + 22, top + 58, "القرار: انتظار — لا نطارد الشراء", color=(78, 63, 25), size=18)
+
+
+def _draw_general_explanation(d, box, rows, centers, meta, lo, hi, side, variant):
+    left, top, right, bottom = box
+    support = meta.get("support")
+    if support:
+        _hline(d, box, support, lo, hi, "منطقة دعم", INFO)
+    if side == "بيع":
+        _tag(d, left + 22, top + 16, "مثال بيع: ننتظر ضعف الصعود عند المقاومة", color=(91, 33, 33), size=18)
+    elif side == "انتظار":
+        _tag(d, left + 22, top + 16, "لا شراء ولا بيع قبل ظهور تأكيد", color=(78, 63, 25), size=18)
+    else:
+        _tag(d, left + 22, top + 16, "مثال شراء: الاتجاه صاعد وننتظر دخولًا منطقيًا", color=(24, 82, 62), size=18)
 
     if variant:
-        _tag(d, right - 190, bottom - 48, "TRAP CHECK")
+        _tag(d, left + 22, top + 58, "الفخ: لا تدخل لأن آخر شمعة فقط قوية", color=(91, 33, 33), size=17)
 
 
-def render_lesson_visual(kind="structure", variant=0, title="TRADING LESSON"):
-    # 'title' is intentionally not rendered: lesson titles can contain Arabic
-    # and server fonts may not shape Arabic correctly. The Telegram caption
-    # carries the full Arabic explanation while the image stays crisp.
-    img, d = _base()
-    if kind in ("trend", "structure", "timeframe", "breakout", "event", "volatility", "positioning"):
-        _draw_trade_chart(d, kind, variant)
+def _draw_trade_chart(d, kind, side, variant):
+    box = _chart_box(d)
+    rows, meta = _series(kind, side=side, variant=variant)
+    centers, lo, hi = _draw_candles(d, box, rows)
+
+    if kind == "correction":
+        _draw_correction_explanation(d, box, rows, centers, meta, lo, hi, variant)
+    elif kind == "breakout":
+        _draw_breakout_explanation(d, box, rows, centers, meta, lo, hi, variant)
+    elif kind == "event":
+        idx = meta["news_index"]
+        left, top, right, bottom = box
+        d.line((centers[idx], top, centers[idx], bottom), fill=WAIT, width=3)
+        _tag(d, centers[idx] - 40, top + 16, "وقت الخبر", color=(78, 63, 25))
+        _tag(d, left + 22, top + 58, "لا تحكم من أول شمعة — انتظر فهم رد السوق", color=(56, 62, 72), size=17)
+    elif kind == "volatility":
+        left, top, right, bottom = box
+        _tag(d, left + 22, top + 16, "تذبذب هادئ", color=(56, 62, 72))
+        _tag(d, right - 225, top + 16, "تذبذب قوي", color=(78, 63, 25))
+        _tag(d, left + 22, top + 58, "كلما اتسعت الحركة، الستوب القديم قد يصبح قريبًا جدًا", color=(56, 62, 72), size=17)
     else:
-        _draw_nonprice_diagram(d, kind, variant)
+        _draw_general_explanation(d, box, rows, centers, meta, lo, hi, side, variant)
+
+    if kind not in ("breakout",) or not variant:
+        _trade_levels(d, box, meta, lo, hi, side)
+
+
+def _draw_diagram(d, kind, variant):
+    left, top, right, bottom = _chart_box(d)
+
+    if kind == "execution":
+        _tag(d, left + 70, top + 70, "سعر البيع")
+        _tag(d, right - 260, top + 70, "سعر الشراء")
+        _arrow(d, (left + 290, top + 125), (right - 290, top + 125), color=WAIT)
+        _tag(d, left + 410, top + 150, "الفرق بينهما = السبريد", color=(78, 63, 25), size=18)
+        _tag(d, left + 120, top + 250, "التنفيذ الحقيقي قد يتأثر بالانزلاق", color=(56, 62, 72), size=18)
+        _tag(d, left + 120, top + 300, "كلما كان الهدف صغيرًا، تكلفة التنفيذ تصير أهم", color=(56, 62, 72), size=17)
+    elif kind == "matrix":
+        labels = ["الدولار", "العوائد", "الخوف", "التدفقات", "الزخم"]
+        x = left + 55
+        for i, label in enumerate(labels):
+            d.ellipse((x, top + 145, x + 125, top + 270), outline=LEVEL, width=3)
+            _draw_ar(d, (x + 62, top + 208), label, size=18, anchor="mm")
+            if i < len(labels) - 1:
+                _arrow(d, (x + 130, top + 208), (x + 166, top + 208), color=LEVEL, width=3)
+            x += 185
+        _tag(d, left + 250, bottom - 88, "الذهب لا يتحرك بسبب عامل واحد دائمًا", color=(56, 62, 72), size=18)
+    elif kind == "sessions":
+        blocks = [("آسيا", left + 55), ("لندن", left + 285), ("نيويورك", left + 515), ("تداخل الجلسات", left + 745)]
+        for label, x in blocks:
+            d.rounded_rectangle((x, top + 120, x + 190, top + 285), radius=18, outline=LEVEL, width=3)
+            _draw_ar(d, (x + 95, top + 202), label, size=21, bold=True, anchor="mm")
+        _tag(d, left + 240, bottom - 90, "السيولة وسرعة الحركة تختلف حسب الجلسة", color=(56, 62, 72), size=18)
+    elif kind == "expectancy":
+        _tag(d, left + 125, top + 100, "نسبة الفوز", size=22)
+        _tag(d, right - 340, top + 100, "متوسط الربح والخسارة", size=20)
+        _draw_ar(d, (left + 250, top + 220), "٤٠٪", size=46, bold=True, anchor="mm")
+        _draw_ar(d, (right - 250, top + 220), "٢٫٥ ضعف المخاطرة", size=31, bold=True, anchor="mm")
+        _tag(d, left + 260, bottom - 90, "جودة النظام أهم من نسبة الفوز وحدها", color=(56, 62, 72), size=18)
+    elif kind == "backtest":
+        _tag(d, left + 165, top + 145, "نبني الفكرة", size=22)
+        _tag(d, right - 360, top + 145, "نختبرها على بيانات جديدة", size=20)
+        _arrow(d, (left + 365, top + 200), (right - 385, top + 200), color=INFO)
+        _tag(d, left + 300, bottom - 100, "ممنوع استخدام معلومة من المستقبل", color=(91, 33, 33), size=18)
+    else:
+        items = ["الفكرة", "متى تبطل", "حجم المخاطرة", "التنفيذ", "المراجعة"]
+        x = left + 25
+        for i, item in enumerate(items):
+            d.rounded_rectangle((x, top + 155, x + 170, top + 265), radius=15, outline=LEVEL, width=3)
+            _draw_ar(d, (x + 85, top + 210), item, size=17, bold=True, anchor="mm")
+            if i < len(items) - 1:
+                _arrow(d, (x + 175, top + 210), (x + 198, top + 210), color=LEVEL, width=3)
+            x += 200
+
+    if variant:
+        _tag(d, right - 230, bottom - 54, "انتبه للفخ", color=(91, 33, 33), size=18)
+
+
+def render_lesson_visual(kind="structure", variant=0, title="", side="شراء"):
+    """Return a PNG with Arabic labels and a clear teaching direction."""
+    side = side if side in ("شراء", "بيع", "انتظار", "شرح") else "شرح"
+    img, d = _base(side=side)
+
+    if kind in ("trend", "structure", "timeframe", "breakout", "event", "volatility", "positioning", "correction"):
+        _draw_trade_chart(d, kind, side, int(variant or 0))
+    else:
+        _draw_diagram(d, kind, int(variant or 0))
+
+    _draw_ar(d, (58, H - 45), "اقرأ الرسم من اليمين واليسار مع الشرح تحت الصورة — الهدف أن تفهم السبب، لا أن تحفظ الشكل", size=17, fill=MUTED)
 
     out = BytesIO()
     img.save(out, format="PNG", optimize=True)
