@@ -165,7 +165,7 @@ class WeekendEducationTests(unittest.TestCase):
 
         all_text = notifier.messages + [caption for _, caption in notifier.photos]
         self.assertTrue(any("خلصت جولة السوق #1" in text for text in all_text))
-        self.assertTrue(any("الجولة الجاية بعد ساعة" in text for text in all_text))
+        self.assertTrue(any("الجولة الجاية" in text for text in all_text))
 
         finished = start + timedelta(minutes=5 * (len(lesson["parts"]) - 1))
         self.assertFalse(maybe_send_weekend_education(
@@ -201,8 +201,8 @@ class WeekendEducationTests(unittest.TestCase):
         lesson = build_weekend_lesson(FakePaper(), 1)
         joined = "\n".join(part["text"] for part in lesson["parts"])
         self.assertIn("🎬", joined)
-        self.assertIn("هون السر", joined)
-        self.assertIn("خدعة السوق", joined)
+        self.assertIn("هون الفكرة ببساطة", joined)
+        self.assertIn("هسا شوف متى بنغلط", joined)
         self.assertIn("هسا دورك إنت", joined)
         self.assertNotIn("الجزء 3 — كيف تطبقها عمليًا", joined)
         self.assertNotIn("تدريب المتداول", joined)
@@ -219,9 +219,20 @@ class WeekendEducationTests(unittest.TestCase):
 
         self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
         self.assertEqual(store.get("v4_weekend_lesson_number"), 6)
-        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 2)
+        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 3)
         sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
         self.assertIn("جولة السوق #6", sent)
+
+    def test_visible_first_lesson_uses_arabic_terms(self):
+        lesson = build_weekend_lesson(FakePaper(), 1)
+        joined = "\n".join(part["text"] for part in lesson["parts"])
+        self.assertNotIn("BUY", joined)
+        self.assertNotIn("SELL", joined)
+        self.assertNotIn("M15", joined)
+        self.assertNotIn("H1", joined)
+        self.assertIn("شراء", joined)
+        self.assertIn("فريم ١٥ دقيقة", joined)
+        self.assertIn("فريم الساعة", joined)
 
     def test_first_visual_is_explicit_arabic_buy_sell_or_wait(self):
         lesson = build_weekend_lesson(FakePaper(), 1)
