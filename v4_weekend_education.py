@@ -9,15 +9,20 @@ import math
 from zoneinfo import ZoneInfo
 
 NY_TZ = ZoneInfo("America/New_York")
+LOCAL_TZ = ZoneInfo("Asia/Hebron")
 
 
 def weekend_education_window(now):
-    """Saturday through the regular Sunday gold/FX reopen, in New York time."""
-    local = now.astimezone(NY_TZ)
-    weekday = local.weekday()  # Mon=0 ... Sun=6
-    if weekday == 5:
+    """From local Saturday 00:00 until the regular Sunday 18:00 New York reopen."""
+    local = now.astimezone(LOCAL_TZ)
+    ny = now.astimezone(NY_TZ)
+
+    # Laith's local weekend starts at 00:00 Saturday. Around DST changes the
+    # Sunday New York reopen can fall after local midnight, so keep teaching
+    # active into early Monday only while New York is still before 18:00 Sunday.
+    if local.weekday() in (5, 6):
         return True
-    if weekday == 6 and local.hour < 18:
+    if local.weekday() == 0 and ny.weekday() == 6 and ny.hour < 18:
         return True
     return False
 
@@ -78,17 +83,25 @@ def _historical_reasons(trade):
 
     research = trade.get("research_v4") or {}
     breakout = research.get("breakout_state") or trade.get("breakout_state")
+    breakout_labels = {
+        "BREAKOUT_UP": "اختراق صاعد",
+        "BREAKOUT_DOWN": "اختراق هابط",
+        "FAILED_BREAK": "اختراق فاشل",
+        "NO_BREAK": "بدون اختراق مؤكد",
+    }
     if breakout:
-        reasons.append(f"حالة الاختراق وقتها كانت: {breakout}.")
+        reasons.append(f"حالة الاختراق وقتها كانت: {breakout_labels.get(breakout, breakout)}.")
 
     correction = research.get("correction") or {}
     corr_direction = correction.get("direction")
     corr_strength = correction.get("strength")
+    direction_labels = {"UP": "صاعد", "DOWN": "هابط"}
+    strength_labels = {"STRONG": "قوية", "MEDIUM": "متوسطة", "WEAK": "ضعيفة"}
     if corr_direction or corr_strength:
         reasons.append(
             "التصحيح كان مراقَبًا"
-            + (f" باتجاه {corr_direction}" if corr_direction else "")
-            + (f" وبقوة {corr_strength}" if corr_strength else "")
+            + (f" باتجاه {direction_labels.get(corr_direction, corr_direction)}" if corr_direction else "")
+            + (f" وبقوة {strength_labels.get(corr_strength, corr_strength)}" if corr_strength else "")
             + "."
         )
 
