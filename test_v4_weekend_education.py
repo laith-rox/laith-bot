@@ -219,7 +219,7 @@ class WeekendEducationTests(unittest.TestCase):
 
         self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
         self.assertEqual(store.get("v4_weekend_lesson_number"), 6)
-        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 3)
+        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 4)
         sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
         self.assertIn("جولة السوق #6", sent)
 
