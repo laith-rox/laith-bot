@@ -218,6 +218,12 @@ class Handler(BaseHTTPRequestHandler):
                     "client_last_seen_age": round(age, 2) if age is not None else None,
                     "position_open": bool((_client_state or {}).get("position_open")),
                     "position_owned": bool((_client_state or {}).get("position_owned")),
+                    "position_risk_usd": (_client_state or {}).get("position_risk_usd"),
+                    "realized_bridge_profit_usd": (_client_state or {}).get("realized_bridge_profit_usd"),
+                    "profit_risk_budget_usd": (_client_state or {}).get("profit_risk_budget_usd"),
+                    "effective_risk_budget_usd": (_client_state or {}).get("effective_risk_budget_usd"),
+                    "commissioning_used": (_client_state or {}).get("commissioning_used"),
+                    "commissioning_remaining": (_client_state or {}).get("commissioning_remaining"),
                 }
             return self._json(200, payload)
 
@@ -395,6 +401,12 @@ class Handler(BaseHTTPRequestHandler):
                 "price": str(data.get("price", ""))[:32],
                 "profit": str(data.get("profit", ""))[:32],
                 "magic": str(data.get("magic", ""))[:32],
+                "position_risk_usd": str(data.get("position_risk_usd", ""))[:32],
+                "realized_bridge_profit_usd": str(data.get("realized_bridge_profit_usd", ""))[:32],
+                "profit_risk_budget_usd": str(data.get("profit_risk_budget_usd", ""))[:32],
+                "effective_risk_budget_usd": str(data.get("effective_risk_budget_usd", ""))[:32],
+                "commissioning_used": str(data.get("commissioning_used", ""))[:16],
+                "commissioning_remaining": str(data.get("commissioning_remaining", ""))[:16],
                 "received_at": time.time(),
             }
             with _lock:
