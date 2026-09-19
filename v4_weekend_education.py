@@ -8,7 +8,8 @@ from datetime import datetime
 import math
 from zoneinfo import ZoneInfo
 
-from v4_global_academy import academy_message
+from v4_global_academy import academy_message, academy_parts
+from v4_education_visuals import render_lesson_visual
 
 NY_TZ = ZoneInfo("America/New_York")
 LOCAL_TZ = ZoneInfo("Asia/Hebron")
@@ -307,15 +308,207 @@ def build_weekend_education_message(paper, now):
     return _example_message(slot)
 
 
+
+def _historical_parts(trade, lesson_number):
+    reasons = _historical_reasons(trade)
+    research = trade.get("research_v4") or {}
+    side = trade.get("side")
+    entry = trade.get("entry")
+    stop = trade.get("stop")
+    target = trade.get("target", trade.get("tp1"))
+    r_value = _number(trade.get("r"))
+    return [
+        {
+            "text": (
+                f"📊 <b>الدرس {lesson_number} — تشريح صفقة V4 حقيقية</b>\n"
+                "هذه مراجعة لصفقة ورقية سابقة انتهت، وليست إشارة دخول الآن.\n\n"
+                f"الاتجاه: {_side_ar(side)} | النتيجة: {r_value:+.2f}R"
+            ),
+        },
+        {
+            "text": (
+                "🖼️ <b>الجزء 2 — خريطة الصفقة</b>\n\n"
+                f"الدخول: {_price(entry)}\n"
+                f"الوقف: {_price(stop)}\n"
+                f"الهدف: {_price(target)}\n"
+                f"الجلسة: {research.get('session', '—')} | التقلب: {research.get('volatility_regime', '—')}"
+            ),
+            "visual": "trend" if side == "BUY" else "structure",
+            "visual_variant": 0,
+            "visual_title": "REAL V4 CASE",
+        },
+        {
+            "text": (
+                "🔎 <b>الجزء 3 — لماذا دخل البوت؟</b>\n\n"
+                + "\n".join(f"• {reason}" for reason in reasons)
+            ),
+        },
+        {
+            "text": (
+                "🚫 <b>الجزء 4 — ماذا كان سيبطل الصفقة؟</b>\n\n"
+                "الدخول الصحيح لا يكتمل بدون جواب واضح لسؤال: أين تصبح الفكرة خاطئة؟ "
+                "لو كُسرت البنية التي بُنيت عليها الصفقة، لا نحول الخسارة إلى أمل."
+            ),
+            "visual": "process",
+            "visual_variant": 1,
+            "visual_title": "INVALIDATION",
+        },
+        {
+            "text": (
+                "🧪 <b>الجزء 5 — تدريبك</b>\n\n"
+                "اكتب قبل أن ترى النتيجة: ما السياق؟ ما المستوى؟ ما التفعيل؟ ما الإبطال؟ "
+                "ثم قارن جوابك بما فعله V4. الهدف أن تتعلم العملية، لا أن تقلّد الأرقام."
+            ),
+        },
+        {
+            "text": (
+                f"✅ <b>انتهى الدرس {lesson_number}</b>\n\n"
+                "⏳ <b>انتظر الدرس التالي بعد ساعة لتصبح متداولًا أنجح.</b>\n"
+                "تذكّر: الصفقة الجيدة قد تخسر، لكن التفكير الجيد هو الذي يبني الاستمرارية."
+            ),
+        },
+    ]
+
+
+def _example_parts(slot, lesson_number):
+    example = EXAMPLES[slot % len(EXAMPLES)]
+    return [
+        {
+            "text": (
+                f"📘 <b>الدرس {lesson_number} — سيناريو تطبيقي</b>\n"
+                f"🎓 {example['title']}\n\n"
+                "الأرقام تعليمية فقط وليست إشارة دخول."
+            ),
+        },
+        {
+            "text": (
+                "🖼️ <b>الجزء 2 — شاهد البنية</b>\n\n"
+                f"الاتجاه: {example['side']}\n"
+                f"الدخول التعليمي: {example['entry']}\n"
+                f"الوقف: {example['stop']}\n"
+                f"الهدف: {example['target']}"
+            ),
+            "visual": "breakout" if "اختراق" in example["title"] or "كسر" in example["title"] else "trend",
+            "visual_variant": 0,
+            "visual_title": example["title"],
+        },
+        {
+            "text": (
+                "🔎 <b>الجزء 3 — لماذا هذا السيناريو منطقي؟</b>\n\n"
+                f"{example['why']}\n\n"
+                f"1) {example['checks'][0]}\n"
+                f"2) {example['checks'][1]}\n"
+                f"3) {example['checks'][2]}"
+            ),
+        },
+        {
+            "text": (
+                "🚫 <b>الجزء 4 — الصورة المعاكسة والفخ</b>\n\n"
+                "لا يكفي أن ترى نفس الشكل؛ إذا تغير الموقع أو الإبطال أو نسبة العائد للمخاطرة، "
+                "قد تتحول الفكرة الجيدة إلى دخول سيئ."
+            ),
+            "visual": "process",
+            "visual_variant": 1,
+            "visual_title": "TRAP VS SETUP",
+        },
+        {
+            "text": (
+                "🧪 <b>الجزء 5 — امتحان سريع</b>\n\n"
+                "قبل أي دخول اسأل: هل عندي سياق؟ هل أنا عند مستوى؟ هل ظهر تفعيل؟ "
+                "أين الإبطال؟ وهل الهدف يعطي مساحة كافية؟"
+            ),
+        },
+        {
+            "text": (
+                f"✅ <b>انتهى الدرس {lesson_number}</b>\n\n"
+                "⏳ <b>انتظر الدرس التالي بعد ساعة لتصبح متداولًا أنجح.</b>\n"
+                "الهدف: أن تتعلم كيف يفكر المتداول، لا أن تحفظ صفقة."
+            ),
+        },
+    ]
+
+
+def build_weekend_lesson(paper, lesson_number):
+    """Build a complete multi-part lesson; deterministic and restart-safe."""
+    slot = max(0, int(lesson_number) - 1)
+    winners = _successful_trades(paper)
+    mode = int(lesson_number) % 4
+    if winners and mode == 0:
+        trade = winners[(int(lesson_number) // 4 - 1) % len(winners)]
+        parts = _historical_parts(trade, lesson_number)
+        kind = "historical"
+    elif mode in (1, 3):
+        parts = academy_parts(slot, lesson_number=lesson_number)
+        kind = "academy"
+    else:
+        parts = _example_parts(slot, lesson_number)
+        kind = "scenario"
+    return {"lesson_number": lesson_number, "kind": kind, "parts": parts}
+
+
 def maybe_send_weekend_education(store, notifier, paper, now):
-    """Send at most one educational message per UTC hour during the weekend window."""
+    """Run one multi-part lesson: a part every 5m, then a full 1h break."""
     if notifier is None or not weekend_education_window(now):
         return False
-    slot = int(now.timestamp() // 3600)
-    if store.get("v4_weekend_education_slot") == slot:
+
+    now_ts = float(now.timestamp())
+    state = store.get("v4_weekend_lesson_state", {}) or {}
+    lesson_number = int(store.get("v4_weekend_lesson_number", 1) or 1)
+
+    if state.get("status") == "cooldown":
+        if now_ts < float(state.get("next_lesson_at", 0) or 0):
+            return False
+        state = {}
+
+    if not state or state.get("status") not in ("active", "cooldown"):
+        lesson = build_weekend_lesson(paper, lesson_number)
+        state = {
+            "status": "active",
+            "lesson": lesson,
+            "part_index": 0,
+            "next_part_at": now_ts,
+            "started_at": now_ts,
+        }
+        store.set("v4_weekend_lesson_state", state)
+
+    if state.get("status") != "active":
         return False
-    message = build_weekend_education_message(paper, now)
-    notifier.send(message)
-    store.set("v4_weekend_education_slot", slot)
+    if now_ts < float(state.get("next_part_at", 0) or 0):
+        return False
+
+    lesson = state.get("lesson") or {}
+    parts = lesson.get("parts") or []
+    part_index = int(state.get("part_index", 0) or 0)
+    if part_index >= len(parts):
+        state.update(status="cooldown", next_lesson_at=now_ts + 3600)
+        store.set("v4_weekend_lesson_state", state)
+        return False
+
+    part = parts[part_index]
+    if part.get("visual") and hasattr(notifier, "send_photo"):
+        image = render_lesson_visual(
+            part.get("visual"),
+            variant=int(part.get("visual_variant", 0) or 0),
+            title=str(part.get("visual_title") or f"LESSON {lesson_number}"),
+        )
+        sent = notifier.send_photo(image, caption=part.get("text"))
+    else:
+        sent = notifier.send(part.get("text", ""))
+
+    if not sent:
+        return False
+
+    part_index += 1
+    state["part_index"] = part_index
+    state["last_sent_at"] = now_ts
+    if part_index >= len(parts):
+        state["status"] = "cooldown"
+        state["finished_at"] = now_ts
+        state["next_lesson_at"] = now_ts + 3600
+        store.set("v4_weekend_lesson_number", lesson_number + 1)
+    else:
+        state["next_part_at"] = now_ts + 300
+
+    store.set("v4_weekend_lesson_state", state)
     store.set("v4_weekend_education_last_sent", now.isoformat())
     return True
