@@ -246,6 +246,18 @@ class V4Telegram:
         LOG.info("telegram_delivery status=%s message_id=%s error=%s", outcome.status, outcome.message_id, outcome.error)
         return outcome.status == "sent"
 
+    def send_photo(self, photo_bytes, caption=None):
+        if not self.client:
+            return False
+        chat_id = self.paired_chat()
+        if not chat_id:
+            return False
+        self.client.chat_id = chat_id
+        outcome = self.client.send_photo(photo_bytes, caption=caption)
+        LOG.info("telegram_photo_delivery status=%s message_id=%s error=%s",
+                 outcome.status, outcome.message_id, outcome.error)
+        return outcome.status == "sent"
+
     def poll(self):
         if not self.client:
             return
