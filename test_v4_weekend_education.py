@@ -6,6 +6,7 @@ from v4_weekend_education import (
     maybe_send_weekend_education,
     weekend_education_window,
 )
+from v4_global_academy import academy_lesson, curriculum_size
 
 UTC = timezone.utc
 
@@ -145,7 +146,51 @@ class WeekendEducationTests(unittest.TestCase):
         ))
         self.assertEqual(store.get("v4_weekend_lesson_state")["part_index"], 2)
 
-    def test_profitable_saved_trade_becomes_full_case_study(self):
+    def test_curriculum_starts_from_absolute_basics(self):
+        first = academy_lesson(0)
+        self.assertIn("ما هو التداول", first["title"])
+        self.assertIn("تأسيس من الصفر", first["level"])
+
+        eighth = academy_lesson(7)
+        self.assertIn("الاتجاه", eighth["title"])
+        self.assertIn("قراءة الشارت", eighth["level"])
+
+        later = academy_lesson(16)
+        self.assertTrue(later["level"].startswith("المستوى 4"))
+
+    def test_no_case_study_jumps_ahead_of_curriculum(self):
+        paper = FakePaper([{
+            "id": "winner",
+            "status": "closed",
+            "side": "BUY",
+            "entry": 4300,
+            "stop": 4295,
+            "target": 4310,
+            "r": 1.0,
+        }])
+        for lesson_number in (1, 2, 4, 10, curriculum_size()):
+            lesson = build_weekend_lesson(paper, lesson_number)
+            self.assertEqual(lesson["kind"], "curriculum")
+
+    def test_curriculum_version_resets_academy_only_to_lesson_one(self):
+        store = FakeStore()
+        store.set("v4_weekend_curriculum_version", 1)
+        store.set("v4_weekend_lesson_number", 17)
+        store.set("v4_weekend_lesson_state", {"status": "active", "part_index": 3})
+        store.set("unrelated_trade_state", {"keep": True})
+        notifier = FakeNotifier()
+        paper = FakePaper()
+        start = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+
+        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
+        self.assertEqual(store.get("v4_weekend_curriculum_version"), 2)
+        self.assertEqual(store.get("v4_weekend_lesson_number"), 1)
+        self.assertEqual(store.get("unrelated_trade_state"), {"keep": True})
+        sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
+        self.assertIn("الدرس 1", sent)
+        self.assertIn("ما هو التداول", sent)
+
+    def test_profitable_saved_trade_becomes_full_case_study_after_graduation(self):
         winner = {
             "id": "q-win",
             "status": "closed",
@@ -157,7 +202,8 @@ class WeekendEducationTests(unittest.TestCase):
             "score": 6,
             "conditions": [{"name": "اتجاه 15د", "ok": True}],
         }
-        lesson = build_weekend_lesson(FakePaper([winner]), 4)
+        lesson_number = curriculum_size() + 3
+        lesson = build_weekend_lesson(FakePaper([winner]), lesson_number)
         self.assertEqual(lesson["kind"], "historical")
         joined = "\n".join(part["text"] for part in lesson["parts"])
         self.assertIn("تشريح صفقة V4 حقيقية", joined)

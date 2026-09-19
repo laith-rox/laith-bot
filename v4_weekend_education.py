@@ -8,7 +8,7 @@ from datetime import datetime
 import math
 from zoneinfo import ZoneInfo
 
-from v4_global_academy import academy_message, academy_parts
+from v4_global_academy import academy_message, academy_parts, curriculum_size
 from v4_education_visuals import render_lesson_visual
 
 NY_TZ = ZoneInfo("America/New_York")
@@ -429,20 +429,35 @@ def _example_parts(slot, lesson_number):
 
 
 def build_weekend_lesson(paper, lesson_number):
-    """Build a complete multi-part lesson; deterministic and restart-safe."""
-    slot = max(0, int(lesson_number) - 1)
+    """Teach the fixed curriculum from zero to advanced, then run graduate labs."""
+    lesson_number = max(1, int(lesson_number))
+    slot = lesson_number - 1
+
+    # The full curriculum is strictly sequential: no advanced case study is
+    # allowed to jump ahead of foundations the student has not learned yet.
+    if lesson_number <= curriculum_size():
+        return {
+            "lesson_number": lesson_number,
+            "kind": "curriculum",
+            "parts": academy_parts(slot, lesson_number=lesson_number),
+        }
+
+    # After graduation, rotate real V4 cases and scenario drills as practice.
     winners = _successful_trades(paper)
-    mode = int(lesson_number) % 4
+    graduate_number = lesson_number - curriculum_size()
+    mode = graduate_number % 3
     if winners and mode == 0:
-        trade = winners[(int(lesson_number) // 4 - 1) % len(winners)]
+        trade = winners[(graduate_number // 3 - 1) % len(winners)]
         parts = _historical_parts(trade, lesson_number)
         kind = "historical"
-    elif mode in (1, 3):
-        parts = academy_parts(slot, lesson_number=lesson_number)
-        kind = "academy"
-    else:
-        parts = _example_parts(slot, lesson_number)
+    elif mode == 1:
+        parts = _example_parts(graduate_number, lesson_number)
         kind = "scenario"
+    else:
+        # Revisit the advanced end of the curriculum as spaced repetition.
+        advanced_slot = max(0, curriculum_size() - 1 - (graduate_number % min(12, curriculum_size())))
+        parts = academy_parts(advanced_slot, lesson_number=lesson_number)
+        kind = "advanced_review"
     return {"lesson_number": lesson_number, "kind": kind, "parts": parts}
 
 
@@ -452,6 +467,16 @@ def maybe_send_weekend_education(store, notifier, paper, now):
         return False
 
     now_ts = float(now.timestamp())
+
+    # Curriculum v2 starts from absolute basics. Reset only academy progress
+    # once after deployment; trade history and all trading state remain intact.
+    curriculum_version = 2
+    if int(store.get("v4_weekend_curriculum_version", 0) or 0) != curriculum_version:
+        store.set("v4_weekend_curriculum_version", curriculum_version)
+        store.set("v4_weekend_lesson_number", 1)
+        store.set("v4_weekend_lesson_state", {})
+        store.set("v4_weekend_education_last_sent", None)
+
     state = store.get("v4_weekend_lesson_state", {}) or {}
     lesson_number = int(store.get("v4_weekend_lesson_number", 1) or 1)
 
