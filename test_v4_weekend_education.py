@@ -87,15 +87,35 @@ class WeekendEducationTests(unittest.TestCase):
             "conditions": [{"name": "اتجاه 15د", "ok": True}],
         }
         paper = FakePaper([winner])
-        # Pick an even hourly slot so the alternating stream uses a saved winner.
+        # Pick a four-hour rotation slot reserved for a saved V4 winner.
         now = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
-        if int(now.timestamp() // 3600) % 2:
-            now = now.replace(hour=17)
+        while int(now.timestamp() // 3600) % 4 != 0:
+            now = now.replace(hour=now.hour + 1)
         message = build_weekend_education_message(paper, now)
         self.assertIn("من سجل Laith V4", message)
         self.assertIn("4300.00", message)
         self.assertIn("+1.80R", message)
         self.assertIn("ليست إشارة دخول", message)
+
+    def test_academy_rotation_contains_research_source_and_no_promise(self):
+        paper = FakePaper()
+        now = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+        while int(now.timestamp() // 3600) % 4 not in (1, 3):
+            now = now.replace(hour=now.hour + 1)
+        message = build_weekend_education_message(paper, now)
+        self.assertIn("أكاديمية Laith V4", message)
+        self.assertIn("أصل الفكرة", message)
+        self.assertIn("ليست إشارة دخول", message)
+        self.assertNotIn("مضمونة", message)
+
+    def test_rotation_still_has_concrete_scenario_drill(self):
+        paper = FakePaper()
+        now = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+        while int(now.timestamp() // 3600) % 4 != 2:
+            now = now.replace(hour=now.hour + 1)
+        message = build_weekend_education_message(paper, now)
+        self.assertIn("مثال افتراضي", message)
+        self.assertIn("كيف نحللها", message)
 
 
 if __name__ == "__main__":

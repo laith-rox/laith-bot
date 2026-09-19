@@ -8,6 +8,8 @@ from datetime import datetime
 import math
 from zoneinfo import ZoneInfo
 
+from v4_global_academy import academy_message
+
 NY_TZ = ZoneInfo("America/New_York")
 LOCAL_TZ = ZoneInfo("Asia/Hebron")
 
@@ -126,6 +128,10 @@ def _historical_message(trade):
     target = trade.get("target", trade.get("tp1"))
     r_value = _number(trade.get("r"))
     reasons = _historical_reasons(trade)
+    research = trade.get("research_v4") or {}
+    session = research.get("session") or trade.get("session") or "—"
+    volatility = research.get("volatility_regime") or trade.get("volatility_regime") or "—"
+    macro = research.get("macro_alignment") or trade.get("macro_alignment") or "—"
 
     if side == "BUY":
         diagnosis = (
@@ -148,7 +154,8 @@ def _historical_message(trade):
         f"الدخول السابق: {_price(entry)}\n"
         f"وقف الخسارة: {_price(stop)}\n"
         f"الهدف: {_price(target)}\n"
-        f"النتيجة المسجلة: {r_value:+.2f}R\n\n"
+        f"النتيجة المسجلة: {r_value:+.2f}R\n"
+        f"سياق الجلسة: {session} | نظام التقلب: {volatility} | توافق الماكرو: {macro}\n\n"
         "لماذا كانت الفكرة جيدة وقتها؟\n"
         f"{bullets}\n\n"
         "كيف تشخّص صفقة مشابهة؟\n"
@@ -157,7 +164,9 @@ def _historical_message(trade):
         "3) انتظر التأكيد؛ لا تدخل فقط لأن السعر لمس مستوى.\n"
         f"4) {invalidation}\n"
         "5) اجعل الوقف عند الإبطال الحقيقي، والهدف قبل العائق المقابل.\n\n"
-        "🧠 الهدف من الرسالة: تتعلم لماذا دخل البوت، لا أن تقلّد الرقم بعد انتهاء الصفقة."
+        "🧠 سؤال المحترف: هل كانت النتيجة بسبب جودة العملية أم الحظ؟ "
+        "قارنها دائمًا بخاسر مشابه وحالة WAIT حتى لا تتعلم من الرابحين فقط.\n"
+        "🎯 الهدف: تتعلم لماذا دخل البوت، لا أن تقلّد الرقم بعد انتهاء الصفقة."
     )
 
 
@@ -280,12 +289,21 @@ def _example_message(slot):
 
 
 def build_weekend_education_message(paper, now):
-    """Alternate real completed winners with hypothetical teaching examples."""
+    """Rotate real V4 case studies, research lessons and scenario drills."""
     slot = int(now.timestamp() // 3600)
     winners = _successful_trades(paper)
-    if winners and slot % 2 == 0:
-        trade = winners[(slot // 2) % len(winners)]
+    mode = slot % 4
+
+    # One real completed V4 winner every four lessons when history exists.
+    if winners and mode == 0:
+        trade = winners[(slot // 4) % len(winners)]
         return _historical_message(trade)
+
+    # Two evidence-based research lessons out of every four messages.
+    if mode in (1, 3):
+        return academy_message(slot)
+
+    # The remaining message is a concrete chart-reading scenario drill.
     return _example_message(slot)
 
 
