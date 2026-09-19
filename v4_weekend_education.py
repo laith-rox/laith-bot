@@ -496,7 +496,7 @@ def maybe_send_weekend_education(store, notifier, paper, now):
 
     # Style updates may restart only the current lesson presentation while
     # preserving the student's curriculum lesson number and all trading state.
-    style_version = 2
+    style_version = 3
     if int(store.get("v4_weekend_lesson_style_version", 0) or 0) != style_version:
         store.set("v4_weekend_lesson_style_version", style_version)
         store.set("v4_weekend_lesson_state", {})
