@@ -61,7 +61,7 @@ def _price(value):
 
 
 def _side_ar(side):
-    return "شراء BUY" if side == "BUY" else "بيع SELL" if side == "SELL" else str(side or "—")
+    return "شراء" if side == "BUY" else "بيع" if side == "SELL" else str(side or "—")
 
 
 def _successful_trades(paper):
@@ -496,7 +496,7 @@ def maybe_send_weekend_education(store, notifier, paper, now):
 
     # Style updates may restart only the current lesson presentation while
     # preserving the student's curriculum lesson number and all trading state.
-    style_version = 1
+    style_version = 2
     if int(store.get("v4_weekend_lesson_style_version", 0) or 0) != style_version:
         store.set("v4_weekend_lesson_style_version", style_version)
         store.set("v4_weekend_lesson_state", {})
@@ -549,7 +549,8 @@ def maybe_send_weekend_education(store, notifier, paper, now):
         image = render_lesson_visual(
             part.get("visual"),
             variant=int(part.get("visual_variant", 0) or 0),
-            title=str(part.get("visual_title") or f"LESSON {lesson_number}"),
+            title=str(part.get("visual_title") or ""),
+            side=str(part.get("visual_side") or "شرح"),
         )
         sent = notifier.send_photo(image, caption=part.get("text"))
     else:
