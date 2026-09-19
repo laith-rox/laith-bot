@@ -487,6 +487,12 @@ def maybe_send_weekend_education(store, notifier, paper, now):
 
     now_ts = float(now.timestamp())
 
+    # Capture persisted academy versions before any compatibility reset. This
+    # lets a one-off teaching-focus release affect only existing V4 students,
+    # not fresh installs/tests.
+    previous_curriculum_version = int(store.get("v4_weekend_curriculum_version", 0) or 0)
+    previous_style_version = int(store.get("v4_weekend_lesson_style_version", 0) or 0)
+
     # Curriculum v2 starts from absolute basics. Reset only academy progress
     # once after deployment; trade history and all trading state remain intact.
     curriculum_version = 3
@@ -502,6 +508,20 @@ def maybe_send_weekend_education(store, notifier, paper, now):
     if int(store.get("v4_weekend_lesson_style_version", 0) or 0) != style_version:
         store.set("v4_weekend_lesson_style_version", style_version)
         store.set("v4_weekend_lesson_state", {})
+
+    # One-off requested focus: start the existing student's current academy at
+    # lesson 5 (correction vs reversal), followed naturally by lesson 6
+    # (real vs false breakout). This does not touch trade history or trading state.
+    focus_version = 1
+    if (
+        previous_curriculum_version == curriculum_version
+        and previous_style_version == style_version
+        and int(store.get("v4_weekend_focus_version", 0) or 0) != focus_version
+    ):
+        store.set("v4_weekend_focus_version", focus_version)
+        store.set("v4_weekend_lesson_number", 5)
+        store.set("v4_weekend_lesson_state", {})
+        store.set("v4_weekend_education_last_sent", None)
 
     state = store.get("v4_weekend_lesson_state", {}) or {}
     lesson_number = int(store.get("v4_weekend_lesson_number", 1) or 1)
