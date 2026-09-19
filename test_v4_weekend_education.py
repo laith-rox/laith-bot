@@ -5,6 +5,7 @@ from v4_weekend_education import (
     build_weekend_lesson,
     maybe_send_weekend_education,
     weekend_education_window,
+    tonight_intensive_window,
 )
 from v4_global_academy import academy_lesson, curriculum_size
 
@@ -96,6 +97,53 @@ class WeekendEducationTests(unittest.TestCase):
         photo, caption = notifier.photos[0]
         self.assertTrue(photo.startswith(b"\x89PNG"))
         self.assertIn("شوف بعينك", caption)
+
+    def test_tonight_intensive_window_only_before_local_midnight(self):
+        self.assertTrue(tonight_intensive_window(datetime(2026, 9, 19, 20, 30, tzinfo=UTC)))
+        self.assertFalse(tonight_intensive_window(datetime(2026, 9, 19, 21, 0, tzinfo=UTC)))
+        self.assertFalse(tonight_intensive_window(datetime(2026, 9, 20, 20, 30, tzinfo=UTC)))
+
+    def test_tonight_next_lesson_starts_after_five_minutes_not_one_hour(self):
+        store = FakeStore()
+        notifier = FakeNotifier()
+        paper = FakePaper()
+        start = datetime(2026, 9, 19, 20, 20, tzinfo=UTC)
+
+        lesson = build_weekend_lesson(paper, 1)
+        for index in range(len(lesson["parts"])):
+            self.assertTrue(maybe_send_weekend_education(
+                store, notifier, paper, start + timedelta(minutes=5 * index)
+            ))
+
+        finished = start + timedelta(minutes=5 * (len(lesson["parts"]) - 1))
+        self.assertFalse(maybe_send_weekend_education(
+            store, notifier, paper, finished + timedelta(minutes=4, seconds=59)
+        ))
+        self.assertTrue(maybe_send_weekend_education(
+            store, notifier, paper, finished + timedelta(minutes=5)
+        ))
+        all_text = notifier.messages + [caption for _, caption in notifier.photos]
+        self.assertTrue(any("جولة السوق #2" in text for text in all_text))
+
+    def test_after_midnight_returns_to_normal_one_hour_cooldown(self):
+        store = FakeStore()
+        notifier = FakeNotifier()
+        paper = FakePaper()
+        start = datetime(2026, 9, 19, 21, 5, tzinfo=UTC)
+
+        lesson = build_weekend_lesson(paper, 1)
+        for index in range(len(lesson["parts"])):
+            self.assertTrue(maybe_send_weekend_education(
+                store, notifier, paper, start + timedelta(minutes=5 * index)
+            ))
+
+        finished = start + timedelta(minutes=5 * (len(lesson["parts"]) - 1))
+        self.assertFalse(maybe_send_weekend_education(
+            store, notifier, paper, finished + timedelta(minutes=5)
+        ))
+        self.assertTrue(maybe_send_weekend_education(
+            store, notifier, paper, finished + timedelta(hours=1)
+        ))
 
     def test_complete_lesson_then_wait_full_hour(self):
         store = FakeStore()
