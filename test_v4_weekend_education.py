@@ -146,16 +146,18 @@ class WeekendEducationTests(unittest.TestCase):
         ))
         self.assertEqual(store.get("v4_weekend_lesson_state")["part_index"], 2)
 
-    def test_curriculum_starts_from_absolute_basics(self):
+    def test_curriculum_starts_fast_and_direct(self):
         first = academy_lesson(0)
-        self.assertIn("ما هو التداول", first["title"])
-        self.assertIn("تأسيس من الصفر", first["level"])
+        self.assertIn("كيف تقرأ سوق الذهب", first["title"])
+        self.assertIn("قراءة السوق مباشرة", first["level"])
+
+        second = academy_lesson(1)
+        self.assertIn("الشمعة", second["title"])
 
         eighth = academy_lesson(7)
-        self.assertIn("الاتجاه", eighth["title"])
-        self.assertIn("قراءة الشارت", eighth["level"])
+        self.assertIn("صفقتان بنفس الاتجاه", eighth["title"])
 
-        later = academy_lesson(16)
+        later = academy_lesson(9)
         self.assertTrue(later["level"].startswith("المستوى 4"))
 
     def test_no_case_study_jumps_ahead_of_curriculum(self):
@@ -183,12 +185,12 @@ class WeekendEducationTests(unittest.TestCase):
         start = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
 
         self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
-        self.assertEqual(store.get("v4_weekend_curriculum_version"), 2)
+        self.assertEqual(store.get("v4_weekend_curriculum_version"), 3)
         self.assertEqual(store.get("v4_weekend_lesson_number"), 1)
         self.assertEqual(store.get("unrelated_trade_state"), {"keep": True})
         sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
         self.assertIn("الدرس 1", sent)
-        self.assertIn("ما هو التداول", sent)
+        self.assertIn("كيف تقرأ سوق الذهب", sent)
 
     def test_profitable_saved_trade_becomes_full_case_study_after_graduation(self):
         winner = {
