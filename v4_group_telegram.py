@@ -39,6 +39,18 @@ class V4Telegram(BaseV4Telegram):
             return self._send_to(group_id, message, "group")
         return self._send_to(self.paired_chat(), message, "private")
 
+    def send_photo(self, photo_bytes, caption=None):
+        """Send an educational image to the bound group, else private fallback."""
+        chat_id = self.group_chat() or self.paired_chat()
+        if not self.client or not chat_id:
+            return False
+        self.client.chat_id = str(chat_id)
+        outcome = self.client.send_photo(photo_bytes, caption=caption)
+        label = "group_photo" if self.group_chat() else "private_photo"
+        LOG.info("telegram_%s_delivery status=%s message_id=%s error=%s",
+                 label, outcome.status, outcome.message_id, outcome.error)
+        return outcome.status == "sent"
+
     def poll(self):
         if not self.client:
             return
