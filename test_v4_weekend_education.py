@@ -255,6 +255,32 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertEqual(correction_lesson["parts"][3]["visual_side"], "انتظار")
         self.assertEqual(breakout_lesson["parts"][3]["visual_side"], "انتظار")
 
+    def test_existing_student_starts_requested_correction_focus_without_touching_trading_state(self):
+        store = FakeStore()
+        store.set("v4_weekend_curriculum_version", 3)
+        store.set("v4_weekend_lesson_style_version", 4)
+        store.set("v4_weekend_lesson_number", 4)
+        store.set("v4_weekend_lesson_state", {"status": "active", "part_index": 3})
+        store.set("unrelated_trade_state", {"keep": True})
+        notifier = FakeNotifier()
+        paper = FakePaper()
+        start = datetime(2026, 9, 19, 20, 45, tzinfo=UTC)
+
+        self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
+        state = store.get("v4_weekend_lesson_state")
+        self.assertEqual(state["lesson"]["lesson_number"], 5)
+        self.assertEqual(state["lesson"]["parts"][0]["visual"], "correction")
+        self.assertEqual(store.get("v4_weekend_focus_version"), 1)
+        self.assertEqual(store.get("unrelated_trade_state"), {"keep": True})
+        caption = notifier.photos[0][1]
+        self.assertIn("التصحيح", caption)
+
+    def test_breakout_follows_correction_in_curriculum(self):
+        correction = build_weekend_lesson(FakePaper(), 5)
+        breakout = build_weekend_lesson(FakePaper(), 6)
+        self.assertEqual(correction["parts"][0]["visual"], "correction")
+        self.assertEqual(breakout["parts"][0]["visual"], "breakout")
+
     def test_curriculum_starts_fast_and_direct(self):
         first = academy_lesson(0)
         self.assertIn("كيف تقرأ سوق الذهب", first["title"])
