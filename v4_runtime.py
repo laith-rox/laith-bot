@@ -6,6 +6,7 @@ entry price. If the history endpoint briefly fails, one-slot recent cached bars
 may still be used only when the live quote itself is current and aligned.
 """
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import logging
 import math
 import time
