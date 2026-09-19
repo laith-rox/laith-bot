@@ -9,7 +9,7 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1200, 760
+W, H = 1080, 1080
 
 BG = (13, 16, 21)
 PANEL = (20, 24, 31)
@@ -52,24 +52,24 @@ def _text_width(d, text, size=22, bold=False):
 def _base(side="شرح"):
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((28, 22, W - 28, H - 22), radius=26, fill=PANEL, outline=(63, 69, 80), width=2)
+    d.rounded_rectangle((24, 20, W - 24, H - 20), radius=28, fill=PANEL, outline=(63, 69, 80), width=2)
 
-    _draw_ar(d, (58, 48), "شرح تعليمي للذهب", size=32, bold=True)
-    _draw_ar(d, (58, 91), "مثال تدريبي فقط — الأسعار داخل الصورة ليست أسعارًا حية", size=20, fill=MUTED)
+    _draw_ar(d, (48, 48), "شرح تعليمي للذهب", size=44, bold=True)
+    _draw_ar(d, (48, 108), "مثال تدريبي فقط — الأسعار داخل الصورة ليست أسعارًا حية", size=27, fill=MUTED)
 
     side = side if side in ("شراء", "بيع", "انتظار", "شرح") else "شرح"
     side_color = {"شراء": UP, "بيع": DOWN, "انتظار": WAIT, "شرح": INFO}[side]
     label = {"شراء": "نوع المثال: شراء", "بيع": "نوع المثال: بيع", "انتظار": "القرار هنا: انتظار", "شرح": "شرح بصري"}[side]
     shaped = _shape(label)
-    fw = _text_width(d, label, size=24, bold=True) + 34
-    x1 = W - 58 - fw
-    d.rounded_rectangle((x1, 48, W - 58, 92), radius=13, fill=side_color)
-    d.text((W - 75, 70), shaped, font=_font(24, bold=True), fill=(10, 14, 18), anchor="rm")
+    fw = _text_width(d, label, size=31, bold=True) + 44
+    x1 = W - 48 - fw
+    d.rounded_rectangle((x1, 48, W - 48, 104), radius=15, fill=side_color)
+    d.text((W - 68, 76), shaped, font=_font(31, bold=True), fill=(10, 14, 18), anchor="rm")
     return img, d
 
 
 def _chart_box(d):
-    left, top, right, bottom = 68, 150, 1094, 626
+    left, top, right, bottom = 56, 188, 1005, 820
     for i in range(6):
         y = top + (bottom - top) * i / 5
         d.line((left, y, right, y), fill=GRID, width=1)
@@ -149,11 +149,11 @@ def _draw_price_axis(d, box, lo, hi):
     for i in range(6):
         price = hi - (hi - lo) * i / 5
         y = top + (bottom - top) * i / 5
-        d.text((right + 8, y - 9), f"{price:.1f}", font=_font(16), fill=MUTED)
+        d.text((right + 8, y - 11), f"{price:.1f}", font=_font(20), fill=MUTED)
     times = ("09:00", "10:00", "11:00", "12:00", "13:00", "14:00")
     for i, label in enumerate(times):
         x = left + (right - left) * i / (len(times) - 1)
-        d.text((x - 19, bottom + 9), label, font=_font(15), fill=MUTED)
+        d.text((x - 22, bottom + 12), label, font=_font(18), fill=MUTED)
 
 
 def _draw_candles(d, box, rows):
@@ -185,20 +185,20 @@ def _draw_candles(d, box, rows):
     return centers, lo, hi
 
 
-def _tag(d, x, y, text, color=(37, 43, 53), text_color=TEXT, size=19):
+def _tag(d, x, y, text, color=(37, 43, 53), text_color=TEXT, size=27):
     shaped = _shape(text)
     font = _font(size, bold=True)
     box = d.textbbox((0, 0), shaped, font=font)
-    w = max(90, box[2] - box[0] + 24)
-    h = 36
-    x = max(42, min(W - w - 42, x))
-    y = max(126, min(H - h - 43, y))
-    d.rounded_rectangle((x, y, x + w, y + h), radius=9, fill=color, outline=(99, 107, 120), width=1)
-    d.text((x + w - 12, y + 18), shaped, font=font, fill=text_color, anchor="rm")
+    w = max(126, box[2] - box[0] + 34)
+    h = 52
+    x = max(34, min(W - w - 34, x))
+    y = max(160, min(880 - h, y))
+    d.rounded_rectangle((x, y, x + w, y + h), radius=12, fill=color, outline=(105, 113, 126), width=2)
+    d.text((x + w - 16, y + h / 2), shaped, font=font, fill=text_color, anchor="rm")
     return x, y, w, h
 
 
-def _arrow(d, start, end, color=INFO, width=4):
+def _arrow(d, start, end, color=INFO, width=6):
     d.line((start[0], start[1], end[0], end[1]), fill=color, width=width)
     x, y = end
     if end[0] >= start[0]:
@@ -220,80 +220,91 @@ def _trade_levels(d, box, meta, lo, hi, side):
     left, top, right, bottom = box
     if not meta.get("entry"):
         return
-    labels = (
-        ("entry", "منطقة الدخول", WAIT),
-        ("stop", "وقف الخسارة", DOWN),
-        ("target", "الهدف", UP),
-    )
-    for key, label, color in labels:
+
+    # Keep thin reference lines on the chart.
+    for key, color in (("entry", WAIT), ("stop", DOWN), ("target", UP)):
         value = meta.get(key)
         if not value:
             continue
         y = _price_to_y(value, top, bottom, lo, hi)
-        d.line((right - 300, y, right - 14, y), fill=color, width=2)
-        _tag(d, right - 292, y - 39 if key != "stop" else y + 5, label, color=(34, 40, 49))
+        d.line((right - 250, y, right - 12, y), fill=color, width=3)
+
+    # Large mobile-readable legend under the chart.
+    items = (
+        ("الدخول", meta.get("entry"), WAIT),
+        ("وقف الخسارة", meta.get("stop"), DOWN),
+        ("الهدف", meta.get("target"), UP),
+    )
+    x = 58
+    y1, y2 = 886, 1002
+    box_w = 300
+    for label, value, color in items:
+        d.rounded_rectangle((x, y1, x + box_w, y2), radius=18, fill=(31, 36, 45), outline=color, width=4)
+        _draw_ar(d, (x + box_w / 2, y1 + 34), label, size=29, bold=True, anchor="mm")
+        d.text((x + box_w / 2, y1 + 79), f"{float(value):.1f}" if value else "—", font=_font(28, bold=True), fill=color, anchor="mm")
+        x += 330
 
 
 def _draw_correction_explanation(d, box, rows, centers, meta, lo, hi, variant):
     left, top, right, bottom = box
     if not variant:
-        y_support = _hline(d, box, meta["support"], lo, hi, "القاع المهم — ما زال صامدًا", INFO)
+        y_support = _hline(d, box, meta["support"], lo, hi, "القاع المهم", INFO)
         s = meta["corr_start"]
         e = meta["corr_end"]
         sy = _price_to_y(rows[s][3], top, bottom, lo, hi)
         ey = _price_to_y(rows[e][3], top, bottom, lo, hi)
         _arrow(d, (centers[s], sy - 12), (centers[e], ey + 10), color=WAIT, width=5)
-        _tag(d, centers[s] + 20, (sy + ey) / 2 - 35, "هذا نزول تصحيحي", color=(76, 62, 26))
+        _tag(d, centers[s] + 20, (sy + ey) / 2 - 35, "تصحيح هابط", color=(76, 62, 26))
         _tag(d, left + 22, top + 16, "الاتجاه العام صاعد", color=(24, 82, 62))
-        _tag(d, left + 22, top + 58, "الفكرة: نراقب شراء بعد انتهاء التصحيح", color=(24, 82, 62), size=18)
-        _tag(d, left + 22, y_support + 8, "إذا حافظ على القاع = التصحيح ما زال سليمًا", size=17)
+        _tag(d, left + 22, top + 58, "بعد انتهاء التصحيح نراقب شراء", color=(24, 82, 62), size=27)
+        _tag(d, left + 22, y_support + 8, "بقاء القاع = التصحيح سليم", size=25)
     else:
         break_i = meta.get("break_index", 9)
         by = _price_to_y(rows[break_i][3], top, bottom, lo, hi)
         _hline(d, box, 4306.0, lo, hi, "القاع البنيوي", INFO)
         _arrow(d, (centers[break_i - 2], by - 55), (centers[break_i], by), color=DOWN, width=5)
         _tag(d, centers[break_i] + 20, by + 8, "كسر القاع", color=(91, 33, 33))
-        _tag(d, left + 22, top + 16, "هنا لم يعد نزولًا عاديًا", color=(91, 33, 33))
-        _tag(d, left + 22, top + 58, "الكسر + ثبات تحته = احتمال انعكاس", color=(91, 33, 33), size=18)
-        _tag(d, left + 22, top + 100, "القرار: لا نشتري مباشرة — ننتظر تأكيدًا", color=(78, 63, 25), size=17)
+        _tag(d, left + 22, top + 16, "هنا صار كسر حقيقي", color=(91, 33, 33))
+        _tag(d, left + 22, top + 58, "كسر + ثبات تحته = احتمال انعكاس", color=(91, 33, 33), size=27)
+        _tag(d, left + 22, top + 100, "القرار: انتظار", color=(78, 63, 25), size=25)
 
 
 def _draw_breakout_explanation(d, box, rows, centers, meta, lo, hi, variant):
     left, top, right, bottom = box
     level = meta["level"]
-    y = _hline(d, box, level, lo, hi, "منطقة مقاومة", INFO)
+    y = _hline(d, box, level, lo, hi, "المقاومة", INFO)
 
     if not variant:
         bi = meta["break_index"]
         ri = meta["retest_index"]
         by = _price_to_y(rows[bi][3], top, bottom, lo, hi)
         ry = _price_to_y(rows[ri][3], top, bottom, lo, hi)
-        _tag(d, centers[bi] - 55, by - 52, "هنا حصل الكسر", color=(24, 82, 62))
+        _tag(d, centers[bi] - 55, by - 52, "كسر المقاومة", color=(24, 82, 62))
         _arrow(d, (centers[bi] - 25, y + 25), (centers[bi], by), color=UP, width=5)
         _tag(d, centers[ri] - 40, ry + 22, "إعادة اختبار", color=(56, 62, 72))
-        _tag(d, left + 22, top + 16, "ثبت فوق المقاومة = فكرة شراء أقوى", color=(24, 82, 62), size=18)
+        _tag(d, left + 22, top + 16, "ثبت فوقها = الشراء أقوى", color=(24, 82, 62), size=27)
     else:
         fi = meta["fake_index"]
         fy = _price_to_y(rows[fi][3], top, bottom, lo, hi)
-        _tag(d, centers[fi] - 65, fy + 18, "رجع تحت المقاومة", color=(91, 33, 33))
-        _tag(d, left + 22, top + 16, "هذا كسر كاذب", color=(91, 33, 33))
-        _tag(d, left + 22, top + 58, "القرار: انتظار — لا نطارد الشراء", color=(78, 63, 25), size=18)
+        _tag(d, centers[fi] - 65, fy + 18, "رجع تحتها", color=(91, 33, 33))
+        _tag(d, left + 22, top + 16, "كسر كاذب", color=(91, 33, 33))
+        _tag(d, left + 22, top + 58, "القرار: انتظار", color=(78, 63, 25), size=27)
 
 
 def _draw_general_explanation(d, box, rows, centers, meta, lo, hi, side, variant):
     left, top, right, bottom = box
     support = meta.get("support")
     if support:
-        _hline(d, box, support, lo, hi, "منطقة دعم", INFO)
+        _hline(d, box, support, lo, hi, "الدعم", INFO)
     if side == "بيع":
-        _tag(d, left + 22, top + 16, "مثال بيع: ننتظر ضعف الصعود عند المقاومة", color=(91, 33, 33), size=18)
+        _tag(d, left + 22, top + 16, "بيع: نراقب ضعف الصعود عند المقاومة", color=(91, 33, 33), size=27)
     elif side == "انتظار":
-        _tag(d, left + 22, top + 16, "لا شراء ولا بيع قبل ظهور تأكيد", color=(78, 63, 25), size=18)
+        _tag(d, left + 22, top + 16, "انتظار حتى يظهر تأكيد", color=(78, 63, 25), size=27)
     else:
-        _tag(d, left + 22, top + 16, "مثال شراء: الاتجاه صاعد وننتظر دخولًا منطقيًا", color=(24, 82, 62), size=18)
+        _tag(d, left + 22, top + 16, "شراء: الاتجاه صاعد وننتظر دخولًا واضحًا", color=(24, 82, 62), size=27)
 
     if variant:
-        _tag(d, left + 22, top + 58, "الفخ: لا تدخل لأن آخر شمعة فقط قوية", color=(91, 33, 33), size=17)
+        _tag(d, left + 22, top + 58, "الفخ: شمعة واحدة لا تكفي", color=(91, 33, 33), size=25)
 
 
 def _draw_trade_chart(d, kind, side, variant):
@@ -310,12 +321,12 @@ def _draw_trade_chart(d, kind, side, variant):
         left, top, right, bottom = box
         d.line((centers[idx], top, centers[idx], bottom), fill=WAIT, width=3)
         _tag(d, centers[idx] - 40, top + 16, "وقت الخبر", color=(78, 63, 25))
-        _tag(d, left + 22, top + 58, "لا تحكم من أول شمعة — انتظر فهم رد السوق", color=(56, 62, 72), size=17)
+        _tag(d, left + 22, top + 58, "لا تحكم من أول شمعة — انتظر فهم رد السوق", color=(56, 62, 72), size=25)
     elif kind == "volatility":
         left, top, right, bottom = box
         _tag(d, left + 22, top + 16, "تذبذب هادئ", color=(56, 62, 72))
         _tag(d, right - 225, top + 16, "تذبذب قوي", color=(78, 63, 25))
-        _tag(d, left + 22, top + 58, "كلما اتسعت الحركة، الستوب القديم قد يصبح قريبًا جدًا", color=(56, 62, 72), size=17)
+        _tag(d, left + 22, top + 58, "كلما اتسعت الحركة، الستوب القديم قد يصبح قريبًا جدًا", color=(56, 62, 72), size=25)
     else:
         _draw_general_explanation(d, box, rows, centers, meta, lo, hi, side, variant)
 
@@ -330,9 +341,9 @@ def _draw_diagram(d, kind, variant):
         _tag(d, left + 70, top + 70, "سعر البيع")
         _tag(d, right - 260, top + 70, "سعر الشراء")
         _arrow(d, (left + 290, top + 125), (right - 290, top + 125), color=WAIT)
-        _tag(d, left + 410, top + 150, "الفرق بينهما = السبريد", color=(78, 63, 25), size=18)
-        _tag(d, left + 120, top + 250, "التنفيذ الحقيقي قد يتأثر بالانزلاق", color=(56, 62, 72), size=18)
-        _tag(d, left + 120, top + 300, "كلما كان الهدف صغيرًا، تكلفة التنفيذ تصير أهم", color=(56, 62, 72), size=17)
+        _tag(d, left + 410, top + 150, "الفرق بينهما = السبريد", color=(78, 63, 25), size=27)
+        _tag(d, left + 120, top + 250, "التنفيذ الحقيقي قد يتأثر بالانزلاق", color=(56, 62, 72), size=27)
+        _tag(d, left + 120, top + 300, "كلما كان الهدف صغيرًا، تكلفة التنفيذ تصير أهم", color=(56, 62, 72), size=25)
     elif kind == "matrix":
         labels = ["الدولار", "العوائد", "الخوف", "التدفقات", "الزخم"]
         x = left + 55
@@ -342,24 +353,24 @@ def _draw_diagram(d, kind, variant):
             if i < len(labels) - 1:
                 _arrow(d, (x + 130, top + 208), (x + 166, top + 208), color=LEVEL, width=3)
             x += 185
-        _tag(d, left + 250, bottom - 88, "الذهب لا يتحرك بسبب عامل واحد دائمًا", color=(56, 62, 72), size=18)
+        _tag(d, left + 250, bottom - 88, "الذهب لا يتحرك بسبب عامل واحد دائمًا", color=(56, 62, 72), size=27)
     elif kind == "sessions":
         blocks = [("آسيا", left + 55), ("لندن", left + 285), ("نيويورك", left + 515), ("تداخل الجلسات", left + 745)]
         for label, x in blocks:
             d.rounded_rectangle((x, top + 120, x + 190, top + 285), radius=18, outline=LEVEL, width=3)
             _draw_ar(d, (x + 95, top + 202), label, size=21, bold=True, anchor="mm")
-        _tag(d, left + 240, bottom - 90, "السيولة وسرعة الحركة تختلف حسب الجلسة", color=(56, 62, 72), size=18)
+        _tag(d, left + 240, bottom - 90, "السيولة وسرعة الحركة تختلف حسب الجلسة", color=(56, 62, 72), size=27)
     elif kind == "expectancy":
         _tag(d, left + 125, top + 100, "نسبة الفوز", size=22)
         _tag(d, right - 340, top + 100, "متوسط الربح والخسارة", size=20)
         _draw_ar(d, (left + 250, top + 220), "٤٠٪", size=46, bold=True, anchor="mm")
         _draw_ar(d, (right - 250, top + 220), "٢٫٥ ضعف المخاطرة", size=31, bold=True, anchor="mm")
-        _tag(d, left + 260, bottom - 90, "جودة النظام أهم من نسبة الفوز وحدها", color=(56, 62, 72), size=18)
+        _tag(d, left + 260, bottom - 90, "جودة النظام أهم من نسبة الفوز وحدها", color=(56, 62, 72), size=27)
     elif kind == "backtest":
         _tag(d, left + 165, top + 145, "نبني الفكرة", size=22)
         _tag(d, right - 360, top + 145, "نختبرها على بيانات جديدة", size=20)
         _arrow(d, (left + 365, top + 200), (right - 385, top + 200), color=INFO)
-        _tag(d, left + 300, bottom - 100, "ممنوع استخدام معلومة من المستقبل", color=(91, 33, 33), size=18)
+        _tag(d, left + 300, bottom - 100, "ممنوع استخدام معلومة من المستقبل", color=(91, 33, 33), size=27)
     else:
         items = ["الفكرة", "متى تبطل", "حجم المخاطرة", "التنفيذ", "المراجعة"]
         x = left + 25
@@ -371,7 +382,7 @@ def _draw_diagram(d, kind, variant):
             x += 200
 
     if variant:
-        _tag(d, right - 230, bottom - 54, "انتبه للفخ", color=(91, 33, 33), size=18)
+        _tag(d, right - 230, bottom - 54, "انتبه للفخ", color=(91, 33, 33), size=27)
 
 
 def render_lesson_visual(kind="structure", variant=0, title="", side="شراء"):
@@ -384,7 +395,7 @@ def render_lesson_visual(kind="structure", variant=0, title="", side="شراء")
     else:
         _draw_diagram(d, kind, int(variant or 0))
 
-    _draw_ar(d, (58, H - 45), "اقرأ الرسم من اليمين واليسار مع الشرح تحت الصورة — الهدف أن تفهم السبب، لا أن تحفظ الشكل", size=17, fill=MUTED)
+    _draw_ar(d, (540, 1040), "افهم السبب من الرسم — لا تحفظ الشكل", size=24, fill=MUTED, anchor="mm")
 
     out = BytesIO()
     img.save(out, format="PNG", optimize=True)
