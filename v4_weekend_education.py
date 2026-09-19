@@ -492,6 +492,7 @@ def maybe_send_weekend_education(store, notifier, paper, now):
     # not fresh installs/tests.
     previous_curriculum_version = int(store.get("v4_weekend_curriculum_version", 0) or 0)
     previous_style_version = int(store.get("v4_weekend_lesson_style_version", 0) or 0)
+    previous_lesson_number = int(store.get("v4_weekend_lesson_number", 1) or 1)
 
     # Curriculum v2 starts from absolute basics. Reset only academy progress
     # once after deployment; trade history and all trading state remain intact.
@@ -516,6 +517,7 @@ def maybe_send_weekend_education(store, notifier, paper, now):
     if (
         previous_curriculum_version == curriculum_version
         and previous_style_version == style_version
+        and previous_lesson_number >= 4
         and int(store.get("v4_weekend_focus_version", 0) or 0) != focus_version
     ):
         store.set("v4_weekend_focus_version", focus_version)
