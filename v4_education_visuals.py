@@ -245,6 +245,36 @@ def _trade_levels(d, box, meta, lo, hi, side):
         x += 330
 
 
+def _number_marker(d, x, y, number, color=INFO):
+    """Large numbered marker that matches the explanation cards below."""
+    r = 23
+    d.ellipse((x - r, y - r, x + r, y + r), fill=color, outline=TEXT, width=3)
+    d.text((x, y), str(number), font=_font(25, bold=True), fill=(10, 14, 18), anchor="mm")
+
+
+def _explanation_cards(d, steps):
+    """Four short numbered explanations, readable in Telegram mobile preview."""
+    left = 52
+    top = 844
+    gap_x = 18
+    gap_y = 14
+    card_w = 479
+    card_h = 78
+    colors = (INFO, WAIT, UP, DOWN)
+
+    for i, text in enumerate(steps):
+        row = i // 2
+        col = i % 2
+        x1 = left + col * (card_w + gap_x)
+        y1 = top + row * (card_h + gap_y)
+        x2 = x1 + card_w
+        y2 = y1 + card_h
+        color = colors[i]
+        d.rounded_rectangle((x1, y1, x2, y2), radius=16, fill=(31, 36, 45), outline=color, width=3)
+        _number_marker(d, x1 + 34, y1 + card_h / 2, i + 1, color=color)
+        _draw_ar(d, (x2 - 18, y1 + card_h / 2), text, size=23, bold=True, anchor="rm")
+
+
 def _draw_correction_explanation(d, box, rows, centers, meta, lo, hi, variant):
     left, top, right, bottom = box
     if not variant:
@@ -253,43 +283,84 @@ def _draw_correction_explanation(d, box, rows, centers, meta, lo, hi, variant):
         e = meta["corr_end"]
         sy = _price_to_y(rows[s][3], top, bottom, lo, hi)
         ey = _price_to_y(rows[e][3], top, bottom, lo, hi)
-        _arrow(d, (centers[s], sy - 12), (centers[e], ey + 10), color=WAIT, width=5)
-        _tag(d, centers[s] + 20, (sy + ey) / 2 - 35, "تصحيح هابط", color=(76, 62, 26))
-        _tag(d, left + 22, top + 16, "الاتجاه العام صاعد", color=(24, 82, 62))
-        _tag(d, left + 22, top + 58, "بعد انتهاء التصحيح نراقب شراء", color=(24, 82, 62), size=27)
-        _tag(d, left + 22, y_support + 8, "بقاء القاع = التصحيح سليم", size=25)
+
+        # Keep the chart clean: numbered markers point to the explanation cards.
+        _arrow(d, (centers[s], sy - 12), (centers[e], ey + 10), color=WAIT, width=6)
+        _tag(d, centers[s] + 26, (sy + ey) / 2 - 28, "هذا هو التصحيح", color=(76, 62, 26), size=25)
+
+        _number_marker(d, centers[3], _price_to_y(rows[3][3], top, bottom, lo, hi) - 45, 1, UP)
+        _number_marker(d, centers[e], ey + 42, 2, WAIT)
+        _number_marker(d, centers[e] + 72, y_support - 28, 3, UP)
+        _number_marker(d, right - 80, y_support + 38, 4, DOWN)
+
+        _explanation_cards(d, (
+            "الاتجاه العام صاعد",
+            "النزول الحالي تصحيح",
+            "بقاء القاع = نراقب شراء",
+            "كسر القاع = تبطل فكرة الشراء",
+        ))
     else:
         break_i = meta.get("break_index", 9)
+        y_structure = _hline(d, box, 4306.0, lo, hi, "القاع المهم", INFO)
         by = _price_to_y(rows[break_i][3], top, bottom, lo, hi)
-        _hline(d, box, 4306.0, lo, hi, "القاع البنيوي", INFO)
-        _arrow(d, (centers[break_i - 2], by - 55), (centers[break_i], by), color=DOWN, width=5)
-        _tag(d, centers[break_i] + 20, by + 8, "كسر القاع", color=(91, 33, 33))
-        _tag(d, left + 22, top + 16, "هنا صار كسر حقيقي", color=(91, 33, 33))
-        _tag(d, left + 22, top + 58, "كسر + ثبات تحته = احتمال انعكاس", color=(91, 33, 33), size=27)
-        _tag(d, left + 22, top + 100, "القرار: انتظار", color=(78, 63, 25), size=25)
 
+        _arrow(d, (centers[break_i - 2], by - 50), (centers[break_i], by), color=DOWN, width=6)
+        _tag(d, centers[break_i] + 26, by + 10, "هنا انكسر القاع", color=(91, 33, 33), size=25)
+
+        _number_marker(d, centers[4], _price_to_y(rows[4][3], top, bottom, lo, hi) - 42, 1, UP)
+        _number_marker(d, centers[break_i], by - 42, 2, DOWN)
+        _number_marker(d, centers[break_i + 2], _price_to_y(rows[break_i + 2][3], top, bottom, lo, hi) + 38, 3, DOWN)
+        _number_marker(d, right - 82, y_structure + 55, 4, WAIT)
+
+        _explanation_cards(d, (
+            "كان الاتجاه صاعدًا",
+            "انكسر القاع المهم",
+            "السعر ثبت تحت القاع",
+            "نوقف الشراء وننتظر اتجاهًا جديدًا",
+        ))
 
 def _draw_breakout_explanation(d, box, rows, centers, meta, lo, hi, variant):
     left, top, right, bottom = box
     level = meta["level"]
-    y = _hline(d, box, level, lo, hi, "المقاومة", INFO)
+    y_level = _hline(d, box, level, lo, hi, "المقاومة", INFO)
 
     if not variant:
         bi = meta["break_index"]
         ri = meta["retest_index"]
         by = _price_to_y(rows[bi][3], top, bottom, lo, hi)
         ry = _price_to_y(rows[ri][3], top, bottom, lo, hi)
-        _tag(d, centers[bi] - 55, by - 52, "كسر المقاومة", color=(24, 82, 62))
-        _arrow(d, (centers[bi] - 25, y + 25), (centers[bi], by), color=UP, width=5)
-        _tag(d, centers[ri] - 40, ry + 22, "إعادة اختبار", color=(56, 62, 72))
-        _tag(d, left + 22, top + 16, "ثبت فوقها = الشراء أقوى", color=(24, 82, 62), size=27)
+
+        _arrow(d, (centers[bi] - 25, y_level + 28), (centers[bi], by), color=UP, width=6)
+        _tag(d, centers[bi] - 75, by - 56, "كسر المقاومة", color=(24, 82, 62), size=25)
+        _tag(d, centers[ri] - 50, ry + 24, "إعادة اختبار", color=(56, 62, 72), size=25)
+
+        _number_marker(d, centers[7], y_level - 40, 1, INFO)
+        _number_marker(d, centers[bi], by - 45, 2, UP)
+        _number_marker(d, centers[ri], ry + 64, 3, WAIT)
+        _number_marker(d, centers[ri + 2], _price_to_y(rows[ri + 2][3], top, bottom, lo, hi) - 42, 4, UP)
+
+        _explanation_cards(d, (
+            "هذه مقاومة مهمة",
+            "السعر كسرها وأغلق فوقها",
+            "رجع واختبرها من الأعلى",
+            "ثباته فوقها يجعل الشراء أقوى",
+        ))
     else:
         fi = meta["fake_index"]
         fy = _price_to_y(rows[fi][3], top, bottom, lo, hi)
-        _tag(d, centers[fi] - 65, fy + 18, "رجع تحتها", color=(91, 33, 33))
-        _tag(d, left + 22, top + 16, "كسر كاذب", color=(91, 33, 33))
-        _tag(d, left + 22, top + 58, "القرار: انتظار", color=(78, 63, 25), size=27)
 
+        _tag(d, centers[fi] - 72, fy + 22, "رجع تحت المقاومة", color=(91, 33, 33), size=25)
+        _number_marker(d, centers[7], y_level - 40, 1, INFO)
+        _number_marker(d, centers[9], _price_to_y(rows[9][3], top, bottom, lo, hi) - 46, 2, UP)
+        _number_marker(d, centers[fi], fy + 62, 3, DOWN)
+        _number_marker(d, right - 82, y_level + 56, 4, WAIT)
+
+        _explanation_cards(d, (
+            "هذه مقاومة مهمة",
+            "السعر اخترقها للأعلى",
+            "رجع بسرعة وأغلق تحتها",
+            "هذا كسر كاذب: القرار انتظار",
+        ))
 
 def _draw_general_explanation(d, box, rows, centers, meta, lo, hi, side, variant):
     left, top, right, bottom = box
@@ -330,7 +401,7 @@ def _draw_trade_chart(d, kind, side, variant):
     else:
         _draw_general_explanation(d, box, rows, centers, meta, lo, hi, side, variant)
 
-    if kind not in ("breakout",) or not variant:
+    if kind not in ("correction", "breakout"):
         _trade_levels(d, box, meta, lo, hi, side)
 
 
@@ -395,7 +466,8 @@ def render_lesson_visual(kind="structure", variant=0, title="", side="شراء")
     else:
         _draw_diagram(d, kind, int(variant or 0))
 
-    _draw_ar(d, (540, 1040), "افهم السبب من الرسم — لا تحفظ الشكل", size=24, fill=MUTED, anchor="mm")
+    if kind not in ("correction", "breakout"):
+        _draw_ar(d, (540, 1040), "افهم السبب من الرسم — لا تحفظ الشكل", size=24, fill=MUTED, anchor="mm")
 
     out = BytesIO()
     img.save(out, format="PNG", optimize=True)
