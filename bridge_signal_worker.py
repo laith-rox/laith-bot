@@ -1,0 +1,300 @@
+"""Independent DEMO-only signal publisher for the Laith execution bridge.
+
+This worker is intentionally isolated from V4 and the legacy Laith bot. It reads
+XAU/USD 5-minute candles directly, evaluates seven mirrored conditions, and
+publishes only 6/7-or-better BUY/SELL setups to the DEMO bridge.
+"""
+from __future__ import annotations
+
+from collections import deque
+from datetime import datetime, timezone
+import json
+import math
+import os
+import time
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
+TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
+BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
+BRIDGE_PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "").strip()
+POLL_SECONDS = int(os.getenv("POLL_SECONDS", "30"))
+MAX_PUBLISH_PER_HOUR = int(os.getenv("MAX_PUBLISH_PER_HOUR", "2"))
+SYMBOL = "XAU/USD"
+VOLUME = 0.01
+
+
+def _ema(values, period):
+    if not values:
+        return []
+    alpha = 2.0 / (period + 1.0)
+    out = [float(values[0])]
+    for value in values[1:]:
+        out.append(alpha * float(value) + (1.0 - alpha) * out[-1])
+    return out
+
+
+def _rsi(closes, period=14):
+    if len(closes) <= period:
+        return 50.0
+    gains = []
+    losses = []
+    for a, b in zip(closes[-period-1:-1], closes[-period:]):
+        change = b - a
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss <= 1e-12:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _atr(rows, period=14):
+    if len(rows) < 2:
+        return 0.0
+    trs = []
+    start = max(1, len(rows) - period)
+    for i in range(start, len(rows)):
+        prev_close = rows[i-1]["close"]
+        high = rows[i]["high"]
+        low = rows[i]["low"]
+        trs.append(max(high-low, abs(high-prev_close), abs(low-prev_close)))
+    return sum(trs) / len(trs) if trs else 0.0
+
+
+def normalize_rows(values):
+    """Convert Twelve Data newest-first values to oldest-first numeric rows.
+
+    The newest item is intentionally dropped because it can still be the active
+    five-minute candle. Signals are generated only from the latest closed bar.
+    """
+    if not isinstance(values, list) or len(values) < 30:
+        raise ValueError("not_enough_market_rows")
+    closed = values[1:]
+    rows = []
+    for item in reversed(closed):
+        rows.append({
+            "datetime": str(item.get("datetime", "")),
+            "open": float(item["open"]),
+            "high": float(item["high"]),
+            "low": float(item["low"]),
+            "close": float(item["close"]),
+        })
+    return rows
+
+
+def compute_signal(values):
+    rows = normalize_rows(values)
+    closes = [r["close"] for r in rows]
+    ema8 = _ema(closes, 8)
+    ema21 = _ema(closes, 21)
+    last = rows[-1]
+    close = last["close"]
+    open_ = last["open"]
+    rsi = _rsi(closes, 14)
+    atr = _atr(rows, 14)
+
+    recent_high = max(r["high"] for r in rows[-6:-1])
+    recent_low = min(r["low"] for r in rows[-6:-1])
+
+    buy = [
+        ema8[-1] > ema21[-1],
+        close > ema8[-1],
+        ema8[-1] > ema8[-2],
+        rsi >= 52.0,
+        close > closes[-4],
+        close > open_,
+        close > recent_high,
+    ]
+    sell = [
+        ema8[-1] < ema21[-1],
+        close < ema8[-1],
+        ema8[-1] < ema8[-2],
+        rsi <= 48.0,
+        close < closes[-4],
+        close < open_,
+        close < recent_low,
+    ]
+    buy_score = sum(bool(x) for x in buy)
+    sell_score = sum(bool(x) for x in sell)
+
+    side = None
+    selected = None
+    score = 0
+    if buy_score >= 6 and buy_score > sell_score:
+        side, selected, score = "BUY", buy, buy_score
+    elif sell_score >= 6 and sell_score > buy_score:
+        side, selected, score = "SELL", sell, sell_score
+
+    risk_distance = max(1.50, min(4.00, atr * 1.10 if atr > 0 else 2.00))
+    if side == "BUY":
+        sl = close - risk_distance
+        tp = close + risk_distance * 1.5
+    elif side == "SELL":
+        sl = close + risk_distance
+        tp = close - risk_distance * 1.5
+    else:
+        sl = tp = None
+
+    return {
+        "bar": last["datetime"],
+        "side": side,
+        "score": score,
+        "buy_score": buy_score,
+        "sell_score": sell_score,
+        "checks": {"BUY": buy, "SELL": sell},
+        "reference_close": close,
+        "rsi": rsi,
+        "atr": atr,
+        "sl": sl,
+        "tp": tp,
+    }
+
+
+def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
+    data = None
+    request_headers = {"Accept": "application/json"}
+    if headers:
+        request_headers.update(headers)
+    if payload is not None:
+        data = json.dumps(payload, separators=(",", ":")).encode()
+        request_headers["Content-Type"] = "application/json"
+    req = Request(url, data=data, method=method, headers=request_headers)
+    with urlopen(req, timeout=timeout) as response:
+        raw = response.read().decode()
+        return response.status, json.loads(raw) if raw else {}
+
+
+def fetch_market_values():
+    params = urlencode({
+        "symbol": SYMBOL,
+        "interval": "5min",
+        "outputsize": "80",
+        "apikey": TWELVE_DATA_API_KEY,
+    })
+    status, payload = _json_request(f"https://api.twelvedata.com/time_series?{params}")
+    if status != 200 or payload.get("status") == "error":
+        raise RuntimeError(f"market_data_error:{payload.get('message','unknown')}")
+    values = payload.get("values")
+    if not isinstance(values, list):
+        raise RuntimeError("market_values_missing")
+    return values
+
+
+def bridge_health():
+    status, payload = _json_request(f"{BRIDGE_URL}/health")
+    if status != 200:
+        raise RuntimeError(f"bridge_health_http_{status}")
+    return payload
+
+
+def publish_signal(signal):
+    side = signal["side"]
+    payload = {
+        "mode": "DEMO",
+        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{side}",
+        "symbol": "XAUUSD",
+        "side": side,
+        "volume": VOLUME,
+        "sl": round(float(signal["sl"]), 2),
+        "tp": round(float(signal["tp"]), 2),
+        "forced": False,
+        "checks": signal["checks"],
+    }
+    status, response = _json_request(
+        f"{BRIDGE_URL}/publish",
+        method="POST",
+        payload=payload,
+        headers={"X-Publish-Token": BRIDGE_PUBLISH_TOKEN},
+    )
+    return status, response, payload["key"]
+
+
+def validate_config():
+    missing = [
+        name for name, value in (
+            ("TWELVE_DATA_API_KEY", TWELVE_DATA_API_KEY),
+            ("BRIDGE_URL", BRIDGE_URL),
+            ("BRIDGE_PUBLISH_TOKEN", BRIDGE_PUBLISH_TOKEN),
+        ) if not value
+    ]
+    if missing:
+        raise RuntimeError("missing_config:" + ",".join(missing))
+
+
+def run_forever():
+    validate_config()
+    print(
+        f"bridge_signal_worker_started symbol={SYMBOL} interval=5m "
+        f"strict=6/7 volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR}",
+        flush=True,
+    )
+    last_bar = None
+    publishes = deque()
+
+    while True:
+        try:
+            now = time.time()
+            while publishes and now - publishes[0] >= 3600:
+                publishes.popleft()
+
+            health = bridge_health()
+            if not health.get("enabled"):
+                print("bridge_signal_skip reason=bridge_disabled", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+            if not health.get("client_state_fresh"):
+                print("bridge_signal_skip reason=mt5_state_stale", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+            if health.get("position_open") or int(health.get("pending", 0) or 0) > 0:
+                print("bridge_signal_skip reason=position_or_pending", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+            if len(publishes) >= MAX_PUBLISH_PER_HOUR:
+                print("bridge_signal_skip reason=hourly_publish_cap", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+
+            signal = compute_signal(fetch_market_values())
+            if signal["bar"] == last_bar:
+                time.sleep(POLL_SECONDS)
+                continue
+            last_bar = signal["bar"]
+
+            if not signal["side"]:
+                print(
+                    f"bridge_signal_wait bar={signal['bar']} buy={signal['buy_score']}/7 "
+                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f}",
+                    flush=True,
+                )
+                time.sleep(POLL_SECONDS)
+                continue
+
+            status, response, key = publish_signal(signal)
+            if status == 201 and response.get("ok") is True:
+                publishes.append(time.time())
+                print(
+                    f"bridge_signal_published key={key} side={signal['side']} "
+                    f"score={signal['score']}/7 sl={signal['sl']:.2f} tp={signal['tp']:.2f}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"bridge_signal_publish_rejected status={status} "
+                    f"reason={response.get('reason','unknown')}",
+                    flush=True,
+                )
+        except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
+            print(f"bridge_signal_error type={type(exc).__name__} detail={exc}", flush=True)
+        except Exception as exc:
+            print(f"bridge_signal_error type={type(exc).__name__} detail={exc}", flush=True)
+
+        time.sleep(POLL_SECONDS)
+
+
+if __name__ == "__main__":
+    run_forever()
