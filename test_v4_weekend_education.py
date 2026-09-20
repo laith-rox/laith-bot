@@ -219,7 +219,7 @@ class WeekendEducationTests(unittest.TestCase):
 
         self.assertTrue(maybe_send_weekend_education(store, notifier, paper, start))
         self.assertEqual(store.get("v4_weekend_lesson_number"), 6)
-        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 4)
+        self.assertEqual(store.get("v4_weekend_lesson_style_version"), 5)
         sent = "\n".join(notifier.messages + [x[1] for x in notifier.photos])
         self.assertIn("جولة السوق #6", sent)
 
@@ -233,6 +233,14 @@ class WeekendEducationTests(unittest.TestCase):
         self.assertIn("شراء", joined)
         self.assertIn("فريم ١٥ دقيقة", joined)
         self.assertIn("فريم الساعة", joined)
+
+    def test_correction_and_breakout_first_images_explain_numbered_steps(self):
+        correction = build_weekend_lesson(FakePaper(), 5)
+        breakout = build_weekend_lesson(FakePaper(), 6)
+        self.assertIn("الرقم ١", correction["parts"][0]["text"])
+        self.assertIn("الرقم ٤", correction["parts"][0]["text"])
+        self.assertEqual(correction["parts"][0]["visual"], "correction")
+        self.assertEqual(breakout["parts"][0]["visual"], "breakout")
 
     def test_first_visual_is_explicit_arabic_buy_sell_or_wait(self):
         lesson = build_weekend_lesson(FakePaper(), 1)
@@ -258,7 +266,7 @@ class WeekendEducationTests(unittest.TestCase):
     def test_existing_student_starts_requested_correction_focus_without_touching_trading_state(self):
         store = FakeStore()
         store.set("v4_weekend_curriculum_version", 3)
-        store.set("v4_weekend_lesson_style_version", 4)
+        store.set("v4_weekend_lesson_style_version", 5)
         store.set("v4_weekend_lesson_number", 4)
         store.set("v4_weekend_lesson_state", {"status": "active", "part_index": 3})
         store.set("unrelated_trade_state", {"keep": True})
