@@ -35,7 +35,6 @@ def smart_wait_message(decision, news_reason=None, nearby=False, extra_reason=No
     inv = intelligence.get("invalidation") or {}
     confidence = intelligence.get("confidence") or {}
     data = intelligence.get("data_quality") or {}
-    components = confidence.get("components") or {}
 
     reasons = list(gate.get("reasons") or [])
     if extra_reason and extra_reason not in reasons:
@@ -45,30 +44,24 @@ def smart_wait_message(decision, news_reason=None, nearby=False, extra_reason=No
     elif news_reason == "calendar_unavailable":
         reasons.append("calendar_unavailable")
     reasons = list(dict.fromkeys(reasons))
-    reason_text = "\n".join("• " + _reason(item) for item in reasons)
-    if not reason_text:
-        reason_text = "• الشروط لم تكتمل بما يكفي للدخول الآن"
+    short_reasons = " — ".join(_reason(item) for item in reasons[:2])
+    if not short_reasons:
+        short_reasons = "الشروط لم تكتمل بما يكفي"
 
     side = intelligence.get("preferred_side", "—")
     trigger = plan.get("buy_trigger") if side == "BUY" else plan.get("sell_trigger")
     opposite = plan.get("sell_trigger") if side == "BUY" else plan.get("buy_trigger")
     action_word = "شراء" if side == "BUY" else "بيع" if side == "SELL" else str(side)
     opposite_word = "بيع" if side == "BUY" else "شراء" if side == "SELL" else "المعاكس"
+    news_state = "انتظار/حظر" if nearby or news_reason != "calendar_clear" else "واضحة"
 
     return (
-        "⏳ <b>V4 — انتظار ذكي / لا دخول الآن</b>\n\n"
-        f"الاتجاه المفضل للمراقبة: <b>{side}</b>\n"
-        f"🚫 لماذا ننتظر:\n{reason_text}\n\n"
-        f"🧪 جودة السيناريو: <b>{confidence.get('score', '—')}/10 — {confidence.get('label', '—')}</b>\n"
-        f"اتجاه {components.get('trend', '—')}/10 | زخم {components.get('momentum', '—')}/10 | "
-        f"هيكل {components.get('structure', '—')}/10 | دخول {components.get('entry_quality', '—')}/10\n"
-        f"ماكرو {components.get('macro', '—')}/10 | تذبذب {components.get('volatility', '—')}/10 | "
-        f"بيانات {components.get('data_quality', '—')}/10\n"
-        f"📰 الأخبار: {'حظر/انتظار' if nearby or news_reason != 'calendar_clear' else 'واضحة لحظة الفحص'}\n"
-        f"📡 جودة البيانات: {data.get('label', '—')} | عمر آخر شمعة: {data.get('bar_age_seconds', '—')}ث\n\n"
-        f"✅ تفعيل {action_word} المشروط قرب: <b>{_fmt(trigger)}</b>\n"
-        f"↔️ المستوى المعاكس للمراقبة ({opposite_word}): {_fmt(opposite)}\n"
-        f"🔎 التأكيد: {plan.get('confirmation', 'إغلاق M15 خلف المستوى ثم ثبات/إعادة اختبار')}\n"
-        f"🧱 إبطال السيناريو المفضل: <b>{_fmt(inv.get('level'))}</b> — {inv.get('rule', '—')}\n\n"
-        "الجودة هنا تقييم للشروط وليست نسبة ربح. لا يتم فتح أي صفقة تلقائيًا."
+        "⏳ <b>V4 — انتظار</b>\n"
+        f"🔵① جودة السيناريو: <b>{confidence.get('score', '—')}/10 — {confidence.get('label', '—')}</b>\n"
+        f"🟠② تفعيل {action_word}: <b>{_fmt(trigger)}</b>\n"
+        f"🔴③ الإبطال: <b>{_fmt(inv.get('level'))}</b>\n"
+        f"🟡④ المستوى المعاكس ({opposite_word}): {_fmt(opposite)}\n"
+        f"🟡⑤ السبب: {short_reasons}\n"
+        f"🔵⑥ الأخبار/البيانات: {news_state} | {data.get('label', '—')} ({data.get('bar_age_seconds', '—')}ث)\n"
+        "✅ الحالة: لا دخول الآن"
     )
