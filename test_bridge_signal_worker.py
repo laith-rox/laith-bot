@@ -39,6 +39,7 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertGreaterEqual(signal["score"], 6)
         self.assertLess(signal["sl"], signal["reference_close"])
         self.assertGreater(signal["tp"], signal["reference_close"])
+        self.assertLessEqual(signal["risk_distance"], 1.60)
 
     def test_strong_downtrend_produces_sell(self):
         signal = compute_signal(make_values("down"))
@@ -46,6 +47,7 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertGreaterEqual(signal["score"], 6)
         self.assertGreater(signal["sl"], signal["reference_close"])
         self.assertLess(signal["tp"], signal["reference_close"])
+        self.assertLessEqual(signal["risk_distance"], 1.60)
 
 
 if __name__ == "__main__":
