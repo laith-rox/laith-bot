@@ -57,15 +57,18 @@ def _continuation_with_intelligence(decision, trade, price=None):
 
 
 def _continuation_message_with_intelligence(snapshot):
-    return enhance_continuation_message(_original_continuation_message(snapshot), snapshot)
+    # Intelligence remains attached to the snapshot and logs; keep Telegram concise.
+    return _original_continuation_message(snapshot)
 
 
 def _paper_open_message_with_intelligence(trade):
-    return enhance_paper_open_message(_original_paper_open_message(trade), trade)
+    # Keep the full intelligence model internal while sending only the compact card.
+    return _original_paper_open_message(trade)
 
 
 def _paper_close_message_with_intelligence(trade, stats):
-    return enhance_paper_close_message(_original_paper_close_message(trade, stats), trade)
+    # Learning is still recorded internally; avoid a long post-trade explanation in Telegram.
+    return _original_paper_close_message(trade, stats)
 
 
 def _shared_quick_reference(_market, bars, now):
