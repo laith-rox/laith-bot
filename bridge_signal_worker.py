@@ -169,19 +169,46 @@ def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
 
 
 def fetch_market_values():
-    params = urlencode({
-        "symbol": SYMBOL,
-        "interval": "5min",
-        "outputsize": "80",
-        "apikey": TWELVE_DATA_API_KEY,
-    })
-    status, payload = _json_request(f"https://api.twelvedata.com/time_series?{params}")
-    if status != 200 or payload.get("status") == "error":
-        raise RuntimeError(f"market_data_error:{payload.get('message','unknown')}")
-    values = payload.get("values")
-    if not isinstance(values, list):
+    """Fetch keyless 5m gold-market candles.
+
+    Yahoo's GC=F feed is used only as a directional proxy for this DEMO
+    commissioning worker. Orders still execute only on the MT5 XAUUSD demo
+    account, and the bridge/EA remain the final safety gate.
+    """
+    params = urlencode({"interval": "5m", "range": "1d"})
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{YAHOO_SYMBOL}?{params}"
+    status, payload = _json_request(url, headers={"User-Agent": "Mozilla/5.0"})
+    if status != 200:
+        raise RuntimeError(f"market_data_http_{status}")
+    try:
+        result = payload["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        quote = result["indicators"]["quote"][0]
+    except (KeyError, IndexError, TypeError):
         raise RuntimeError("market_values_missing")
-    return values
+
+    rows = []
+    opens = quote.get("open") or []
+    highs = quote.get("high") or []
+    lows = quote.get("low") or []
+    closes = quote.get("close") or []
+    for i, ts in enumerate(timestamps):
+        try:
+            o, h, l, cl = opens[i], highs[i], lows[i], closes[i]
+            if None in (o, h, l, cl):
+                continue
+            rows.append({
+                "datetime": datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "open": f"{float(o):.5f}",
+                "high": f"{float(h):.5f}",
+                "low": f"{float(l):.5f}",
+                "close": f"{float(cl):.5f}",
+            })
+        except (IndexError, TypeError, ValueError):
+            continue
+    if len(rows) < 31:
+        raise RuntimeError("not_enough_market_rows")
+    return list(reversed(rows))
 
 
 def bridge_health():
@@ -216,7 +243,6 @@ def publish_signal(signal):
 def validate_config():
     missing = [
         name for name, value in (
-            ("TWELVE_DATA_API_KEY", TWELVE_DATA_API_KEY),
             ("BRIDGE_URL", BRIDGE_URL),
             ("BRIDGE_PUBLISH_TOKEN", BRIDGE_PUBLISH_TOKEN),
         ) if not value
