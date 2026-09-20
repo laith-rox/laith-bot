@@ -28,7 +28,7 @@ class PriceGuardTests(unittest.TestCase):
                 'buy':6,'sell':1,'checks':{'BUY':[True]*6+[False],'SELL':[False]*7}}
 
     def cycle(self):
-        with patch('bot.analyze',return_value=self.d):
+        with patch('bot.analyze',return_value=self.d), patch.object(App,'quick_v4_update'):
             App(self.store,self.market,self.telegram,self.news,0).cycle(NOW,self.clock)
 
     def send(self):
@@ -72,21 +72,32 @@ class PriceGuardTests(unittest.TestCase):
         self.cycle(); self.assertIsNone(self.store.active())
         self.assertEqual(self.store.get('last_error'),'market_price_moved')
 
-    def test_unavailable_quote_does_not_fall_back_to_candle(self):
+    def test_unavailable_quote_with_divergent_candle_blocks_entry(self):
         self.market.quote.side_effect=DataError('market_quote_unavailable')
         self.cycle(); self.assertIsNone(self.store.active())
 
     def test_slow_news_blocks_entry(self):
-        def news(*a): self.elapsed[0]=106; return True,'clear',[]
+        def news(*a): self.elapsed[0]=166; return True,'clear',[]
         self.news.check.side_effect=news
         self.cycle(); self.assertIsNone(self.store.active()); self.market.quote.assert_not_called()
 
     def test_slow_quote_blocks_entry(self):
         def quote(*a):
-            self.elapsed[0]=106
+            self.elapsed[0]=166
             return {'price':100.,'time':self.clock.now().timestamp(),'source':'Twelve Data'}
         self.market.quote.side_effect=quote
         self.cycle(); self.assertIsNone(self.store.active())
+
+    def test_expired_quote_not_queued_even_with_current_candles(self):
+        self.elapsed[0]=91
+        self.cycle()
+        self.assertIsNone(self.store.active())
+        self.assertEqual(self.store.get('last_error'),'market_quote_stale')
+
+    def test_future_quote_not_queued(self):
+        self.market.quote.return_value['time']=NOW.timestamp()+1
+        self.cycle()
+        self.assertIsNone(self.store.active())
 
     def test_price_move_during_queue_never_sends_entry(self):
         self.cycle(); self.market.quote.return_value['price']=103

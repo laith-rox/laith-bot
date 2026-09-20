@@ -212,6 +212,10 @@ class App:
                              quote_time=quote['time'],quote_source=quote['source'],
                              price_tolerance=tolerance,
                              entry_expires=min(quote['time']+(180 if quote_fallback else 90),bars[-1].end.timestamp()+180))
+                if not 0 <= epoch-quote['time'] <= (180 if quote_fallback else 90):
+                    raise DataError('market_quote_stale')
+                if epoch >= trade['entry_expires']:
+                    raise DataError('market_quote_stale')
                 self.store.prepare_entry(trade,entry(trade,decision),epoch)
                 LOG.info('entry_quote_verified id=%s price=%.2f source_age=%.1f',
                          trade['id'],trade['entry'],epoch-quote['time'])
