@@ -6,3 +6,23 @@ Railway service start command: `python bridge_api.py`.
 MT5 client: `mt5/LaithDemoBridge.mq5`.
 
 Live accounts are blocked by the EA and the bridge accepts DEMO commands only.
+
+
+## Independent signal worker
+
+The automatic DEMO publisher runs as a separate Railway service using:
+
+`python bridge_signal_worker.py`
+
+It is isolated from V4 and the legacy bot. It reads XAU/USD 5-minute candles,
+requires at least 6 of 7 mirrored directional checks, publishes at most two
+new DEMO orders per hour, and skips publishing while the bridge reports an
+open position, a pending command, stale MT5 state, or a disabled bridge.
+
+Required worker variables:
+- `TWELVE_DATA_API_KEY`
+- `BRIDGE_URL`
+- `BRIDGE_PUBLISH_TOKEN`
+
+The execution bridge and EA remain the final safety gate: DEMO-only,
+XAUUSD-only, 0.01 lot, one open position.
