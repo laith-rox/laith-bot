@@ -97,28 +97,21 @@ def emergency_message(snapshot):
     marker = "🚨" if snapshot.get("severity") == "مرتفعة" else "⚠️"
     side_ar = "شراء" if snapshot.get("side") == "BUY" else "بيع"
     opp_ar = "بيع" if snapshot.get("opposite_side") == "SELL" else "شراء"
-    reasons = "\n".join(f"• {reason}" for reason in snapshot.get("reasons") or [])
+    reasons = " — ".join(str(x) for x in (snapshot.get("reasons") or [])[:2]) or "انعكاس محتمل"
     lines = [
         f"{marker} <b>طوارئ V4 — احتمال انعكاس</b>",
-        "",
-        f"الصفقة تحت المراقبة: <b>{side_ar}</b>",
-        f"درجة التحذير: <b>{snapshot.get('severity', '—')}</b>",
-        f"📊 شروط {side_ar}: {snapshot.get('own_score', 0)}/7 | شروط {opp_ar}: {snapshot.get('opposite_score', 0)}/7",
-        f"💰 السعر المرجعي: {_fmt(snapshot.get('price'))} | الدخول: {_fmt(snapshot.get('entry'))}",
-        "",
-        reasons,
+        f"🔴① وقف/إبطال الصفقة: <b>{_fmt(snapshot.get('stop'))}</b>",
+        f"🔴② درجة التحذير: <b>{snapshot.get('severity', '—')}</b>",
+        f"🟠③ السعر / الدخول: {_fmt(snapshot.get('price'))} / {_fmt(snapshot.get('entry'))}",
+        f"🔵④ الشروط: {side_ar} {snapshot.get('own_score', 0)}/7 | {opp_ar} {snapshot.get('opposite_score', 0)}/7",
+        f"🟡⑤ السبب: {reasons}",
     ]
     if snapshot.get("correction_target1") is not None or snapshot.get("correction_target2") is not None:
-        lines.extend([
-            "",
-            f"↩️ أهداف التصحيح المحتملة: {_fmt(snapshot.get('correction_target1'))} ثم {_fmt(snapshot.get('correction_target2'))}",
-        ])
-    lines.extend([
-        "",
-        "⚠️ هذا نظام تحذير مستقل فقط؛ لا يغلق الصفقة ولا يغيّر الستوب أو الهدف تلقائيًا.",
-    ])
+        lines.append(
+            f"🟠⑥ التصحيح المتوقع: {_fmt(snapshot.get('correction_target1'))} → {_fmt(snapshot.get('correction_target2'))}"
+        )
+    lines.append("⚠️ تحذير فقط؛ لا يغلق الصفقة ولا يغيّر الستوب تلقائيًا.")
     return "\n".join(lines)
-
 
 def _fingerprint(snapshot):
     return json.dumps({
