@@ -21,7 +21,6 @@ from v4_quick_5m import analyze_quick_5m
 from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
 from v4_telegram import V4Telegram, continuation_message, quick_message
-from v4_weekend_education import maybe_send_weekend_education
 from market import Market
 
 LOG = logging.getLogger("laith.v4")
@@ -343,22 +342,13 @@ def run(args):
             except Exception:
                 LOG.exception("telegram_cycle_failed")
             if trading_guard_closed(now):
-                # Keep Telegram polling alive and keep live market requests disabled.
-                # Saturday through the Sunday reopen can publish one offline
-                # educational lesson per hour; Friday evening remains silent.
+                # Keep Telegram polling alive while all market-driven V4 activity is paused.
+                # No automatic educational lessons are published; teaching happens only on request.
                 weekend_closed = market_weekend_closed(now)
                 store.set("v4_market_status", "WEEKEND_CLOSED" if weekend_closed else "DAILY_BREAK_CLOSED")
                 store.set("v4_last_error", None)
                 store.set("v4_quick_last_error", None)
-                try:
-                    # Trading cycles remain blocked by the weekend guard, while
-                    # the separate weekend academy may continue publishing lessons.
-                    if weekend_closed:
-                        maybe_send_weekend_education(store, telegram, paper, now)
-                    store.set("v4_weekend_education_error", None)
-                except Exception as exc:
-                    store.set("v4_weekend_education_error", str(exc))
-                    LOG.exception("weekend_education_failed")
+                store.set("v4_weekend_education_error", None)
                 next_cycle = time.time() + args.interval
                 next_quick = time.time() + args.quick_interval
                 time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
