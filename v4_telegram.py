@@ -146,7 +146,7 @@ def quick_stats_message(store):
 def quick_message(trade):
     """Compact color-priority quick alert; strategy and trade logic are untouched."""
     risk_level = trade.get("risk_level", "—")
-    risk_number = "🔴⑤" if risk_level == "مرتفعة" else "🟡⑤" if risk_level == "متوسطة" else "🟢⑤"
+    risk_number = "⛔️⑤" if risk_level in ("مرتفعة", "متوسطة") else "🟢⑤"
     reasons = trade.get("risk_reasons") or []
     reason_text = f" — {str(reasons[0])}" if reasons else ""
     return (
