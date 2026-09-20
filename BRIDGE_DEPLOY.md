@@ -26,3 +26,12 @@ Required worker variables:
 
 The execution bridge and EA remain the final safety gate: DEMO-only,
 XAUUSD-only, 0.01 lot, one open position.
+
+
+### Commissioning compatibility
+
+If an older installed EA polls `/next` but does not yet report `/state`, the
+worker may be started with `ALLOW_STALE_MT5_STATE=true` for commissioning
+only. In that mode, keep `MAX_PUBLISH_PER_HOUR=1`. The EA's local safety
+gate must still enforce DEMO account, XAUUSD, 0.01 lot, one gold position max,
+valid SL/TP, and its local kill switch/risk budget.
