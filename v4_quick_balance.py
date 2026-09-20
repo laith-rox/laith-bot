@@ -142,41 +142,42 @@ def timing_block(trade):
 
 
 def quick_message(trade):
-    """Reuse the standard message and add balance, live-candle timing, correction and smart V4 context."""
-    message = _base_quick_message(trade)
-    lines = message.splitlines()
-    balance = condition_balance_line(trade)
-    if balance:
+    """Keep the quick card compact while adding balance and correction context."""
+    lines = _base_quick_message(trade).splitlines()
+
+    try:
+        buy_score = int(trade.get("buy_score"))
+        sell_score = int(trade.get("sell_score"))
+    except (TypeError, ValueError):
+        buy_score = sell_score = None
+
+    if buy_score is not None and sell_score is not None:
+        side = trade.get("side")
+        if side == "SELL":
+            balance = f"🔵⑥ الشروط: <b>بيع {sell_score}/7</b> | شراء {buy_score}/7"
+        else:
+            balance = f"🔵⑥ الشروط: <b>شراء {buy_score}/7</b> | بيع {sell_score}/7"
         for index, line in enumerate(lines):
-            if line.startswith("📊 تحقق الشروط:"):
+            if line.startswith("🔵⑥ الشروط:"):
                 lines[index] = balance
                 break
 
-    marker = strength_marker(trade.get("strength"))
-    for index, line in enumerate(lines):
-        if line.startswith("🧭 القوة المعروضة:"):
-            lines[index] = f"{marker} القوة المعروضة: <b>{trade.get('strength', '—')}</b>"
-            break
-
-    timing = timing_block(trade)
-    if timing:
-        insert_at = None
+    direction = trade.get("correction_direction")
+    target1 = trade.get("correction_target1")
+    target2 = trade.get("correction_target2")
+    if direction and (target1 is not None or target2 is not None):
+        correction = (
+            f"🟠⑦ التصحيح: <b>{_direction_ar(direction)}</b> → "
+            f"{_fmt_price(target1)} / {_fmt_price(target2)}"
+        )
+        invalidation = trade.get("correction_invalidation")
+        if invalidation is not None:
+            correction += f" | إبطال {_fmt_price(invalidation)}"
+        insert_at = len(lines)
         for index, line in enumerate(lines):
-            if line.startswith("💰 الدخول:"):
+            if line.startswith("📄 "):
                 insert_at = index
                 break
-        if insert_at is None:
-            insert_at = len(lines)
-        lines[insert_at:insert_at] = timing + [""]
+        lines.insert(insert_at, correction)
 
-    correction = correction_block(trade)
-    if correction:
-        insert_at = None
-        for index, line in enumerate(lines):
-            if line.startswith("🎯 الهدف السريع:"):
-                insert_at = index + 1
-                break
-        if insert_at is None:
-            insert_at = len(lines)
-        lines[insert_at:insert_at] = correction
-    return enhance_quick_message("\n".join(lines), trade)
+    return "\n".join(lines)
