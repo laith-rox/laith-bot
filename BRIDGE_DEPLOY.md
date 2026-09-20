@@ -14,7 +14,7 @@ The automatic DEMO publisher runs as a separate Railway service using:
 
 `python bridge_signal_worker.py`
 
-It is isolated from V4 and the legacy bot. It reads XAU/USD 5-minute candles,
+It is isolated from V4 and the legacy bot. It reads a keyless 5-minute gold-market proxy feed for DEMO commissioning,
 requires at least 6 of 7 mirrored directional checks, publishes at most two
 new DEMO orders per hour, and skips publishing while the bridge reports an
 open position, a pending command, stale MT5 state, or a disabled bridge.
