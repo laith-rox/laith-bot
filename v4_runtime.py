@@ -22,6 +22,7 @@ from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
 from v4_telegram import V4Telegram, continuation_message, quick_message
 from market import Market
+from v4_minute_safety import start as start_minute_safety
 
 LOG = logging.getLogger("laith.v4")
 
@@ -332,6 +333,7 @@ def run(args):
         "starting independent V4 resilient worker db=%s experiment=%s telegram=%s quick_interval=%ss",
         args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
     )
+    safety_stop = start_minute_safety(args, trading_guard_closed)
     next_cycle = 0.0
     next_quick = 0.0
     try:
@@ -377,6 +379,7 @@ def run(args):
                 next_quick = (int(current) // args.quick_interval + 1) * args.quick_interval + 12
             time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
     finally:
+        safety_stop.set()
         store.close()
 
 
