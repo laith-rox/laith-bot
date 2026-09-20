@@ -148,18 +148,17 @@ def quick_message(trade):
     risk_level = trade.get("risk_level", "—")
     risk_number = "🔴⑤" if risk_level == "مرتفعة" else "🟡⑤" if risk_level == "متوسطة" else "🟢⑤"
     reasons = trade.get("risk_reasons") or []
-    warning = ("\n⚠️ " + " — ".join(str(x) for x in reasons[:2])) if reasons else ""
+    reason_text = f" — {str(reasons[0])}" if reasons else ""
     return (
-        "⚡ <b>V4 سريع — 5د</b>\n"
+        f"⚡ <b>V4 سريع — 5د — {trade.get('side', '—')}</b>\n"
         f"🔵① القوة: <b>{trade.get('strength', '—')}</b> — {trade.get('score', '—')}/7\n"
         f"🟠② الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
         f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
-        f"{risk_number} المخاطرة: <b>{risk_level}</b>{warning}\n"
-        f"🔵⑥ الاتجاه: <b>{trade.get('side', '—')}</b>\n"
+        f"{risk_number} المخاطرة: <b>{risk_level}</b>{reason_text}\n"
+        f"🔵⑥ الشروط: <b>{trade.get('score', '—')}/7</b>\n"
         "📄 ورقية/بحثية | ⏱️ صلاحية 20د"
     )
-
 
 def continuation_message(snapshot):
     state = snapshot.get("state", "—")
