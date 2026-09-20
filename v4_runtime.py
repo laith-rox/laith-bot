@@ -287,6 +287,9 @@ class V4PaperResilientQuick(V4Paper):
 
 
 NY_TZ = ZoneInfo("America/New_York")
+PALESTINE_TZ = ZoneInfo("Asia/Hebron")
+DAILY_BREAK_START_MINUTE = 23 * 60 + 55
+DAILY_BREAK_END_MINUTE = 1 * 60 + 5
 
 
 def market_weekend_closed(now):
@@ -304,6 +307,18 @@ def market_weekend_closed(now):
     if weekday == 6 and local.hour < 18:
         return True
     return False
+
+
+def market_daily_break_closed(now):
+    """Freeze trading through the old bot's daily XAU close/reopen guard."""
+    local = now.astimezone(PALESTINE_TZ)
+    minute = local.hour * 60 + local.minute
+    return minute >= DAILY_BREAK_START_MINUTE or minute < DAILY_BREAK_END_MINUTE
+
+
+def trading_guard_closed(now):
+    """True when V4 trading/monitoring must be frozen, preserving open trades."""
+    return market_weekend_closed(now) or market_daily_break_closed(now)
 
 
 def run(args):
@@ -327,17 +342,19 @@ def run(args):
                 telegram.poll()
             except Exception:
                 LOG.exception("telegram_cycle_failed")
-            if market_weekend_closed(now):
+            if trading_guard_closed(now):
                 # Keep Telegram polling alive and keep live market requests disabled.
                 # Saturday through the Sunday reopen can publish one offline
                 # educational lesson per hour; Friday evening remains silent.
-                store.set("v4_market_status", "WEEKEND_CLOSED")
+                weekend_closed = market_weekend_closed(now)
+                store.set("v4_market_status", "WEEKEND_CLOSED" if weekend_closed else "DAILY_BREAK_CLOSED")
                 store.set("v4_last_error", None)
                 store.set("v4_quick_last_error", None)
                 try:
                     # Trading cycles remain blocked by the weekend guard, while
                     # the separate weekend academy may continue publishing lessons.
-                    maybe_send_weekend_education(store, telegram, paper, now)
+                    if weekend_closed:
+                        maybe_send_weekend_education(store, telegram, paper, now)
                     store.set("v4_weekend_education_error", None)
                 except Exception as exc:
                     store.set("v4_weekend_education_error", str(exc))
