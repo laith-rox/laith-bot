@@ -180,7 +180,7 @@ def fetch_market_values():
     commissioning worker. Orders still execute only on the MT5 XAUUSD demo
     account, and the bridge/EA remain the final safety gate.
     """
-    params = urlencode({"interval": "5m", "range": "1d"})
+    params = urlencode({"interval": "5m", "range": "5d"})
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{YAHOO_SYMBOL}?{params}"
     status, payload = _json_request(url, headers={"User-Agent": "Mozilla/5.0"})
     if status != 200:
