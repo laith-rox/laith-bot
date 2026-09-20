@@ -144,20 +144,20 @@ def quick_stats_message(store):
 
 
 def quick_message(trade):
-    """Compact five-minute quick alert; display-only change, strategy untouched."""
+    """Compact color-priority quick alert; strategy and trade logic are untouched."""
     risk_level = trade.get("risk_level", "—")
-    risk_marker = "🔴" if risk_level == "مرتفعة" else "🟡" if risk_level == "متوسطة" else "🟢"
+    risk_number = "🔴⑤" if risk_level == "مرتفعة" else "🟡⑤" if risk_level == "متوسطة" else "🟢⑤"
     reasons = trade.get("risk_reasons") or []
     warning = ("\n⚠️ " + " — ".join(str(x) for x in reasons[:2])) if reasons else ""
     return (
         "⚡ <b>V4 سريع — 5د</b>\n"
-        f"الاتجاه: <b>{trade.get('side', '—')}</b> | القوة: <b>{trade.get('strength', '—')}</b> "
-        f"({trade.get('score', '—')}/7)\n"
-        f"💰 دخول: <b>{_fmt(trade.get('entry'))}</b>\n"
-        f"🛑 وقف: <b>{_fmt(trade.get('stop'))}</b>\n"
-        f"🎯 هدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
-        f"{risk_marker} المخاطرة: <b>{risk_level}</b>{warning}\n"
-        "⏱️ صلاحية 20د | 📄 ورقية/بحثية"
+        f"🔵① القوة: <b>{trade.get('strength', '—')}</b> — {trade.get('score', '—')}/7\n"
+        f"🟠② الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
+        f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
+        f"{risk_number} المخاطرة: <b>{risk_level}</b>{warning}\n"
+        f"🔵⑥ الاتجاه: <b>{trade.get('side', '—')}</b>\n"
+        "📄 ورقية/بحثية | ⏱️ صلاحية 20د"
     )
 
 
@@ -166,58 +166,51 @@ def continuation_message(snapshot):
     marker = "✅" if state == "قوية" else "🟡" if state == "متوسطة" else "🟠" if state == "ضعيفة" else "🔴"
     notes = []
     if snapshot.get("opposite_official"):
-        notes.append("ظهر اتجاه رسمي معاكس في الفحص الحالي")
+        notes.append("اتجاه رسمي معاكس")
     if snapshot.get("adverse_correction"):
-        notes.append("رُصد تصحيح قوي عكس اتجاه الصفقة")
+        notes.append("تصحيح قوي عكس الصفقة")
     if snapshot.get("failed_break"):
-        notes.append("ظهر كسر فاشل")
-    note_text = ("\n⚠️ " + " — ".join(notes)) if notes else ""
-    tp1_text = "✅ تم رصده" if snapshot.get("tp1_hit") else "لم يُرصد بعد"
+        notes.append("كسر فاشل")
+    warning = ("\n⚠️ " + " — ".join(notes[:2])) if notes else ""
+    tp1_text = "✅" if snapshot.get("tp1_hit") else "⏳"
     return (
-        "🔄 <b>تحديث 5 دقائق — استمرارية صفقة V4 الرسمية</b>\n\n"
-        f"الاتجاه: <b>{snapshot.get('side', '—')}</b>\n"
-        f"{marker} الاستمرارية الحالية: <b>{state}</b>\n"
-        f"📊 شروط الاتجاه: <b>{snapshot.get('score', '—')}/7 = {snapshot.get('condition_percent', '—')}%</b>\n"
-        f"📈 RSI: {_fmt(snapshot.get('rsi'))}\n"
-        f"💰 السعر المرجعي الحالي: {_fmt(snapshot.get('price'))}\n\n"
-        f"الدخول: {_fmt(snapshot.get('entry'))}\n"
-        f"🛑 الوقف الحالي: {_fmt(snapshot.get('stop'))}\n"
-        f"🎯 TP1: {_fmt(snapshot.get('tp1'))} — {tp1_text}\n"
-        f"🎯 TP2: {_fmt(snapshot.get('tp2'))}\n"
-        f"الكسر: {snapshot.get('breakout_state', '—')} | التصحيح: {snapshot.get('correction_direction', '—')} / {snapshot.get('correction_strength', '—')}"
-        f"{note_text}\n\n"
-        "⚠️ هذا تحديث شروط واستمرارية للصفقة الورقية، وليس ضمانًا باستمرار الحركة."
+        "🔄 <b>تحديث 5د — صفقة V4</b>\n"
+        f"🔴① الوقف الحالي: <b>{_fmt(snapshot.get('stop'))}</b>\n"
+        f"🔵② الاستمرارية: <b>{state}</b> {marker} — {snapshot.get('score', '—')}/7\n"
+        f"🟠③ السعر / الدخول: {_fmt(snapshot.get('price'))} / {_fmt(snapshot.get('entry'))}\n"
+        f"🟢④ TP1: {_fmt(snapshot.get('tp1'))} {tp1_text}\n"
+        f"🟢⑤ TP2: {_fmt(snapshot.get('tp2'))}\n"
+        f"🟡⑥ التصحيح: {snapshot.get('correction_direction', '—')} / {snapshot.get('correction_strength', '—')}"
+        f"{warning}\n"
+        "📄 تحديث متابعة ورقي — بدون ضمان"
     )
 
 
 def paper_open_message(trade):
     research = trade.get("research_v4") or {}
     return (
-        "✅ <b>صفقة V4 الرسمية — ورقية</b>\n\n"
-        f"الاتجاه: <b>{trade.get('side')}</b>\n"
-        f"📊 تحقق الشروط: <b>{trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}</b>\n"
-        f"🧭 قوة الإشارة: <b>{trade.get('signal_strength', '—')}</b>\n"
-        f"الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
-        f"🛑 الوقف: {_fmt(trade.get('stop'))}\n"
-        f"🎯 TP1: {_fmt(trade.get('tp1'))}\n"
-        f"🎯 TP2: {_fmt(trade.get('tp2'))}\n\n"
-        f"الجلسة: {research.get('session', '—')}\n"
-        f"التذبذب: {research.get('volatility_regime', '—')}\n"
-        f"الماكرو: {research.get('macro_alignment', '—')}\n"
-        f"الكسر: {research.get('breakout_state', '—')}\n\n"
-        "⚠️ رسمية داخل نظام V4 لكنها ما زالت صفقة بحثية ورقية؛ ليست تنفيذًا حقيقيًا ولا ربحًا مضمونًا."
+        "✅ <b>صفقة V4 الرسمية — ورقية</b>\n"
+        f"🔵① القوة: <b>{trade.get('signal_strength', '—')}</b> — {trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}\n"
+        f"🟠② الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
+        f"🟢④ الهدف 1: <b>{_fmt(trade.get('tp1'))}</b>\n"
+        f"🟢⑤ الهدف 2: <b>{_fmt(trade.get('tp2'))}</b>\n"
+        f"🔵⑥ الاتجاه: <b>{trade.get('side', '—')}</b> | الجلسة: {research.get('session', '—')}\n"
+        f"🟡⑦ الحالة: كسر {research.get('breakout_state', '—')} | ماكرو {research.get('macro_alignment', '—')}\n"
+        "📄 صفقة بحثية ورقية — ليست تنفيذًا حقيقيًا"
     )
 
 
 def paper_close_message(trade, stats):
+    outcome = trade.get("outcome", "—")
+    outcome_marker = "🟢" if outcome == "TP2" else "🔴" if outcome in ("STOP", "PROTECTED_STOP") else "🟡"
     return (
-        "🏁 <b>إغلاق صفقة V4 الرسمية الورقية</b>\n\n"
-        f"الاتجاه: {trade.get('side', '—')}\n"
-        f"النتيجة: <b>{trade.get('outcome', '—')}</b>\n"
-        f"R للصفقة: {trade.get('r', '—')}\n"
-        f"صافي R للتجربة: {stats.get('net_r', 0.0):.3f}\n"
-        f"Max Drawdown: {stats.get('max_drawdown_r', 0.0):.3f}R\n\n"
-        "📄 النتيجة ورقية/تجريبية."
+        "🏁 <b>إغلاق صفقة V4</b>\n"
+        f"{outcome_marker}① النتيجة: <b>{outcome}</b>\n"
+        f"🔵② الاتجاه: {trade.get('side', '—')}\n"
+        f"🔵③ R للصفقة: {trade.get('r', '—')}\n"
+        f"🔵④ صافي R: {stats.get('net_r', 0.0):.3f}\n"
+        "📄 نتيجة ورقية/تجريبية"
     )
 
 
