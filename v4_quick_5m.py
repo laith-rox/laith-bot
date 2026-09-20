@@ -208,23 +208,20 @@ def analyze_quick_5m(bars, current, higher_decision):
 
 
 def quick_5m_wait_message(decision, current=None):
-    """Compact Telegram WAIT message when 5m evidence has no honest direction."""
+    """Compact numbered WAIT card when 5m evidence has no honest direction."""
     q = (decision or {}).get("quick5m") or {}
     if q.get("entry_allowed"):
         return None
     buy = q.get("buy", decision.get("buy", "—") if decision else "—")
     sell = q.get("sell", decision.get("sell", "—") if decision else "—")
     price = q.get("current_price")
-    start = (current or {}).get("candle_start_iso") if isinstance(current, dict) else None
     lines = [
         "⏸️ <b>Quick 5د — WAIT</b>",
-        "",
-        f"📊 شراء: <b>{buy}/7</b> | بيع: <b>{sell}/7</b>",
-        "السبب: الاتجاه اللحظي متعادل/غير واضح أو البيانات غير كافية؛ لا يتم اختراع صفقة.",
+        f"🔵① الشروط: شراء <b>{buy}/7</b> | بيع <b>{sell}/7</b>",
+        "🟡② الحالة: لا دخول الآن",
+        "🟡③ السبب: الاتجاه اللحظي غير واضح أو البيانات غير كافية؛ لا يتم اختراع صفقة.",
     ]
     if price is not None:
-        lines.append(f"💰 السعر المرصود: <b>{float(price):.2f}</b>")
-    if start:
-        lines.append(f"🕯️ شمعة المصدر: {start}")
-    lines.append("⚠️ تصنيف القوة هو اكتمال قواعد، وليس احتمال ربح مضمون.")
+        lines.append(f"🟠④ السعر المرصود: <b>{float(price):.2f}</b>")
     return "\n".join(lines)
+
