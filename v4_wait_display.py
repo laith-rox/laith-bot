@@ -61,7 +61,7 @@ def smart_wait_message(decision, news_reason=None, nearby=False, extra_reason=No
         f"🟠② تفعيل {action_word}: <b>{_fmt(trigger)}</b>\n"
         f"🔴③ الإبطال: <b>{_fmt(inv.get('level'))}</b>\n"
         f"🟡④ المستوى المعاكس ({opposite_word}): {_fmt(opposite)}\n"
-        f"🟡⑤ السبب: {short_reasons}\n"
+        f"⛔️⑤ السبب: {short_reasons}\n"
         f"🔵⑥ الأخبار/البيانات: {news_state} | {data.get('label', '—')} ({data.get('bar_age_seconds', '—')}ث)\n"
         "✅ الحالة: لا دخول الآن"
     )
