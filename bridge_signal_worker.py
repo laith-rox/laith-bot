@@ -129,7 +129,9 @@ def compute_signal(values):
     elif sell_score >= 6 and sell_score > buy_score:
         side, selected, score = "SELL", sell, sell_score
 
-    risk_distance = max(1.50, min(4.00, atr * 1.10 if atr > 0 else 2.00))
+    # Commissioning risk is intentionally tight so the EA's default $2 test
+    # budget remains the final gate at 0.01 lot.
+    risk_distance = max(0.80, min(1.60, atr * 0.50 if atr > 0 else 1.20))
     if side == "BUY":
         sl = close - risk_distance
         tp = close + risk_distance * 1.5
@@ -149,6 +151,7 @@ def compute_signal(values):
         "reference_close": close,
         "rsi": rsi,
         "atr": atr,
+        "risk_distance": risk_distance,
         "sl": sl,
         "tp": tp,
     }
@@ -218,16 +221,45 @@ def bridge_health():
     return payload
 
 
+def fetch_spot_price():
+    """Fetch a fresh keyless XAU/USD spot reference for execution levels."""
+    fresh = int(time.time())
+    status, payload = _json_request(
+        f"https://xaus.com/api/v1/spot?compact=1&fresh={fresh}",
+        headers={"User-Agent": "LaithBridgeCommissioning/1.0"},
+    )
+    if status != 200:
+        raise RuntimeError(f"spot_http_{status}")
+    state = payload.get("data_state") or {}
+    if state.get("status") not in ("fresh", "stale"):
+        raise RuntimeError("spot_unavailable")
+    age = state.get("age_seconds")
+    if state.get("status") == "stale" and age is not None and float(age) > 120:
+        raise RuntimeError(f"spot_too_stale:{age}")
+    price = float(payload.get("spot_usd_oz") or 0)
+    if price <= 0:
+        raise RuntimeError("spot_price_missing")
+    return price
+
+
 def publish_signal(signal):
     side = signal["side"]
+    spot = fetch_spot_price()
+    risk_distance = float(signal["risk_distance"])
+    if side == "BUY":
+        sl = spot - risk_distance
+        tp = spot + risk_distance * 1.5
+    else:
+        sl = spot + risk_distance
+        tp = spot - risk_distance * 1.5
     payload = {
         "mode": "DEMO",
         "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{side}",
         "symbol": "XAUUSD",
         "side": side,
         "volume": VOLUME,
-        "sl": round(float(signal["sl"]), 2),
-        "tp": round(float(signal["tp"]), 2),
+        "sl": round(sl, 2),
+        "tp": round(tp, 2),
         "forced": False,
         "checks": signal["checks"],
     }
@@ -273,9 +305,11 @@ def run_forever():
                 time.sleep(POLL_SECONDS)
                 continue
             if not health.get("client_state_fresh"):
-                print("bridge_signal_skip reason=mt5_state_stale", flush=True)
-                time.sleep(POLL_SECONDS)
-                continue
+                if not ALLOW_STALE_MT5_STATE:
+                    print("bridge_signal_skip reason=mt5_state_stale", flush=True)
+                    time.sleep(POLL_SECONDS)
+                    continue
+                print("bridge_signal_commissioning mt5_state=stale local_ea_safety_required=true", flush=True)
             if health.get("position_open") or int(health.get("pending", 0) or 0) > 0:
                 print("bridge_signal_skip reason=position_or_pending", flush=True)
                 time.sleep(POLL_SECONDS)
@@ -305,7 +339,8 @@ def run_forever():
                 publishes.append(time.time())
                 print(
                     f"bridge_signal_published key={key} side={signal['side']} "
-                    f"score={signal['score']}/7 sl={signal['sl']:.2f} tp={signal['tp']:.2f}",
+                    f"score={signal['score']}/7 reference_proxy={signal['reference_close']:.2f} "
+                    f"risk_distance={signal['risk_distance']:.2f}",
                     flush=True,
                 )
             else:
