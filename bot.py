@@ -228,7 +228,8 @@ class App:
             uid=update.get("update_id"); message=update.get("message",{}); chat=message.get("chat",{}); sender=message.get("from",{})
             authorized=chat.get("type")=="private" and str(chat.get("id"))==self.telegram.chat_id and str(sender.get("id"))==self.telegram.chat_id
             words=message.get("text","").split(); command=words[0].split("@")[0].lower() if words else ""; text=None
-            group_setup=chat.get("type") in ("group","supergroup") and command=="/emergencyhere"
+            group_setup=(chat.get("type") in ("group","supergroup") and command=="/emergencyhere"
+                         and str(sender.get("id"))==self.telegram.chat_id and not sender.get("is_bot",False))
             if group_setup:
                 self.store.set("emergency_chat_id",str(chat.get("id")))
                 outcome=self.telegram.send_to(str(chat.get("id")),"🚨 تم ربط مجموعة إنذارات الطوارئ — بوت ليث")
@@ -259,7 +260,12 @@ def run(args):
                       'كل إشارة غير مضمونة؛ الترجيح الأولي موضّح بخطر مرتفع.',time.time(),expires=time.time()+3600)
         while True:
             now=datetime.now(UTC)
-            try: app=App(store,market,telegram,news,args.cooldown); app.commands(now); app.cycle(now); dispatch(store,telegram,market=market)
+            try:
+                app=App(store,market,telegram,news,args.cooldown)
+                try: app.commands(now)
+                except Exception as exc: LOG.warning("telegram_commands_failed category=%s",type(exc).__name__)
+                app.cycle(datetime.now(UTC))
+                dispatch(store,telegram,market=market)
             except Exception: LOG.exception("cycle_failed")
             time.sleep(args.interval)
     finally: safety_stop.set(); stop.set(); store.close()

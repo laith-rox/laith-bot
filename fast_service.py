@@ -170,7 +170,9 @@ def run(path, key, stop):
         audit_saved(store,now)
         now = datetime.now(UTC)
         run_id = 'fast-v1:' + week_start(now).isoformat()
-        if store.get('fast_research_run') != run_id and time.time()-store.get('fast_probe_attempt',0) >= 3600:
+        if (not store.active() and not fast_window(now)
+                and store.get('fast_research_run') != run_id
+                and time.time()-store.get('fast_probe_attempt',0) >= 3600):
             store.set('fast_probe_attempt',time.time())
             store.set('fast_state','فحص صلاحية الدقيقة وتقييم تاريخي جارٍ')
             try:

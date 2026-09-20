@@ -2,6 +2,8 @@
 from copy import deepcopy
 from datetime import timedelta
 import math
+import threading
+import time
 
 from engine import ema, atr, make_trade, advance_trade
 from market import Bar, DataError, closed_only, parse_bars, require_fresh, UTC
@@ -98,10 +100,38 @@ def advance_fast(original, bars):
     return trade
 
 
+_MINUTE_LOCK = threading.Lock()
+_MINUTE_CACHE = {}
+_MINUTE_BACKOFF = {}
+
+
 class MinuteMarket:
-    def __init__(self, key, session=None): self.key, self.session = key, session or requests.Session()
+    def __init__(self, key, session=None):
+        self.key, self.session = key, session or requests.Session()
+        self.shared_requests = session is None
 
     def fetch(self, now, end=None, size=600, fresh=True):
+        if not self.shared_requests:
+            return self._fetch(now,end,size,fresh)
+        # Share current minute history and quota backoff across safety/research threads.
+        with _MINUTE_LOCK:
+            tick=time.monotonic()
+            if tick < _MINUTE_BACKOFF.get(self.key,0):
+                raise DataError('minute_quota_reached')
+            cached=_MINUTE_CACHE.get(self.key)
+            if end is None and cached and tick-cached[0]<55 and len(cached[1])>=size:
+                bars=cached[1][-size:]
+                if fresh: require_fresh(bars,now,90)
+                return bars
+            try:
+                bars=self._fetch(now,end,max(600,size) if end is None else size,fresh)
+            except DataError as exc:
+                if str(exc)=='minute_quota_reached': _MINUTE_BACKOFF[self.key]=time.monotonic()+900
+                raise
+            if end is None: _MINUTE_CACHE[self.key]=(time.monotonic(),bars)
+            return bars[-size:]
+
+    def _fetch(self, now, end=None, size=600, fresh=True):
         # Preserve the limited minute quota for live 20:00-09:00 monitoring.
         # Historical pagination is deferred during the live fast window; it can run later.
         if end is not None and fast_window(now):
