@@ -16,13 +16,15 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
 BRIDGE_PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "").strip()
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "30"))
 MAX_PUBLISH_PER_HOUR = int(os.getenv("MAX_PUBLISH_PER_HOUR", "2"))
+ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lower() in {"1", "true", "yes", "on"}
 SYMBOL = "XAU/USD"
+YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
+WORKER_VERSION = "bridge-commissioning-v3"
 
 
 def _ema(values, period):
@@ -286,8 +288,9 @@ def validate_config():
 def run_forever():
     validate_config()
     print(
-        f"bridge_signal_worker_started symbol={SYMBOL} interval=5m "
-        f"strict=6/7 volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR}",
+        f"bridge_signal_worker_started version={WORKER_VERSION} symbol={SYMBOL} interval=5m "
+        f"strict=6/7 volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
+        f"allow_stale_mt5_state={ALLOW_STALE_MT5_STATE}",
         flush=True,
     )
     last_bar = None
