@@ -19,12 +19,13 @@ from urllib.error import HTTPError, URLError
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
 BRIDGE_PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "").strip()
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "30"))
+# Set to 0 to disable the hourly count cap; all execution checks still apply.
 MAX_PUBLISH_PER_HOUR = int(os.getenv("MAX_PUBLISH_PER_HOUR", "2"))
 ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lower() in {"1", "true", "yes", "on"}
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-commissioning-v3"
+WORKER_VERSION = "bridge-unlimited-demo-v4"
 
 
 def _ema(values, period):
@@ -275,6 +276,8 @@ def publish_signal(signal):
 
 
 def validate_config():
+    if MAX_PUBLISH_PER_HOUR < 0:
+        raise RuntimeError("invalid_max_publish_per_hour")
     missing = [
         name for name, value in (
             ("BRIDGE_URL", BRIDGE_URL),
@@ -317,7 +320,7 @@ def run_forever():
                 print("bridge_signal_skip reason=position_or_pending", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
-            if len(publishes) >= MAX_PUBLISH_PER_HOUR:
+            if MAX_PUBLISH_PER_HOUR > 0 and len(publishes) >= MAX_PUBLISH_PER_HOUR:
                 print("bridge_signal_skip reason=hourly_publish_cap", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
@@ -339,7 +342,8 @@ def run_forever():
 
             status, response, key = publish_signal(signal)
             if status == 201 and response.get("ok") is True:
-                publishes.append(time.time())
+                if MAX_PUBLISH_PER_HOUR > 0:
+                    publishes.append(time.time())
                 print(
                     f"bridge_signal_published key={key} side={signal['side']} "
                     f"score={signal['score']}/7 reference_proxy={signal['reference_close']:.2f} "

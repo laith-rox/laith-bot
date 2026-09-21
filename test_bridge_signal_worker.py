@@ -1,4 +1,6 @@
 import unittest
+from unittest.mock import patch
+import bridge_signal_worker as worker
 
 from bridge_signal_worker import compute_signal, normalize_rows
 
@@ -48,6 +50,60 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertGreater(signal["sl"], signal["reference_close"])
         self.assertLess(signal["tp"], signal["reference_close"])
         self.assertLessEqual(signal["risk_distance"], 1.60)
+
+
+
+class StopWorker(BaseException):
+    pass
+
+
+class PublishLimitTests(unittest.TestCase):
+    def run_worker(self, cap, health, iterations=14):
+        signals = [
+            {"bar": str(i), "side": "BUY", "score": 6,
+             "reference_close": 4300.0, "risk_distance": 1.2}
+            for i in range(iterations)
+        ]
+        with patch.multiple(worker, BRIDGE_URL="https://example.invalid",
+                            BRIDGE_PUBLISH_TOKEN="test-only",
+                            MAX_PUBLISH_PER_HOUR=cap,
+                            ALLOW_STALE_MT5_STATE=False), \
+             patch.object(worker, "bridge_health", return_value=health), \
+             patch.object(worker, "fetch_market_values", return_value=[]), \
+             patch.object(worker, "compute_signal", side_effect=signals), \
+             patch.object(worker, "publish_signal",
+                          return_value=(201, {"ok": True}, "test")) as publish, \
+             patch.object(worker.time, "time", return_value=1000.0), \
+             patch.object(worker.time, "sleep",
+                          side_effect=[None] * (iterations - 1) + [StopWorker()]), \
+             patch("builtins.print"):
+            with self.assertRaises(StopWorker):
+                worker.run_forever()
+            return publish.call_count
+
+    def test_zero_allows_more_than_twelve_signals_without_hourly_wait(self):
+        self.assertEqual(self.run_worker(0, {
+            "enabled": True, "client_state_fresh": True,
+            "position_open": False, "pending": 0}), 14)
+
+    def test_positive_cap_still_limits_publishing(self):
+        self.assertEqual(self.run_worker(2, {
+            "enabled": True, "client_state_fresh": True,
+            "position_open": False, "pending": 0}), 2)
+
+    def test_unlimited_does_not_bypass_execution_state_checks(self):
+        for changes in ({"enabled": False}, {"client_state_fresh": False},
+                        {"position_open": True}, {"pending": 1}):
+            health = {"enabled": True, "client_state_fresh": True,
+                      "position_open": False, "pending": 0}
+            health.update(changes)
+            with self.subTest(changes=changes):
+                self.assertEqual(self.run_worker(0, health), 0)
+
+    def test_negative_cap_is_configuration_error(self):
+        with patch.object(worker, "MAX_PUBLISH_PER_HOUR", -1):
+            with self.assertRaisesRegex(RuntimeError, "invalid_max_publish_per_hour"):
+                worker.validate_config()
 
 
 if __name__ == "__main__":
