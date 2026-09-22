@@ -143,8 +143,8 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
     selected = checks.get(side) if isinstance(checks, dict) else None
     if not isinstance(selected, list) or len(selected) != 7:
         return False, "seven_checks_required"
-    if sum(bool(x) for x in selected) < 6:
-        return False, "strict_conditions_not_met"
+    if sum(bool(x) for x in selected) < 5:
+        return False, "fast_conditions_not_met"
     return True, "approved"
 
 
