@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from adaptive_sniper_engine import decide
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
 BRIDGE_PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "").strip()
@@ -25,7 +26,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-fast-5of7-v6"
+WORKER_VERSION = "bridge-adaptive-sniper-v7"
 
 
 def _ema(values, period):
@@ -92,72 +93,33 @@ def normalize_rows(values):
 def compute_signal(values):
     rows = normalize_rows(values)
     closes = [r["close"] for r in rows]
-    ema8 = _ema(closes, 8)
-    ema21 = _ema(closes, 21)
-    last = rows[-1]
-    close = last["close"]
-    open_ = last["open"]
-    rsi = _rsi(closes, 14)
-    atr = _atr(rows, 14)
-
+    ema8, ema21 = _ema(closes, 8), _ema(closes, 21)
+    last = rows[-1]; close = last["close"]; open_ = last["open"]
+    rsi = _rsi(closes, 14); atr = _atr(rows, 14)
+    atr_samples = [_atr(rows[:i], 14) for i in range(max(16, len(rows)-12), len(rows)+1)]
+    atr_samples = [x for x in atr_samples if x > 0]
+    atr_baseline = sum(atr_samples)/len(atr_samples) if atr_samples else atr
     recent_high = max(r["high"] for r in rows[-6:-1])
     recent_low = min(r["low"] for r in rows[-6:-1])
-
-    buy = [
-        ema8[-1] > ema21[-1],
-        close > ema8[-1],
-        ema8[-1] > ema8[-2],
-        rsi >= 52.0,
-        close > closes[-4],
-        close > open_,
-        close > recent_high,
-    ]
-    sell = [
-        ema8[-1] < ema21[-1],
-        close < ema8[-1],
-        ema8[-1] < ema8[-2],
-        rsi <= 48.0,
-        close < closes[-4],
-        close < open_,
-        close < recent_low,
-    ]
-    buy_score = sum(bool(x) for x in buy)
-    sell_score = sum(bool(x) for x in sell)
-
-    side = None
-    selected = None
-    score = 0
-    if buy_score >= 5 and buy_score > sell_score:
-        side, selected, score = "BUY", buy, buy_score
-    elif sell_score >= 5 and sell_score > buy_score:
-        side, selected, score = "SELL", sell, sell_score
-
-    # Commissioning risk is intentionally tight so the EA's default $2 test
-    # budget remains the final gate at 0.01 lot.
-    risk_distance = max(0.80, min(1.60, atr * 0.50 if atr > 0 else 1.20))
-    if side == "BUY":
-        sl = close - risk_distance
-        tp = close + risk_distance * 1.5
-    elif side == "SELL":
-        sl = close + risk_distance
-        tp = close - risk_distance * 1.5
-    else:
-        sl = tp = None
-
-    return {
-        "bar": last["datetime"],
-        "side": side,
-        "score": score,
-        "buy_score": buy_score,
-        "sell_score": sell_score,
-        "checks": {"BUY": buy, "SELL": sell},
-        "reference_close": close,
-        "rsi": rsi,
-        "atr": atr,
-        "risk_distance": risk_distance,
-        "sl": sl,
-        "tp": tp,
-    }
+    momentum = close - closes[-4]
+    buy = [ema8[-1] > ema21[-1], close > ema8[-1], ema8[-1] > ema8[-2], rsi >= 52.0, momentum > 0, close > open_, close > recent_high]
+    sell = [ema8[-1] < ema21[-1], close < ema8[-1], ema8[-1] < ema8[-2], rsi <= 48.0, momentum < 0, close < open_, close < recent_low]
+    buy_score, sell_score = sum(map(bool,buy)), sum(map(bool,sell))
+    try: hour_local = (datetime.fromisoformat(last["datetime"]).hour + 3) % 24
+    except Exception: hour_local = (datetime.now(timezone.utc).hour + 3) % 24
+    d = decide(buy_score=buy_score, sell_score=sell_score, rsi=rsi, atr=atr,
+        atr_baseline=atr_baseline or atr or 1.0, ema_fast=ema8[-1], ema_slow=ema21[-1],
+        close=close, recent_high=recent_high, recent_low=recent_low, momentum=momentum, hour_local=hour_local)
+    side=d.side
+    risk_distance=max(0.80,min(3.20,atr*d.stop_atr)) if side else 0.0
+    if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
+    elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
+    else: sl=tp=None
+    return {"bar":last["datetime"],"side":side,"score":max(buy_score,sell_score),
+        "buy_score":buy_score,"sell_score":sell_score,"checks":{"BUY":buy,"SELL":sell},
+        "reference_close":close,"rsi":rsi,"atr":atr,"atr_baseline":atr_baseline,
+        "risk_distance":risk_distance,"sl":sl,"tp":tp,"mode":d.mode,
+        "confidence":d.confidence,"risk_mult":d.risk_mult,"target_r":d.target_r,"reason":d.reason}
 
 
 def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
@@ -251,10 +213,10 @@ def publish_signal(signal):
     risk_distance = float(signal["risk_distance"])
     if side == "BUY":
         sl = spot - risk_distance
-        tp = spot + risk_distance * 1.5
+        tp = spot + risk_distance * float(signal.get("target_r", 1.5))
     else:
         sl = spot + risk_distance
-        tp = spot - risk_distance * 1.5
+        tp = spot - risk_distance * float(signal.get("target_r", 1.5))
     payload = {
         "mode": "DEMO",
         "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{side}",
@@ -313,7 +275,7 @@ def run_forever():
     validate_config()
     print(
         f"bridge_signal_worker_started version={WORKER_VERSION} symbol={SYMBOL} interval=5m "
-        f"fast_gate=5/7 volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
+        f"adaptive_modes=SNIPER,MAIN,WAIT volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
         f"allow_stale_mt5_state={ALLOW_STALE_MT5_STATE}",
         flush=True,
     )
@@ -360,7 +322,7 @@ def run_forever():
                     publishes.append(time.time())
                 print(
                     f"bridge_signal_published key={key} side={signal['side']} "
-                    f"score={signal['score']}/7 reference_proxy={signal['reference_close']:.2f} "
+                    f"mode={signal.get('mode')} score={signal['score']}/7 confidence={signal.get('confidence')} reference_proxy={signal['reference_close']:.2f} "
                     f"risk_distance={signal['risk_distance']:.2f}",
                     flush=True,
                 )
