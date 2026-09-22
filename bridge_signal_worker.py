@@ -2,7 +2,7 @@
 
 This worker is intentionally isolated from V4 and the legacy Laith bot. It reads
 XAU/USD 5-minute candles directly, evaluates seven mirrored conditions, and
-publishes only 6/7-or-better BUY/SELL setups to the DEMO bridge.
+publishes 5/7-or-better BUY/SELL setups for the fast DEMO mode to the DEMO bridge.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-legacy-heartbeat-v5"
+WORKER_VERSION = "bridge-fast-5of7-v6"
 
 
 def _ema(values, period):
@@ -127,9 +127,9 @@ def compute_signal(values):
     side = None
     selected = None
     score = 0
-    if buy_score >= 6 and buy_score > sell_score:
+    if buy_score >= 5 and buy_score > sell_score:
         side, selected, score = "BUY", buy, buy_score
-    elif sell_score >= 6 and sell_score > buy_score:
+    elif sell_score >= 5 and sell_score > buy_score:
         side, selected, score = "SELL", sell, sell_score
 
     # Commissioning risk is intentionally tight so the EA's default $2 test
@@ -313,7 +313,7 @@ def run_forever():
     validate_config()
     print(
         f"bridge_signal_worker_started version={WORKER_VERSION} symbol={SYMBOL} interval=5m "
-        f"strict=6/7 volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
+        f"fast_gate=5/7 volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
         f"allow_stale_mt5_state={ALLOW_STALE_MT5_STATE}",
         flush=True,
     )
