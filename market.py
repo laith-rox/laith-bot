@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import math
+import time
 import requests
 
 UTC = timezone.utc
@@ -89,7 +90,12 @@ def parse_quote(payload, now):
         raise DataError('market_quote_invalid') from None
 
 class Market:
-    def __init__(self,key,session=None): self.key=key; self.session=session or requests.Session()
+    def __init__(self,key,session=None):
+        self.key=key
+        self.session=session or requests.Session()
+        self._bars_cache=None
+        self._bars_cache_at=0.0
+        self._bars_cache_ttl=55.0
     def quote(self, clock):
         try:
             response = self.session.get('https://api.twelvedata.com/exchange_rate',
@@ -101,6 +107,12 @@ class Market:
             raise DataError('market_quote_unavailable') from None
         return parse_quote(payload, clock())
     def fetch(self,now):
+        # The main loop runs every ~20s, but a 5m candle cannot change that fast.
+        # Reuse validated bars briefly so one process does not burn provider credits.
+        mono=time.monotonic()
+        if self._bars_cache is not None and mono-self._bars_cache_at < self._bars_cache_ttl:
+            require_fresh(self._bars_cache,now)
+            return self._bars_cache
         try:
             response=self.session.get("https://api.twelvedata.com/time_series",params={"symbol":"XAU/USD","interval":"5min","outputsize":2400,"timezone":"UTC","order":"ASC","apikey":self.key,"format":"JSON"},timeout=(5,25))
         except requests.RequestException: raise DataError("market_connection_failed") from None
@@ -109,4 +121,7 @@ class Market:
         except ValueError: raise DataError("market_response_not_json") from None
         if isinstance(payload,dict) and payload.get("status")=="error":
             code=payload.get("code"); raise DataError("market_quota_reached" if code==429 else "market_provider_error")
-        bars=closed_only(parse_bars(payload,now),now); require_fresh(bars,now); return bars
+        bars=closed_only(parse_bars(payload,now),now); require_fresh(bars,now)
+        self._bars_cache=bars
+        self._bars_cache_at=mono
+        return bars
