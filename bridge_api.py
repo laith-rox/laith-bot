@@ -34,6 +34,7 @@ _lock = threading.Lock()
 _items: dict[str, dict] = {}
 _runtime_enabled = CONFIG_ENABLED
 _client_state: dict | None = None
+_client_last_poll: float | None = None
 _key_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 _reason_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
@@ -103,6 +104,13 @@ def _state_age(now: float | None = None) -> float | None:
 def _state_is_fresh(now: float | None = None) -> bool:
     age = _state_age(now)
     return age is not None and age <= STATE_FRESH_SECONDS
+
+
+def _poll_age(now: float | None = None) -> float | None:
+    if _client_last_poll is None:
+        return None
+    now = time.time() if now is None else now
+    return max(0.0, now - _client_last_poll)
 
 
 def _validate_publish(data: dict) -> tuple[bool, str]:
@@ -199,6 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         return value if isinstance(value, dict) else {}
 
     def do_GET(self):
+        global _client_last_poll
         parsed = urlparse(self.path)
         path = parsed.path
         q = parse_qs(parsed.query)
@@ -207,6 +216,7 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 _clean()
                 age = _state_age()
+                poll_age = _poll_age()
                 payload = {
                     "ok": True,
                     "mode": "DEMO",
@@ -216,6 +226,8 @@ class Handler(BaseHTTPRequestHandler):
                     "fixed_volume": FIXED_VOLUME,
                     "client_state_fresh": bool(_state_is_fresh()),
                     "client_last_seen_age": round(age, 2) if age is not None else None,
+                    "client_poll_fresh": poll_age is not None and poll_age <= STATE_FRESH_SECONDS,
+                    "client_last_poll_age": round(poll_age, 2) if poll_age is not None else None,
                     "position_open": bool((_client_state or {}).get("position_open")),
                     "position_owned": bool((_client_state or {}).get("position_owned")),
                     "position_risk_usd": (_client_state or {}).get("position_risk_usd"),
@@ -231,6 +243,7 @@ class Handler(BaseHTTPRequestHandler):
             if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
                 return self._send(401, "UNAUTHORIZED")
             with _lock:
+                _client_last_poll = time.time()
                 _clean()
                 if not _runtime_enabled:
                     return self._send(423, "KILL_SWITCH")
@@ -341,6 +354,10 @@ class Handler(BaseHTTPRequestHandler):
                     "delivered_at": None,
                 }
                 _items[key] = item
+                print("bridge_order_published " + json.dumps({
+                    "key": key, "mode": "DEMO", "side": item["side"],
+                    "volume": item["volume"], "sl": item["sl"], "tp": item["tp"],
+                }, separators=(",", ":")), flush=True)
                 return self._json(201, {"ok": True, "key": key, "mode": "DEMO", "action": "OPEN"})
 
         if path == "/manage":
@@ -430,6 +447,10 @@ class Handler(BaseHTTPRequestHandler):
                     "ticket": str(data.get("ticket", ""))[:40],
                     "at": time.time(),
                 }
+                print("bridge_order_ack " + json.dumps({
+                    "key": key, "mode": "DEMO", "action": item.get("action", "OPEN"),
+                    "side": item.get("side"), **item["ack"],
+                }, separators=(",", ":")), flush=True)
             return self._json(200, {"ok": True, "key": key})
 
         if path == "/kill":

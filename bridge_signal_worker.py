@@ -25,7 +25,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-unlimited-demo-v4"
+WORKER_VERSION = "bridge-legacy-heartbeat-v5"
 
 
 def _ema(values, period):
@@ -288,6 +288,27 @@ def validate_config():
         raise RuntimeError("missing_config:" + ",".join(missing))
 
 
+def execution_block_reason(health):
+    """Legacy EA polling proves connectivity, never position/risk telemetry.
+
+    Compatibility is explicit and applies only to clients that have never sent
+    state. If a reporting client stops sending state, keep blocking entries.
+    Every command still passes the installed EA's DEMO and local safety gates.
+    """
+    if health.get("mode") != "DEMO":
+        return "bridge_not_demo"
+    if not health.get("enabled"):
+        return "bridge_disabled"
+    if not health.get("client_state_fresh"):
+        if not ALLOW_STALE_MT5_STATE or health.get("client_last_seen_age") is not None:
+            return "mt5_state_stale"
+        if not health.get("client_poll_fresh"):
+            return "mt5_disconnected"
+    if health.get("position_open") or int(health.get("pending", 0) or 0) > 0:
+        return "position_or_pending"
+    return None
+
+
 def run_forever():
     validate_config()
     print(
@@ -306,20 +327,13 @@ def run_forever():
                 publishes.popleft()
 
             health = bridge_health()
-            if not health.get("enabled"):
-                print("bridge_signal_skip reason=bridge_disabled", flush=True)
+            block_reason = execution_block_reason(health)
+            if block_reason:
+                print(f"bridge_signal_skip reason={block_reason}", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
             if not health.get("client_state_fresh"):
-                if not ALLOW_STALE_MT5_STATE:
-                    print("bridge_signal_skip reason=mt5_state_stale", flush=True)
-                    time.sleep(POLL_SECONDS)
-                    continue
-                print("bridge_signal_commissioning mt5_state=stale local_ea_safety_required=true", flush=True)
-            if health.get("position_open") or int(health.get("pending", 0) or 0) > 0:
-                print("bridge_signal_skip reason=position_or_pending", flush=True)
-                time.sleep(POLL_SECONDS)
-                continue
+                print("bridge_signal_legacy mt5_poll=fresh state=unavailable local_ea_safety_required=true", flush=True)
             if MAX_PUBLISH_PER_HOUR > 0 and len(publishes) >= MAX_PUBLISH_PER_HOUR:
                 print("bridge_signal_skip reason=hourly_publish_cap", flush=True)
                 time.sleep(POLL_SECONDS)

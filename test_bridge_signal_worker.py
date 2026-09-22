@@ -59,6 +59,7 @@ class StopWorker(BaseException):
 
 class PublishLimitTests(unittest.TestCase):
     def run_worker(self, cap, health, iterations=14):
+        health = {"mode": "DEMO", **health}
         signals = [
             {"bar": str(i), "side": "BUY", "score": 6,
              "reference_close": 4300.0, "risk_distance": 1.2}
@@ -104,6 +105,32 @@ class PublishLimitTests(unittest.TestCase):
         with patch.object(worker, "MAX_PUBLISH_PER_HOUR", -1):
             with self.assertRaisesRegex(RuntimeError, "invalid_max_publish_per_hour"):
                 worker.validate_config()
+
+
+class LegacyCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        self.health = {"mode": "DEMO", "enabled": True,
+                       "client_state_fresh": False, "client_last_seen_age": None,
+                       "client_poll_fresh": True, "position_open": False, "pending": 0}
+
+    def test_legacy_polling_requires_explicit_compatibility(self):
+        with patch.object(worker, "ALLOW_STALE_MT5_STATE", False):
+            self.assertEqual(worker.execution_block_reason(self.health), "mt5_state_stale")
+        with patch.object(worker, "ALLOW_STALE_MT5_STATE", True):
+            self.assertIsNone(worker.execution_block_reason(self.health))
+
+    def test_compatibility_never_accepts_disconnected_or_stale_reporting_clients(self):
+        with patch.object(worker, "ALLOW_STALE_MT5_STATE", True):
+            for changes, reason in [
+                ({"client_poll_fresh": False}, "mt5_disconnected"),
+                ({"client_last_seen_age": 11}, "mt5_state_stale"),
+                ({"mode": "LIVE"}, "bridge_not_demo"),
+                ({"enabled": False}, "bridge_disabled"),
+                ({"pending": 1}, "position_or_pending"),
+                ({"position_open": True}, "position_or_pending"),
+            ]:
+                with self.subTest(changes=changes):
+                    self.assertEqual(worker.execution_block_reason({**self.health, **changes}), reason)
 
 
 if __name__ == "__main__":
