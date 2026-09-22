@@ -9,7 +9,7 @@ from bot import App, run
 from test_bot import NOW
 from test_safety import bars_for
 from fast import MinuteMarket, _MINUTE_CACHE, _MINUTE_BACKOFF
-from market import DataError
+from market import DataError, Market, _QUOTA_BACKOFF
 
 class RuntimeRepairs(unittest.TestCase):
     def test_only_owner_can_bind_emergency_group(self):
@@ -46,5 +46,32 @@ class RuntimeRepairs(unittest.TestCase):
             with self.assertRaises(DataError):b.fetch(NOW)
             second.assert_not_called()
         _MINUTE_CACHE.clear();_MINUTE_BACKOFF.clear()
+
+    def test_market_daily_quota_breaker_blocks_followup_requests(self):
+        _QUOTA_BACKOFF.clear()
+        response=Mock(status_code=429)
+        response.json.return_value={'status':'error','code':429,'message':'You have run out of API credits for the day'}
+        session=Mock(); session.get.return_value=response
+        market=Market('test',session=session)
+        with self.assertRaisesRegex(DataError,'market_daily_quota_reached'):
+            market.fetch(NOW)
+        self.assertEqual(session.get.call_count,1)
+        with self.assertRaisesRegex(DataError,'market_daily_quota_reached'):
+            market.quote(lambda: NOW)
+        self.assertEqual(session.get.call_count,1)
+        _QUOTA_BACKOFF.clear()
+
+    def test_market_generic_429_uses_short_rate_limit_breaker(self):
+        _QUOTA_BACKOFF.clear()
+        response=Mock(status_code=429)
+        response.json.return_value={'status':'error','code':429,'message':'too many requests'}
+        session=Mock(); session.get.return_value=response
+        market=Market('test',session=session)
+        with self.assertRaisesRegex(DataError,'market_rate_limited'):
+            market.fetch(NOW)
+        with self.assertRaisesRegex(DataError,'market_rate_limited'):
+            market.quote(lambda: NOW)
+        self.assertEqual(session.get.call_count,1)
+        _QUOTA_BACKOFF.clear()
 
 if __name__=='__main__':unittest.main()
