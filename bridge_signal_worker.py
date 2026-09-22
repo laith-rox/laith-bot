@@ -26,7 +26,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-adaptive-sniper-v7"
+WORKER_VERSION = "bridge-adaptive-sniper-v8"
 
 
 def _ema(values, period):
@@ -93,7 +93,7 @@ def normalize_rows(values):
 def compute_signal(values):
     rows = normalize_rows(values)
     closes = [r["close"] for r in rows]
-    ema8, ema21 = _ema(closes, 8), _ema(closes, 21)
+    ema8, ema21, ema55 = _ema(closes, 8), _ema(closes, 21), _ema(closes, 55)
     last = rows[-1]; close = last["close"]; open_ = last["open"]
     rsi = _rsi(closes, 14); atr = _atr(rows, 14)
     atr_samples = [_atr(rows[:i], 14) for i in range(max(16, len(rows)-12), len(rows)+1)]
@@ -111,7 +111,44 @@ def compute_signal(values):
         atr_baseline=atr_baseline or atr or 1.0, ema_fast=ema8[-1], ema_slow=ema21[-1],
         close=close, recent_high=recent_high, recent_low=recent_low, momentum=momentum, hour_local=hour_local)
     side=d.side
-    risk_distance=max(0.80,min(3.20,atr*d.stop_atr)) if side else 0.0
+    guard_reason = None
+    # Do not confuse a short pullback with a new trend. The 21/55 EMA regime
+    # represents roughly 30-60 minutes of structure on these five-minute bars.
+    lookback = min(7, len(ema21)-1)
+    slow_slope = ema21[-1] - ema21[-1-lookback] if lookback > 0 else 0.0
+    macro_up = slow_slope > 0 and close >= ema55[-1]
+    macro_down = slow_slope < 0 and close <= ema55[-1]
+
+    # A first close through support/resistance can be a false breakout. Require
+    # the previous closed candle to have broken the older level and the latest
+    # candle to hold it before chasing an extended move.
+    structure_high = max(r["high"] for r in rows[-8:-2])
+    structure_low = min(r["low"] for r in rows[-8:-2])
+    buffer = max(0.08, 0.08 * atr)
+    held_break_up = rows[-2]["close"] > structure_high + buffer and close > structure_high + buffer
+    held_break_down = rows[-2]["close"] < structure_low - buffer and close < structure_low - buffer
+    body = max(abs(close-open_), 0.01)
+    upper_wick = max(0.0, last["high"]-max(open_, close))
+    lower_wick = max(0.0, min(open_, close)-last["low"])
+
+    if side == "BUY":
+        if macro_down:
+            guard_reason = "buy_is_correction_in_downtrend"
+        elif (close >= recent_high-0.15*atr or rsi >= 72.0) and not held_break_up:
+            guard_reason = "resistance_not_confirmed"
+        elif upper_wick > max(1.25*body, 0.45*atr):
+            guard_reason = "upper_wick_rejection"
+    elif side == "SELL":
+        if macro_up:
+            guard_reason = "sell_is_correction_in_uptrend"
+        elif (close <= recent_low+0.15*atr or rsi <= 28.0) and not held_break_down:
+            guard_reason = "support_not_confirmed"
+        elif lower_wick > max(1.25*body, 0.45*atr):
+            guard_reason = "lower_wick_rejection"
+    if guard_reason:
+        side = None
+    risk_cap = 1.60 if d.mode == "SNIPER" else 3.20
+    risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
     else: sl=tp=None
@@ -119,7 +156,8 @@ def compute_signal(values):
         "buy_score":buy_score,"sell_score":sell_score,"checks":{"BUY":buy,"SELL":sell},
         "reference_close":close,"rsi":rsi,"atr":atr,"atr_baseline":atr_baseline,
         "risk_distance":risk_distance,"sl":sl,"tp":tp,"mode":d.mode,
-        "confidence":d.confidence,"risk_mult":d.risk_mult,"target_r":d.target_r,"reason":d.reason}
+        "confidence":d.confidence,"risk_mult":d.risk_mult,"target_r":d.target_r,
+        "reason":guard_reason or d.reason,"held_breakout":held_break_up if d.side=="BUY" else held_break_down}
 
 
 def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
@@ -310,7 +348,7 @@ def run_forever():
             if not signal["side"]:
                 print(
                     f"bridge_signal_wait bar={signal['bar']} buy={signal['buy_score']}/7 "
-                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f}",
+                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f} reason={signal.get('reason')}",
                     flush=True,
                 )
                 time.sleep(POLL_SECONDS)

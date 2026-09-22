@@ -28,6 +28,14 @@ def make_values(direction="up"):
     return [active] + list(reversed(rows))
 
 
+def with_latest(values, *, open_, high, low, close):
+    values = [dict(row) for row in values]
+    # values[0] is active; values[1] is the latest closed candle.
+    values[1].update(open=f"{open_:.2f}", high=f"{high:.2f}",
+                     low=f"{low:.2f}", close=f"{close:.2f}")
+    return values
+
+
 class BridgeSignalWorkerTests(unittest.TestCase):
     def test_normalize_drops_active_candle(self):
         values = make_values("up")
@@ -50,6 +58,30 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertGreater(signal["sl"], signal["reference_close"])
         self.assertLess(signal["tp"], signal["reference_close"])
         self.assertLessEqual(signal["risk_distance"], 1.60)
+
+    def test_first_break_above_resistance_is_not_chased(self):
+        values = make_values("up")
+        base = float(values[8]["close"])
+        # Six closed candles form a horizontal resistance; only the latest
+        # candle pokes above it, so there is no one-bar hold confirmation yet.
+        for i in range(2, 9):
+            values[i].update(open=f"{base:.2f}", high=f"{base+0.30:.2f}",
+                             low=f"{base-0.30:.2f}", close=f"{base:.2f}")
+        values = with_latest(values, open_=base, high=base+1.35,
+                             low=base-0.10, close=base+1.05)
+        signal = compute_signal(values)
+        self.assertIsNone(signal["side"])
+        self.assertEqual(signal["reason"], "resistance_not_confirmed")
+
+    def test_sell_pullback_inside_larger_uptrend_is_blocked(self):
+        values = make_values("up")
+        previous = float(values[2]["close"])
+        values = with_latest(values, open_=previous+0.25, high=previous+0.35,
+                             low=previous-2.20, close=previous-2.00)
+        signal = compute_signal(values)
+        if signal["sell_score"] >= 5:
+            self.assertIsNone(signal["side"])
+            self.assertEqual(signal["reason"], "sell_is_correction_in_uptrend")
 
 
 

@@ -150,6 +150,31 @@ class BridgeConnectivityTests(unittest.TestCase):
             self.assertEqual(records[0]["reason"], reason)
             self.assertEqual(records[0]["ticket"], ticket)
 
+    def test_health_exposes_position_fields_required_by_emergency_manager(self):
+        bridge_api._client_state = {
+            "position_open": True,
+            "position_owned": True,
+            "ticket": "12345",
+            "side": "BUY",
+            "volume": "0.01",
+            "open_price": "4300.00",
+            "sl": "4296.00",
+            "tp": "4306.00",
+            "price": "4299.25",
+            "profit": "-0.75",
+            "magic": "56002",
+            "received_at": time.time(),
+        }
+        status, raw = self.request("GET", "/health")
+        self.assertEqual(status, 200)
+        health = json.loads(raw)
+        self.assertTrue(health["client_state_fresh"])
+        self.assertEqual(health["ticket"], "12345")
+        self.assertEqual(health["side"], "BUY")
+        self.assertEqual(health["open_price"], "4300.00")
+        self.assertEqual(health["price"], "4299.25")
+        self.assertEqual(health["sl"], "4296.00")
+
 
 if __name__ == "__main__":
     unittest.main()
