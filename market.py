@@ -7,6 +7,35 @@ import requests
 
 UTC = timezone.utc
 
+_QUOTA_BACKOFF = {}
+_DAILY_QUOTA_MARKERS = ("for the day", "daily", "per day", "day limit")
+
+def _quota_message(response):
+    try:
+        payload=response.json()
+    except ValueError:
+        return ""
+    if not isinstance(payload,dict):
+        return ""
+    return str(payload.get("message") or payload.get("error") or "").lower()
+
+def _set_quota_backoff(key, response, now):
+    message=_quota_message(response)
+    if any(marker in message for marker in _DAILY_QUOTA_MARKERS):
+        tomorrow=(now+timedelta(days=1)).date()
+        reset=datetime(tomorrow.year,tomorrow.month,tomorrow.day,tzinfo=UTC)+timedelta(minutes=5)
+        _QUOTA_BACKOFF[key]=reset.timestamp()
+        return "market_daily_quota_reached"
+    _QUOTA_BACKOFF[key]=now.timestamp()+75
+    return "market_rate_limited"
+
+def _check_quota_backoff(key, now):
+    until=_QUOTA_BACKOFF.get(key,0)
+    if now.timestamp() < until:
+        raise DataError("market_daily_quota_reached" if until-now.timestamp()>300 else "market_rate_limited")
+    if until:
+        _QUOTA_BACKOFF.pop(key,None)
+
 class DataError(RuntimeError):
     pass
 
@@ -97,16 +126,21 @@ class Market:
         self._bars_cache_at=0.0
         self._bars_cache_ttl=55.0
     def quote(self, clock):
+        now=clock()
+        _check_quota_backoff(self.key,now)
         try:
             response = self.session.get('https://api.twelvedata.com/exchange_rate',
                 params={'symbol':'XAU/USD', 'apikey':self.key}, timeout=(5, 10))
+            if response.status_code == 429:
+                raise DataError(_set_quota_backoff(self.key,response,now))
             if response.status_code != 200:
                 raise DataError('market_quote_unavailable')
             payload = response.json()
         except (requests.RequestException, ValueError):
             raise DataError('market_quote_unavailable') from None
-        return parse_quote(payload, clock())
+        return parse_quote(payload, now)
     def fetch(self,now):
+        _check_quota_backoff(self.key,now)
         # The main loop runs every ~20s, but a 5m candle cannot change that fast.
         # Reuse validated bars briefly so one process does not burn provider credits.
         mono=time.monotonic()
@@ -116,11 +150,17 @@ class Market:
         try:
             response=self.session.get("https://api.twelvedata.com/time_series",params={"symbol":"XAU/USD","interval":"5min","outputsize":2400,"timezone":"UTC","order":"ASC","apikey":self.key,"format":"JSON"},timeout=(5,25))
         except requests.RequestException: raise DataError("market_connection_failed") from None
+        if response.status_code == 429: raise DataError(_set_quota_backoff(self.key,response,now))
         if response.status_code != 200: raise DataError(f"market_http_{response.status_code}")
         try: payload=response.json()
         except ValueError: raise DataError("market_response_not_json") from None
         if isinstance(payload,dict) and payload.get("status")=="error":
-            code=payload.get("code"); raise DataError("market_quota_reached" if code==429 else "market_provider_error")
+            code=payload.get("code")
+            if code==429:
+                class _PayloadResponse:
+                    def json(self_inner): return payload
+                raise DataError(_set_quota_backoff(self.key,_PayloadResponse(),now))
+            raise DataError("market_provider_error")
         bars=closed_only(parse_bars(payload,now),now); require_fresh(bars,now)
         self._bars_cache=bars
         self._bars_cache_at=mono
