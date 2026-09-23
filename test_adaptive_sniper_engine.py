@@ -8,8 +8,12 @@ class AdaptiveSniperTests(unittest.TestCase):
                momentum=1.0,hour_local=14)
         x.update(kw); return decide(**x)
 
+    def test_daytime_strong_setup_prefers_official_main(self):
+        d=self.base(buy_score=6,hour_local=8)
+        self.assertEqual((d.mode,d.side),("MAIN","BUY"))
+
     def test_sniper_requires_momentum_rsi_plus_context(self):
-        d=self.base()
+        d=self.base(hour_local=21)
         self.assertEqual((d.mode,d.side),("SNIPER","BUY"))
 
     def test_no_blind_rsi_entry(self):
@@ -17,7 +21,7 @@ class AdaptiveSniperTests(unittest.TestCase):
         self.assertEqual(d.mode,"WAIT")
 
     def test_night_does_not_raise_risk_without_exceptional_evidence(self):
-        d=self.base(hour_local=21,buy_score=5,atr=1.5,atr_baseline=1.5,close=11)
+        d=self.base(hour_local=21,buy_score=6,atr=1.5,atr_baseline=1.5,close=12)
         self.assertEqual(d.risk_mult,1.0)
 
     def test_night_boost_is_capped(self):
@@ -26,3 +30,4 @@ class AdaptiveSniperTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
