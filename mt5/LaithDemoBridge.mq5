@@ -17,6 +17,7 @@ input long MagicNumber = 56002;
 input double MaxProfitRiskUsd = 10.0;
 input int CommissioningTrades = 2;
 input double CommissioningRiskUsd = 2.0;
+input double MaxRiskPercent = 1.0; // Maximum share of DEMO equity per position.
 
 string g_base_url = "";
 string g_profit_baseline_name = "";
@@ -202,7 +203,22 @@ double OwnedPositionRiskToStopUsd()
    return MathMax(0.0,-pnl);
 }
 
-bool SafeInputs(string side,double volume,double sl,double tp)
+double SignalRiskBudgetUsd(string id)
+{
+   // The bridge verifies the S5/S6/S7 count before signing the command.
+   // Older commands without this suffix use the lowest tier.
+   int strength=5;
+   int marker=StringLen(id)-3;
+   if(marker>=0 && StringSubstr(id,marker,2)==":S")
+   {
+      int parsed=(int)StringToInteger(StringSubstr(id,marker+2));
+      if(parsed>=5 && parsed<=7) strength=parsed;
+   }
+   double factor=(strength==7 ? 1.0 : (strength==6 ? 0.75 : 0.50));
+   return MathMax(0.0,AccountInfoDouble(ACCOUNT_EQUITY))*MaxRiskPercent*factor/100.0;
+}
+
+bool SafeInputs(string side,double volume,double sl,double tp,string id)
 {
    if(!IsDemoAccount()) return false;
    if(!IsGoldSymbol()) return false;
@@ -219,15 +235,28 @@ bool SafeInputs(string side,double volume,double sl,double tp)
    if(side=="SELL" && !(sl>tick.bid && tp<tick.bid)) return false;
    if(side!="BUY" && side!="SELL") return false;
 
+   // Stops must be valid against the closing quote and broker's minimum distance.
+   double min_distance=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point+2.0*_Point;
+   if(side=="BUY" && (sl>=tick.bid-min_distance || tp<=tick.bid+min_distance))
+   {
+      Print("LAITH_BRIDGE_STOPS_REJECT id=",id," min_distance=",DoubleToString(min_distance,_Digits));
+      return false;
+   }
+   if(side=="SELL" && (sl<=tick.ask+min_distance || tp>=tick.ask-min_distance))
+   {
+      Print("LAITH_BRIDGE_STOPS_REJECT id=",id," min_distance=",DoubleToString(min_distance,_Digits));
+      return false;
+   }
+
    double planned_loss_usd=0.0;
    if(!CalcPlannedLossUsd(side,volume,sl,planned_loss_usd)) return false;
-   double budget=EffectiveRiskBudgetUsd();
+   double budget=SignalRiskBudgetUsd(id);
    if(planned_loss_usd>budget+0.01)
    {
       Print("LAITH_BRIDGE_RISK_REJECT planned_loss_usd=",DoubleToString(planned_loss_usd,2),
             " budget_usd=",DoubleToString(budget,2),
-            " realized_profit_usd=",DoubleToString(RealizedBridgeProfit(),2),
-            " commissioning_used=",CommissioningUsed(),"/",CommissioningTrades);
+            " equity_usd=",DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY),2),
+            " max_risk_percent=",DoubleToString(MaxRiskPercent,2));
       return false;
    }
    return true;
@@ -382,10 +411,12 @@ void PostState()
                ",\"magic\":\""+IntegerToString(magic)+"\""+
                ",\"position_risk_usd\":\""+DoubleToString(position_risk_usd,2)+"\""+
                ",\"realized_bridge_profit_usd\":\""+DoubleToString(RealizedBridgeProfit(),2)+"\""+
-               ",\"profit_risk_budget_usd\":\""+DoubleToString(ProfitOnlyRiskBudgetUsd(),2)+"\""+
-               ",\"effective_risk_budget_usd\":\""+DoubleToString(EffectiveRiskBudgetUsd(),2)+"\""+
-               ",\"commissioning_used\":\""+IntegerToString(CommissioningUsed())+"\""+
-               ",\"commissioning_remaining\":\""+IntegerToString((long)MathMax(0,CommissioningTrades-CommissioningUsed()))+"\"}";
+               ",\"profit_risk_budget_usd\":\"0.00\""+
+               ",\"effective_risk_budget_usd\":\""+DoubleToString(SignalRiskBudgetUsd(":S7"),2)+"\""+
+               ",\"commissioning_used\":\"0\""+
+               ",\"commissioning_remaining\":\"0\""+
+               ",\"risk_model\":\"equity_percentage\""+
+               ",\"risk_cap_percent\":\""+DoubleToString(MaxRiskPercent,2)+"\"}";
 
    string body="";
    int code=HttpPostJson(g_base_url+"/state",json,body);
@@ -398,7 +429,7 @@ bool ExecuteDemo(string side,double volume,double sl,double tp,string id)
    double planned_loss_usd=0.0;
    CalcPlannedLossUsd(side,volume,sl,planned_loss_usd);
 
-   if(!SafeInputs(side,volume,sl,tp))
+   if(!SafeInputs(side,volume,sl,tp,id))
    {
       Print("LAITH_BRIDGE_REJECT id=",id," reason=local_safety_gate");
       AckCommand(id,false,0,0);
@@ -416,11 +447,9 @@ bool ExecuteDemo(string side,double volume,double sl,double tp,string id)
 
    long retcode=(long)trade.ResultRetcode();
    ulong ticket=trade.ResultOrder();
-   if(ok)
-      MarkCommissioningUseIfNeeded(planned_loss_usd);
    Print("LAITH_BRIDGE_EXEC id=",id," side=",side," ok=",ok,
          " planned_loss_usd=",DoubleToString(planned_loss_usd,2),
-         " risk_budget_usd=",DoubleToString(EffectiveRiskBudgetUsd(),2),
+         " risk_budget_usd=",DoubleToString(SignalRiskBudgetUsd(id),2),
          " retcode=",retcode," ticket=",ticket);
    AckCommand(id,ok,retcode,ticket);
    return ok;
@@ -634,7 +663,7 @@ int OnInit()
       Print("LAITH_BRIDGE_DISABLED demo_lot_must_be_0_01");
       return INIT_PARAMETERS_INCORRECT;
    }
-   if(MaxProfitRiskUsd<=0 || MaxProfitRiskUsd>10.0 || CommissioningTrades<0 || CommissioningTrades>2 || CommissioningRiskUsd<0 || CommissioningRiskUsd>2.0)
+   if(MaxRiskPercent<=0 || MaxRiskPercent>1.0)
    {
       Print("LAITH_BRIDGE_DISABLED invalid_risk_settings");
       return INIT_PARAMETERS_INCORRECT;
@@ -652,11 +681,8 @@ int OnInit()
 
    Print("LAITH_BRIDGE_READY demo=true symbol=",_Symbol,
          " local_kill_switch=",LocalKillSwitch,
-         " management=true state_report=true risk_wallet=true",
-         " max_profit_risk_usd=",DoubleToString(MaxProfitRiskUsd,2),
-         " commissioning=",CommissioningUsed(),"/",CommissioningTrades,
-         " realized_profit_usd=",DoubleToString(RealizedBridgeProfit(),2),
-         " effective_budget_usd=",DoubleToString(EffectiveRiskBudgetUsd(),2),
+         " management=true state_report=true risk_model=equity_percentage",
+         " max_risk_percent=",DoubleToString(MaxRiskPercent,2),
          " url=",g_base_url);
    return INIT_SUCCEEDED;
 }
