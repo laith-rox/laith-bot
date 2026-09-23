@@ -127,6 +127,9 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
     side = str(data.get("side", "")).upper()
     if side not in ("BUY", "SELL"):
         return False, "invalid_side"
+    trade_mode = str(data.get("trade_mode", "")).upper()
+    if trade_mode not in ("MAIN", "SNIPER"):
+        return False, "invalid_trade_mode"
     if _truthy(data.get("forced", True)):
         return False, "forced_bias_blocked"
     try:
@@ -356,6 +359,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ts": int(time.time()),
                     "symbol": "XAUUSD",
                     "side": str(data["side"]).upper(),
+                    "trade_mode": str(data.get("trade_mode", "")).upper(),
                     "volume": f"{FIXED_VOLUME:.2f}",
                     "sl": f"{float(data['sl']):.5f}",
                     "tp": f"{float(data['tp']):.5f}",
@@ -364,7 +368,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 _items[key] = item
                 print("bridge_order_published " + json.dumps({
-                    "key": key, "mode": "DEMO", "side": item["side"],
+                    "key": key, "mode": "DEMO", "side": item["side"], "trade_mode": item.get("trade_mode"),
                     "volume": item["volume"], "sl": item["sl"], "tp": item["tp"],
                 }, separators=(",", ":")), flush=True)
                 return self._json(201, {"ok": True, "key": key, "mode": "DEMO", "action": "OPEN"})
