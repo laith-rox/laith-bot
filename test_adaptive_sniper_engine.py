@@ -21,7 +21,7 @@ class AdaptiveSniperTests(unittest.TestCase):
         self.assertEqual(d.mode,"WAIT")
 
     def test_night_does_not_raise_risk_without_exceptional_evidence(self):
-        d=self.base(hour_local=21,buy_score=5,atr=1.5,atr_baseline=1.5,close=11)
+        d=self.base(hour_local=21,buy_score=6,atr=1.5,atr_baseline=1.5,close=12)
         self.assertEqual(d.risk_mult,1.0)
 
     def test_night_boost_is_capped(self):
