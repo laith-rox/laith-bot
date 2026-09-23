@@ -3,10 +3,40 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
 import math
+import threading
+import time
 import requests
 
 UTC = timezone.utc
 LOG = logging.getLogger("laith.market")
+
+_QUOTA_LOCK = threading.Lock()
+_QUOTA_BLOCK_UNTIL = 0.0
+
+def _quota_blocked(now=None):
+    epoch = time.time() if now is None else float(now)
+    with _QUOTA_LOCK:
+        return epoch < _QUOTA_BLOCK_UNTIL
+
+def _activate_quota_breaker(response=None):
+    """Stop provider traffic after a daily quota rejection until next UTC day + 5m."""
+    global _QUOTA_BLOCK_UNTIL
+    now = datetime.now(UTC)
+    tomorrow = (now + timedelta(days=1)).date()
+    reset = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 5, tzinfo=UTC).timestamp()
+    with _QUOTA_LOCK:
+        _QUOTA_BLOCK_UNTIL = max(_QUOTA_BLOCK_UNTIL, reset)
+    LOG.error("twelve_daily_quota_breaker active_until=%s", datetime.fromtimestamp(reset, UTC).isoformat())
+    return reset
+
+def _provider_429(response):
+    if response is None or response.status_code != 429:
+        return False
+    # The V4 account has a daily credit cap. Once a 429 is observed after that cap,
+    # preserving the remaining worker and blocking stale entries is safer than retrying.
+    _quota_diagnostics(response, "quota_breaker")
+    _activate_quota_breaker(response)
+    return True
 
 class DataError(RuntimeError):
     pass
@@ -120,22 +150,30 @@ def parse_quote(payload, now):
 class Market:
     def __init__(self,key,session=None): self.key=key; self.session=session or requests.Session()
     def quote(self, clock):
+        if _quota_blocked():
+            raise DataError("market_daily_quota_reached")
         try:
             response = self.session.get('https://api.twelvedata.com/exchange_rate',
                 params={'symbol':'XAU/USD', 'apikey':self.key}, timeout=(5, 10))
             if response.status_code != 200:
                 _quota_diagnostics(response, "exchange_rate")
+                if _provider_429(response):
+                    raise DataError("market_daily_quota_reached")
                 raise DataError('market_quote_unavailable')
             payload = response.json()
         except (requests.RequestException, ValueError):
             raise DataError('market_quote_unavailable') from None
         return parse_quote(payload, clock())
     def fetch(self,now):
+        if _quota_blocked():
+            raise DataError("market_daily_quota_reached")
         try:
             response=self.session.get("https://api.twelvedata.com/time_series",params={"symbol":"XAU/USD","interval":"5min","outputsize":2400,"timezone":"UTC","order":"ASC","apikey":self.key,"format":"JSON"},timeout=(5,25))
         except requests.RequestException: raise DataError("market_connection_failed") from None
         if response.status_code != 200:
             _quota_diagnostics(response, "time_series")
+            if _provider_429(response):
+                raise DataError("market_daily_quota_reached")
             raise DataError(f"market_http_{response.status_code}")
         try: payload=response.json()
         except ValueError: raise DataError("market_response_not_json") from None
