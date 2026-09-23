@@ -8,8 +8,12 @@ class AdaptiveSniperTests(unittest.TestCase):
                momentum=1.0,hour_local=14)
         x.update(kw); return decide(**x)
 
+    def test_daytime_strong_setup_prefers_official_main(self):
+        d=self.base(buy_score=6,hour_local=8)
+        self.assertEqual((d.mode,d.side),("MAIN","BUY"))
+
     def test_sniper_requires_momentum_rsi_plus_context(self):
-        d=self.base()
+        d=self.base(hour_local=21)
         self.assertEqual((d.mode,d.side),("SNIPER","BUY"))
 
     def test_no_blind_rsi_entry(self):
