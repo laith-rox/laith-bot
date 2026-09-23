@@ -110,7 +110,7 @@ class Market:
         try:
             response = self.session.get(
                 "https://query1.finance.yahoo.com/v8/finance/chart/GC=F",
-                params={"interval": "5m", "range": "5d"},
+                params={"interval": "5m", "range": "1mo"},
                 headers={"User-Agent": "LaithObserver/1.0"}, timeout=(5, 20))
         except requests.RequestException:
             raise DataError("market_fallback_connection_failed") from None
