@@ -85,6 +85,17 @@ class V4SharedMarketTests(unittest.TestCase):
         self.assertTrue(reference["current_five_minute_candle"])
         self.assertTrue(reference["timing_aligned"])
 
+    def test_missing_current_candle_does_not_repeat_time_series_in_same_slot(self):
+        market = SharedV4Market("dummy")
+        quote_stamp = self.now.timestamp() - 2
+        with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, None)) as provider_fetch, \
+             patch.object(market, "_quote_slot_reference", side_effect=DataError("market_quote_unavailable")), \
+             patch.object(market, "quote", return_value={"price": 4302.7, "time": quote_stamp, "source": "Twelve Data"}):
+            market.fetch(self.now)
+            reference = market.current_candle_reference(self.now)
+        self.assertEqual(provider_fetch.call_count, 1)
+        self.assertTrue(reference["current_five_minute_candle"])
+
     def test_missing_current_candle_uses_current_slot_quote_endpoint(self):
         market = SharedV4Market("dummy")
         response = Mock()
