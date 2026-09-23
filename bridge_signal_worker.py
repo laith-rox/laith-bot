@@ -147,12 +147,13 @@ def compute_signal(values):
             guard_reason = "lower_wick_rejection"
     if guard_reason:
         side = None
-    risk_cap = 1.60 if d.mode == "SNIPER" else 3.20
-    risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
+    # Use volatility for the structural stop; the EA gates monetary risk.
+    risk_distance=max(0.80,atr*d.stop_atr) if side else 0.0
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
     else: sl=tp=None
-    return {"bar":last["datetime"],"side":side,"score":max(buy_score,sell_score),
+    return {"bar":last["datetime"],"side":side,
+        "score":(buy_score if side=="BUY" else sell_score if side=="SELL" else max(buy_score,sell_score)),
         "buy_score":buy_score,"sell_score":sell_score,"checks":{"BUY":buy,"SELL":sell},
         "reference_close":close,"rsi":rsi,"atr":atr,"atr_baseline":atr_baseline,
         "risk_distance":risk_distance,"sl":sl,"tp":tp,"mode":d.mode,
@@ -245,9 +246,16 @@ def fetch_spot_price():
     return price
 
 
-def publish_signal(signal):
+def publish_signal(signal, health=None):
     side = signal["side"]
-    spot = fetch_spot_price()
+    # Prefer fresh MT5 price so external spot drift does not invalidate stops.
+    reported = (health or {}).get("price") if (health or {}).get("client_state_fresh") else None
+    try:
+        spot = float(reported)
+    except (TypeError, ValueError):
+        spot = 0.0
+    if not math.isfinite(spot) or spot <= 0:
+        spot = fetch_spot_price()
     risk_distance = float(signal["risk_distance"])
     if side == "BUY":
         sl = spot - risk_distance
@@ -255,9 +263,12 @@ def publish_signal(signal):
     else:
         sl = spot + risk_distance
         tp = spot - risk_distance * float(signal.get("target_r", 1.5))
+    trade_mode = str(signal.get("mode") or "SNIPER").upper()
     payload = {
         "mode": "DEMO",
-        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{side}",
+        "trade_mode": trade_mode,
+        # Grade is a count of checks, not a calibrated win probability.
+        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:S{signal['score']}",
         "symbol": "XAUUSD",
         "side": side,
         "volume": VOLUME,
@@ -354,7 +365,7 @@ def run_forever():
                 time.sleep(POLL_SECONDS)
                 continue
 
-            status, response, key = publish_signal(signal)
+            status, response, key = publish_signal(signal, health)
             if status == 201 and response.get("ok") is True:
                 if MAX_PUBLISH_PER_HOUR > 0:
                     publishes.append(time.time())

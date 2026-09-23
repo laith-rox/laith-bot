@@ -145,6 +145,11 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
         return False, "seven_checks_required"
     if sum(bool(x) for x in selected) < 5:
         return False, "fast_conditions_not_met"
+    grade = re.search(r":S([5-7])$", key)
+    if grade and int(grade.group(1)) != sum(bool(x) for x in selected):
+        return False, "strength_mismatch"
+    if re.search(r":S\d+$", key) and not grade:
+        return False, "invalid_strength"
     return True, "approved"
 
 
@@ -245,6 +250,8 @@ class Handler(BaseHTTPRequestHandler):
                     "effective_risk_budget_usd": (_client_state or {}).get("effective_risk_budget_usd"),
                     "commissioning_used": (_client_state or {}).get("commissioning_used"),
                     "commissioning_remaining": (_client_state or {}).get("commissioning_remaining"),
+                    "risk_model": (_client_state or {}).get("risk_model"),
+                    "risk_cap_percent": (_client_state or {}).get("risk_cap_percent"),
                 }
             return self._json(200, payload)
 
@@ -433,6 +440,8 @@ class Handler(BaseHTTPRequestHandler):
                 "effective_risk_budget_usd": str(data.get("effective_risk_budget_usd", ""))[:32],
                 "commissioning_used": str(data.get("commissioning_used", ""))[:16],
                 "commissioning_remaining": str(data.get("commissioning_remaining", ""))[:16],
+                "risk_model": str(data.get("risk_model", ""))[:32],
+                "risk_cap_percent": str(data.get("risk_cap_percent", ""))[:16],
                 "received_at": time.time(),
             }
             with _lock:
