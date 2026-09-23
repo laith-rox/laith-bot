@@ -26,7 +26,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-night-sniper-v10"
+WORKER_VERSION = "bridge-night-scout-v11"
 
 
 def _ema(values, period):
@@ -168,6 +168,29 @@ def compute_signal(values):
         guard_reason = None
         d = type(d)("REBOUND", "BUY", 8, 0.60, 0.0, 1.25, "selloff_exhaustion_rebound")
 
+    # Night-only scout: allow a 5/7 setup when the short-term structure agrees.
+    # This is deliberately blocked near unconfirmed support/resistance and never
+    # overrides the existing macro/correction guards.
+    if side is None and night_sniper:
+        scout_buy = (
+            buy_score >= 5 and buy_score - sell_score >= 3
+            and not macro_down and close > ema8[-1] and momentum > 0
+            and rsi < 70.0
+            and not ((close >= recent_high - 0.15*atr) and not held_break_up)
+            and upper_wick <= max(1.25*body, 0.45*atr)
+        )
+        scout_sell = (
+            sell_score >= 5 and sell_score - buy_score >= 3
+            and not macro_up and close < ema8[-1] and momentum < 0
+            and rsi > 30.0
+            and not ((close <= recent_low + 0.15*atr) and not held_break_down)
+            and lower_wick <= max(1.25*body, 0.45*atr)
+        )
+        if scout_buy or scout_sell:
+            side = "BUY" if scout_buy else "SELL"
+            guard_reason = None
+            d = type(d)("NIGHT_SNIPER", side, 7, 0.50, 0.0, 1.20, "night_5of7_scout")
+
     if d.mode == "REBOUND" and side == "BUY":
         raw_risk = close - last["low"] + max(0.20, 0.10 * atr)
         risk_distance = max(0.80, min(3.20, raw_risk))
@@ -175,10 +198,11 @@ def compute_signal(values):
         risk_cap = 1.60 if d.mode == "SNIPER" else 3.20
         risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
     if night_sniper and side and d.mode != "REBOUND":
-        # Night trades are short-lived scalps. A 0.01 XAUUSD position maps
-        # roughly $1 price distance to about $1 P/L; cap planned stop at $2.
-        risk_distance = min(risk_distance, 2.00)
-        d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, "night_sniper")
+        # Night trades are short-lived scalps. Keep the tighter stop requested:
+        # 1.50 for opportunistic 5/7 scouts, up to 2.00 for stronger setups.
+        cap = 1.50 if max(buy_score, sell_score) == 5 else 2.00
+        risk_distance = min(risk_distance, cap)
+        d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
     else: sl=tp=None
