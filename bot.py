@@ -313,7 +313,8 @@ def main():
         interval = 300  # Required five-minute monitoring cadence.
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
-        if os.getenv("OBSERVER_MODE", "0").strip() != "1":\n            store.enqueue("release:" + VERSION, "service",
+        if os.getenv("OBSERVER_MODE", "0").strip() != "1":
+            store.enqueue("release:" + VERSION, "service",
             "✅ <b>بوت ليث 2.3 — تمييز التصحيح المحتمل عن الانعكاس</b>\n"
             "اتجاه الساعة ونطاق سابق يحددان السياق. التصحيح المحتمل يوقف اقتراح الدخول حتى تأكيد العودة، والكسر المؤكد يطلق تحذيرًا. "
             "لا صفقات مضمونة ولا نسب نجاح مختلقة. عند تعادل المؤشرات أو غياب البيانات يظهر ذلك بوضوح.\n"
