@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v19-primary2of3"
+WORKER_VERSION = "bridge-fast-scalp-v20-correction-adaptive"
 
 
 def _ema(values, period):
@@ -175,10 +175,18 @@ def compute_signal(values):
             side, primary_strength = None, 0
         if side:
             guard_reason = None
+            is_correction = (side == "BUY" and macro_down) or (side == "SELL" and macro_up)
             quick_conf = 5 if primary_strength == 2 else 7
-            d = type(d)("SNIPER", side, quick_conf, 0.40 if primary_strength == 2 else 0.55,
-                        0.0, 1.10 if primary_strength == 2 else 1.25,
-                        "fast_primary_2of3" if primary_strength == 2 else "fast_primary_3of3")
+            # A confirmed correction is its own quick trade: follow the correction,
+            # take a smaller target and leave the main trend logic independent.
+            if is_correction:
+                d = type(d)("CORRECTION_SCALP", side, quick_conf, 0.35 if primary_strength == 2 else 0.45,
+                            0.0, 0.75 if primary_strength == 2 else 0.90,
+                            "correction_primary_2of3" if primary_strength == 2 else "correction_primary_3of3")
+            else:
+                d = type(d)("SNIPER", side, quick_conf, 0.40 if primary_strength == 2 else 0.55,
+                            0.0, 1.10 if primary_strength == 2 else 1.25,
+                            "fast_primary_2of3" if primary_strength == 2 else "fast_primary_3of3")
 
     # DEMO rebound entry after an extended selloff. Require exhaustion plus
     # an actual bullish rejection candle; never reverse on RSI alone.
@@ -248,7 +256,15 @@ def compute_signal(values):
         raw_risk = close - last["low"] + max(0.20, 0.10 * atr)
         risk_distance = max(0.80, min(3.20, raw_risk))
     else:
-        risk_cap = 1.60 if d.mode == "SNIPER" else 3.20
+        # Adaptive stop: stronger setups get room to breathe; medium/weak quick
+        # trades and correction scalps stay tighter. Never exceed existing caps.
+        strength = max(buy_score, sell_score)
+        if d.mode == "CORRECTION_SCALP":
+            risk_cap = 1.00 if strength <= 4 else 1.30
+        elif d.mode in ("SNIPER", "NIGHT_SNIPER"):
+            risk_cap = 1.10 if strength <= 3 else (1.35 if strength <= 4 else 1.60)
+        else:
+            risk_cap = 2.00 if strength <= 4 else (2.60 if strength <= 5 else 3.20)
         risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
     if night_sniper and side and d.mode != "REBOUND":
         # Night trades are short-lived scalps. Keep the tighter stop requested:
