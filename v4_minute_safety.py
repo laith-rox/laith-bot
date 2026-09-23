@@ -85,7 +85,8 @@ def run(args, stop, market_closed):
                             store.enqueue('v4rapid:unavailable:'+str(int(epoch)), KIND,
                                 '⛔️ طوارئ V4: تعذّر تحديث بيانات الدقيقة.\nراقب وقفك عند الوسيط؛ التنبيه قد يتأخر.',
                                 epoch, expires=epoch+180)
-                        if str(exc) == 'minute_quota_reached': next_fetch = epoch+900
+                        if str(exc) in ('minute_quota_reached', 'minute_daily_quota_reached'):
+                            next_fetch = epoch + (86400 if str(exc) == 'minute_daily_quota_reached' else 900)
                         LOG.warning('minute_safety_unavailable reason=%s', str(exc))
                 destination = store.get('v4_telegram_group_id') or store.get('v4_telegram_chat_id') or args.telegram_chat
                 if telegram and destination:
