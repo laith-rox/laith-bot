@@ -20,7 +20,8 @@ from news import NewsGuard
 from storage import Store
 from transport import Telegram, SecretFilter, dispatch
 
-VERSION = "2.3.0"
+VERSION = "2.3.1-observer"
+OBSERVER_MODE = os.getenv("OBSERVER_MODE", "0").strip() == "1"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -83,6 +84,8 @@ class App:
             self.monitor_reversal(updated, decision, epoch, is_early=True)
 
     def periodic_reports(self, decision, bars, now, blocked=None):
+        if OBSERVER_MODE:
+            return
         epoch = now.timestamp()
         current = self.store.get("current_report")
         if current and current.get("watch") and epoch <= current["ends_at"] + 120:
@@ -105,7 +108,7 @@ class App:
     def cycle(self, now):
         epoch = now.timestamp()
         self.store.set("heartbeat", epoch)
-        active = self.store.active()
+        active = None if OBSERVER_MODE else self.store.active()
         if not entry_window(now) and not active and not self.store.get("early_watch"):
             self.store.set("last_analysis", {"side": "WAIT", "reason": "outside_entry_window"})
             return
@@ -117,6 +120,8 @@ class App:
             self.store.set("data_failures", failures)
             self.store.set("last_error", reason)
             LOG.warning("market_unavailable reason=%s consecutive=%s", reason, failures)
+            if OBSERVER_MODE:
+                return
             last_alert = self.store.get("last_data_alert", 0)
             if failures >= 3 and epoch - last_alert >= 3600:
                 self.store.enqueue("health:" + str(int(epoch // 3600)), "health",
@@ -133,7 +138,7 @@ class App:
             self.store.save_transition(updated,
                 [(event["kind"], transition(updated, event["kind"])) for event in events], epoch)
 
-        if self.store.get("data_failures", 0) >= 3:
+        if not OBSERVER_MODE and self.store.get("data_failures", 0) >= 3:
             self.store.enqueue("recovery:" + str(int(epoch)), "health",
                 "✅ عادت بيانات أسعار بوت ليث. يُستأنف التحليل وفق شروط الدخول والحماية.", epoch,
                 expires=epoch + 3600)
@@ -143,6 +148,12 @@ class App:
             decision = analyze(bars, now)
         except DataError as exc:
             decision = {"side": "WAIT", "reason": str(exc)}
+        if OBSERVER_MODE:
+            self.store.set("last_analysis", decision)
+            LOG.info("observer_analysis side=%s reason=%s buy=%s sell=%s price=%s",
+                     decision.get("side"), decision.get("reason"), decision.get("buy"),
+                     decision.get("sell"), decision.get("price"))
+            return
         # Exit warnings run before entry/news/pause gates and use only fresh analysis.
         active = self.store.active()
         if active and active["status"] != "pending":
@@ -311,9 +322,10 @@ def main():
         app = App(store, Market(key), telegram, NewsGuard(store),
                   cooldown=max(60, int(os.getenv("SIGNAL_COOLDOWN_MINUTES", "60"))))
         interval = 300  # Required five-minute monitoring cadence.
-        LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
-                 VERSION, bool(mount), commands_enabled, interval)
-        store.enqueue("release:" + VERSION, "service",
+        LOG.info("laith_bot_started version=%s observer=%s persistent_state=%s commands=%s interval=%s",
+                 VERSION, OBSERVER_MODE, bool(mount), commands_enabled, interval)
+        if not OBSERVER_MODE:
+            store.enqueue("release:" + VERSION, "service",
             "✅ <b>بوت ليث 2.3 — تمييز التصحيح المحتمل عن الانعكاس</b>\n"
             "اتجاه الساعة ونطاق سابق يحددان السياق. التصحيح المحتمل يوقف اقتراح الدخول حتى تأكيد العودة، والكسر المؤكد يطلق تحذيرًا. "
             "لا صفقات مضمونة ولا نسب نجاح مختلقة. عند تعادل المؤشرات أو غياب البيانات يظهر ذلك بوضوح.\n"
@@ -333,7 +345,7 @@ def main():
         next_market = next_commands = 0.0
         while running:
             now = datetime.now(UTC)
-            if commands_enabled and now.timestamp() >= next_commands:
+            if not OBSERVER_MODE and commands_enabled and now.timestamp() >= next_commands:
                 try:
                     app.commands(now)
                 except RuntimeError:
@@ -342,7 +354,8 @@ def main():
             if now.timestamp() >= next_market:
                 app.cycle(now)
                 next_market = (int(time.time()) // interval + 1) * interval + 15
-            dispatch(store, telegram)
+            if not OBSERVER_MODE:
+                dispatch(store, telegram)
             time.sleep(2)
     finally:
         store.close()
