@@ -15,6 +15,8 @@ from market import (
     DataError,
     Market,
     _quota_diagnostics,
+    _provider_429,
+    _quota_blocked,
     closed_only,
     parse_bars,
     require_fresh,
@@ -46,6 +48,8 @@ class SharedV4Market(Market):
 
     def _fetch_provider_snapshot(self, now):
         """Fetch once and split the payload into closed history + current 5m bar."""
+        if _quota_blocked():
+            raise DataError("market_daily_quota_reached")
         try:
             response = self.session.get(
                 "https://api.twelvedata.com/time_series",
@@ -64,6 +68,8 @@ class SharedV4Market(Market):
             raise DataError("market_connection_failed") from None
         if response.status_code != 200:
             _quota_diagnostics(response, "time_series")
+            if _provider_429(response):
+                raise DataError("market_daily_quota_reached")
             raise DataError(f"market_http_{response.status_code}")
         try:
             payload = response.json()
@@ -114,6 +120,8 @@ class SharedV4Market(Market):
 
     def _quote_slot_reference(self, now, slot_start):
         """Try /quote because it exposes the 5m bar timestamp and OHLC directly."""
+        if _quota_blocked():
+            raise DataError("market_daily_quota_reached")
         try:
             response = self.session.get(
                 "https://api.twelvedata.com/quote",
@@ -130,6 +138,8 @@ class SharedV4Market(Market):
             raise DataError("market_quote_unavailable") from None
         if response.status_code != 200:
             _quota_diagnostics(response, "quote")
+            if _provider_429(response):
+                raise DataError("market_daily_quota_reached")
             raise DataError("market_quote_unavailable")
         try:
             payload = response.json()

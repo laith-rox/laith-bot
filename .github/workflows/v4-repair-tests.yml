@@ -2,7 +2,7 @@ name: V4 repair tests
 
 on:
   push:
-    branches: [fix-v4-stale-quote, fix/v4-exposure-and-provider-pressure]
+    branches: [fix-v4-stale-quote, fix/v4-exposure-and-provider-pressure, fix/v4-daily-quota-breaker]
   workflow_dispatch:
 
 jobs:

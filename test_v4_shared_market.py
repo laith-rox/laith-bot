@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import Mock, patch
 
-from market import Bar, DataError
+from market import Bar, DataError, _QUOTA_LOCK
+import market as market_module
 from v4_shared_market import SharedV4Market, closed_bar_reference
 
 UTC = timezone.utc
@@ -29,6 +30,23 @@ class V4SharedMarketTests(unittest.TestCase):
             4302.9,
             5,
         )
+
+    def tearDown(self):
+        with _QUOTA_LOCK:
+            market_module._QUOTA_BLOCK_UNTIL = 0.0
+
+    def test_daily_quota_breaker_blocks_followup_v4_requests(self):
+        market = SharedV4Market("dummy")
+        response = Mock()
+        response.status_code = 429
+        response.headers = {"api-credits-used": "802", "api-credits-left": "0"}
+        response.json.return_value = {"code": 429, "status": "error", "message": "daily API credits exhausted"}
+        market.session.get = Mock(return_value=response)
+        with self.assertRaisesRegex(DataError, "market_daily_quota_reached"):
+            market.fetch(self.now)
+        with self.assertRaisesRegex(DataError, "market_daily_quota_reached"):
+            market.fetch(self.now + timedelta(minutes=5))
+        self.assertEqual(market.session.get.call_count, 1)
 
     def test_same_five_minute_slot_reuses_one_provider_fetch(self):
         market = SharedV4Market("dummy")

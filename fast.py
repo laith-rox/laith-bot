@@ -4,7 +4,7 @@ from datetime import timedelta
 import math
 
 from engine import ema, atr, make_trade, advance_trade
-from market import Bar, DataError, closed_only, parse_bars, require_fresh, UTC
+from market import Bar, DataError, closed_only, parse_bars, require_fresh, UTC, _quota_blocked, _provider_429
 from messages import LOCAL
 import requests
 
@@ -124,13 +124,16 @@ class MinuteMarket:
         self.key, self.session = key, session or requests.Session()
 
     def fetch(self, now, end=None, size=600, fresh=True):
+        if _quota_blocked():
+            raise DataError("minute_daily_quota_reached")
         params = {'symbol':'XAU/USD', 'interval':'1min', 'outputsize':size,
                   'timezone':'UTC', 'order':'ASC', 'format':'JSON', 'apikey':self.key}
         params['end_date'] = (end or now).astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S')
         try:
             response = self.session.get('https://api.twelvedata.com/time_series', params=params, timeout=(5,25))
             if response.status_code == 429:
-                raise DataError('minute_quota_reached')
+                _provider_429(response)
+                raise DataError('minute_daily_quota_reached')
             if response.status_code != 200:
                 raise DataError('minute_http_' + str(response.status_code))
             payload = response.json()
