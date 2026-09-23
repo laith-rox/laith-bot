@@ -150,9 +150,10 @@ class App:
             decision = {"side": "WAIT", "reason": str(exc)}
         if OBSERVER_MODE:
             self.store.set("last_analysis", decision)
-            LOG.info("observer_analysis side=%s reason=%s buy=%s sell=%s price=%s",
-                     decision.get("side"), decision.get("reason"), decision.get("buy"),
-                     decision.get("sell"), decision.get("price"))
+            LOG.info("observer_analysis source=%s side=%s reason=%s buy=%s sell=%s price=%s",
+                     getattr(self.market, "last_source", "unknown"), decision.get("side"),
+                     decision.get("reason"), decision.get("buy"), decision.get("sell"),
+                     decision.get("price"))
             return
         # Exit warnings run before entry/news/pause gates and use only fresh analysis.
         active = self.store.active()
