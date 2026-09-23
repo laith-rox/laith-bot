@@ -27,7 +27,9 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-fast-scalp-v16"
+_LAST_GOOD_MARKET_ROWS = None
+_LAST_GOOD_MARKET_AT = 0.0
+WORKER_VERSION = "bridge-fast-scalp-v17"
 
 
 def _ema(values, period):
@@ -267,6 +269,7 @@ def _parse_yahoo_rows(payload):
 
 
 def fetch_market_values():
+    global _LAST_GOOD_MARKET_ROWS, _LAST_GOOD_MARKET_AT
     """Fetch 5m gold candles with redundant Yahoo endpoints/ranges.
 
     This remains a directional proxy for DEMO commissioning only. The MT5 EA
@@ -290,10 +293,18 @@ def fetch_market_values():
                 "Cache-Control": "no-cache",
             }, timeout=8)
             if status == 200:
-                return _parse_yahoo_rows(payload)
+                rows = _parse_yahoo_rows(payload)
+                _LAST_GOOD_MARKET_ROWS, _LAST_GOOD_MARKET_AT = rows, time.time()
+                return rows
             errors.append(f"{host}:{status}")
         except Exception as exc:
             errors.append(f"{host}:{type(exc).__name__}:{exc}")
+    # Short provider outages must not blind the DEMO worker. Reuse only a
+    # recent successful candle snapshot; never use an old cache for entries.
+    cache_age = time.time() - _LAST_GOOD_MARKET_AT
+    if _LAST_GOOD_MARKET_ROWS is not None and cache_age <= 360:
+        print(f"market_feed_fallback source=recent_cache age={cache_age:.0f}s errors={'|'.join(errors)}", flush=True)
+        return _LAST_GOOD_MARKET_ROWS
     raise RuntimeError("market_feed_all_failed:" + "|".join(errors))
 
 
