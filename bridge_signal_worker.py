@@ -27,7 +27,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-fast-scalp-v15"
+WORKER_VERSION = "bridge-fast-scalp-v16"
 
 
 def _ema(values, period):
@@ -140,14 +140,19 @@ def compute_signal(values):
         if macro_down:
             guard_reason = "buy_is_correction_in_downtrend"
         elif (close >= recent_high-0.15*atr or rsi >= 72.0) and not held_break_up:
-            guard_reason = "resistance_not_confirmed"
+            # Fast DEMO scalp exception: a strong 6/7+ impulse may test nearby
+            # resistance with a tight stop; weaker setups still wait.
+            if not (night_sniper and buy_score >= 6 and momentum > 0 and close > open_ and rsi < 70.0):
+                guard_reason = "resistance_not_confirmed"
         elif upper_wick > max(1.25*body, 0.45*atr):
             guard_reason = "upper_wick_rejection"
     elif side == "SELL":
         if macro_up:
             guard_reason = "sell_is_correction_in_uptrend"
         elif (close <= recent_low+0.15*atr or rsi <= 28.0) and not held_break_down:
-            guard_reason = "support_not_confirmed"
+            # Symmetric fast DEMO scalp exception for a strong 6/7+ sell impulse.
+            if not (night_sniper and sell_score >= 6 and momentum < 0 and close < open_ and rsi > 30.0):
+                guard_reason = "support_not_confirmed"
         elif lower_wick > max(1.25*body, 0.45*atr):
             guard_reason = "lower_wick_rejection"
     if guard_reason:
