@@ -26,7 +26,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-adaptive-sniper-v8"
+WORKER_VERSION = "bridge-adaptive-rebound-v9"
 
 
 def _ema(values, period):
@@ -147,8 +147,29 @@ def compute_signal(values):
             guard_reason = "lower_wick_rejection"
     if guard_reason:
         side = None
-    risk_cap = 1.60 if d.mode == "SNIPER" else 3.20
-    risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
+
+    # DEMO rebound entry after an extended selloff. Require exhaustion plus
+    # an actual bullish rejection candle; never reverse on RSI alone.
+    drop_from_swing = max(r["high"] for r in rows[-12:-1]) - close
+    rebound_buy = (
+        macro_down
+        and rsi <= 30.0
+        and drop_from_swing >= max(2.5 * atr, 8.0)
+        and close > open_
+        and lower_wick >= max(0.30 * atr, 0.75 * body)
+        and close > rows[-2]["close"]
+    )
+    if side is None and rebound_buy:
+        side = "BUY"
+        guard_reason = None
+        d = type(d)("REBOUND", "BUY", 8, 0.60, 0.0, 1.25, "selloff_exhaustion_rebound")
+
+    if d.mode == "REBOUND" and side == "BUY":
+        raw_risk = close - last["low"] + max(0.20, 0.10 * atr)
+        risk_distance = max(0.80, min(3.20, raw_risk))
+    else:
+        risk_cap = 1.60 if d.mode == "SNIPER" else 3.20
+        risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
     else: sl=tp=None
@@ -315,7 +336,7 @@ def run_forever():
     validate_config()
     print(
         f"bridge_signal_worker_started version={WORKER_VERSION} symbol={SYMBOL} interval=5m "
-        f"adaptive_modes=SNIPER,MAIN,WAIT volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
+        f"adaptive_modes=SNIPER,MAIN,REBOUND,WAIT volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
         f"allow_stale_mt5_state={ALLOW_STALE_MT5_STATE}",
         flush=True,
     )
