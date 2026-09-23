@@ -26,7 +26,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-night-scout-v11"
+WORKER_VERSION = "bridge-night-active-v12"
 
 
 def _ema(values, period):
@@ -168,28 +168,34 @@ def compute_signal(values):
         guard_reason = None
         d = type(d)("REBOUND", "BUY", 8, 0.60, 0.0, 1.25, "selloff_exhaustion_rebound")
 
-    # Night-only scout: allow a 5/7 setup when the short-term structure agrees.
-    # This is deliberately blocked near unconfirmed support/resistance and never
-    # overrides the existing macro/correction guards.
+    # Night-only scout: during the approved 19:00-04:29 window, accept
+    # a clean 4/7 micro-edge only when price action confirms it. This raises
+    # opportunity count without allowing coin-flip entries.
     if side is None and night_sniper:
+        bullish_confirm = close > open_ and close >= rows[-2]["close"] and body >= 0.18*atr
+        bearish_confirm = close < open_ and close <= rows[-2]["close"] and body >= 0.18*atr
         scout_buy = (
-            buy_score >= 5 and buy_score - sell_score >= 3
+            buy_score >= 4 and buy_score - sell_score >= 2
             and not macro_down and close > ema8[-1] and momentum > 0
-            and rsi < 70.0
+            and bullish_confirm and 42.0 <= rsi < 70.0
             and not ((close >= recent_high - 0.15*atr) and not held_break_up)
-            and upper_wick <= max(1.25*body, 0.45*atr)
+            and upper_wick <= max(1.00*body, 0.35*atr)
         )
         scout_sell = (
-            sell_score >= 5 and sell_score - buy_score >= 3
+            sell_score >= 4 and sell_score - buy_score >= 2
             and not macro_up and close < ema8[-1] and momentum < 0
-            and rsi > 30.0
+            and bearish_confirm and 30.0 < rsi <= 58.0
             and not ((close <= recent_low + 0.15*atr) and not held_break_down)
-            and lower_wick <= max(1.25*body, 0.45*atr)
+            and lower_wick <= max(1.00*body, 0.35*atr)
         )
         if scout_buy or scout_sell:
             side = "BUY" if scout_buy else "SELL"
             guard_reason = None
-            d = type(d)("NIGHT_SNIPER", side, 7, 0.50, 0.0, 1.20, "night_5of7_scout")
+            scout_score = max(buy_score, sell_score)
+            d = type(d)("NIGHT_SNIPER", side, 6 if scout_score == 4 else 7,
+                        0.45 if scout_score == 4 else 0.50, 0.0,
+                        1.10 if scout_score == 4 else 1.20,
+                        "night_4of7_micro" if scout_score == 4 else "night_5of7_scout")
 
     if d.mode == "REBOUND" and side == "BUY":
         raw_risk = close - last["low"] + max(0.20, 0.10 * atr)
@@ -200,7 +206,8 @@ def compute_signal(values):
     if night_sniper and side and d.mode != "REBOUND":
         # Night trades are short-lived scalps. Keep the tighter stop requested:
         # 1.50 for opportunistic 5/7 scouts, up to 2.00 for stronger setups.
-        cap = 1.50 if max(buy_score, sell_score) == 5 else 2.00
+        strength = max(buy_score, sell_score)
+        cap = 1.20 if strength == 4 else (1.50 if strength == 5 else 2.00)
         risk_distance = min(risk_distance, cap)
         d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
