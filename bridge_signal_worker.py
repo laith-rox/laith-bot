@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from email.utils import parsedate_to_datetime
 from adaptive_sniper_engine import decide
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
@@ -26,7 +27,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-night-active-v12"
+WORKER_VERSION = "bridge-night-feed-v13"
 
 
 def _ema(values, period):
@@ -235,47 +236,60 @@ def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
         return response.status, json.loads(raw) if raw else {}
 
 
-def fetch_market_values():
-    """Fetch keyless 5m gold-market candles.
-
-    Yahoo's GC=F feed is used only as a directional proxy for this DEMO
-    commissioning worker. Orders still execute only on the MT5 XAUUSD demo
-    account, and the bridge/EA remain the final safety gate.
-    """
-    params = urlencode({"interval": "5m", "range": "5d"})
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{YAHOO_SYMBOL}?{params}"
-    status, payload = _json_request(url, headers={"User-Agent": "Mozilla/5.0"})
-    if status != 200:
-        raise RuntimeError(f"market_data_http_{status}")
+def _parse_yahoo_rows(payload):
     try:
         result = payload["chart"]["result"][0]
         timestamps = result["timestamp"]
         quote = result["indicators"]["quote"][0]
     except (KeyError, IndexError, TypeError):
         raise RuntimeError("market_values_missing")
-
     rows = []
-    opens = quote.get("open") or []
-    highs = quote.get("high") or []
-    lows = quote.get("low") or []
-    closes = quote.get("close") or []
+    opens, highs = quote.get("open") or [], quote.get("high") or []
+    lows, closes = quote.get("low") or [], quote.get("close") or []
     for i, ts in enumerate(timestamps):
         try:
             o, h, l, cl = opens[i], highs[i], lows[i], closes[i]
             if None in (o, h, l, cl):
                 continue
-            rows.append({
-                "datetime": datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                "open": f"{float(o):.5f}",
-                "high": f"{float(h):.5f}",
-                "low": f"{float(l):.5f}",
-                "close": f"{float(cl):.5f}",
-            })
+            rows.append({"datetime": datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                         "open": f"{float(o):.5f}", "high": f"{float(h):.5f}",
+                         "low": f"{float(l):.5f}", "close": f"{float(cl):.5f}"})
         except (IndexError, TypeError, ValueError):
             continue
     if len(rows) < 31:
         raise RuntimeError("not_enough_market_rows")
     return list(reversed(rows))
+
+
+def fetch_market_values():
+    """Fetch 5m gold candles with redundant Yahoo endpoints/ranges.
+
+    This remains a directional proxy for DEMO commissioning only. The MT5 EA
+    remains the execution and safety gate. Multiple hosts prevent a single
+    Yahoo edge returning 503 from putting the worker to sleep.
+    """
+    errors = []
+    nonce = int(time.time() // 30)
+    attempts = [
+        ("query1.finance.yahoo.com", "5d"),
+        ("query2.finance.yahoo.com", "5d"),
+        ("query1.finance.yahoo.com", "1mo"),
+        ("query2.finance.yahoo.com", "1mo"),
+    ]
+    for host, range_ in attempts:
+        try:
+            params = urlencode({"interval": "5m", "range": range_, "_": nonce})
+            url = f"https://{host}/v8/finance/chart/{YAHOO_SYMBOL}?{params}"
+            status, payload = _json_request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Cache-Control": "no-cache",
+            }, timeout=8)
+            if status == 200:
+                return _parse_yahoo_rows(payload)
+            errors.append(f"{host}:{status}")
+        except Exception as exc:
+            errors.append(f"{host}:{type(exc).__name__}:{exc}")
+    raise RuntimeError("market_feed_all_failed:" + "|".join(errors))
 
 
 def bridge_health():
