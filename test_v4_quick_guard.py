@@ -15,17 +15,28 @@ class V4QuickGuardTests(unittest.TestCase):
         result = guard_quick_setup(setup, [], self.now)
         self.assertTrue(result["allowed"])
 
-    def test_allows_same_side_candidate_while_previous_is_active(self):
+    def test_blocks_same_side_candidate_while_previous_is_active(self):
         setup = {"side": "SELL", "score": 5, "risk_level": "متوسطة"}
         rows = [{"id": "old", "status": "active", "side": "SELL"}]
         result = guard_quick_setup(setup, rows, self.now)
-        self.assertTrue(result["allowed"])
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["reason"], "same_side_exposure")
 
     def test_opposite_side_active_does_not_block(self):
         setup = {"side": "SELL", "score": 5, "risk_level": "متوسطة"}
         rows = [{"id": "old", "status": "active", "side": "BUY"}]
         result = guard_quick_setup(setup, rows, self.now)
         self.assertTrue(result["allowed"])
+
+    def test_blocks_third_active_quick_even_when_direction_differs(self):
+        setup = {"side": "BUY", "score": 6, "risk_level": "مرتفعة"}
+        rows = [
+            {"id": "a", "status": "active", "side": "SELL"},
+            {"id": "b", "status": "uncertain_delivery", "side": "SELL"},
+        ]
+        result = guard_quick_setup(setup, rows, self.now)
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["reason"], "max_quick_exposure")
 
     def test_two_recent_same_side_stops_trigger_fifteen_minute_cooldown(self):
         setup = {"side": "BUY", "score": 5, "risk_level": "متوسطة"}
