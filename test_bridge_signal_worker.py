@@ -49,7 +49,7 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertGreaterEqual(signal["score"], 6)
         self.assertLess(signal["sl"], signal["reference_close"])
         self.assertGreater(signal["tp"], signal["reference_close"])
-        self.assertLessEqual(signal["risk_distance"], 1.60)
+        self.assertGreaterEqual(signal["risk_distance"], 0.80)
 
     def test_strong_downtrend_produces_sell(self):
         signal = compute_signal(make_values("down"))
@@ -57,7 +57,30 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertGreaterEqual(signal["score"], 6)
         self.assertGreater(signal["sl"], signal["reference_close"])
         self.assertLess(signal["tp"], signal["reference_close"])
-        self.assertLessEqual(signal["risk_distance"], 1.60)
+        self.assertGreaterEqual(signal["risk_distance"], 0.80)
+
+    def test_published_command_labels_condition_grade(self):
+        signal = {"side": "BUY", "bar": "2026-09-23 06:05:00", "score": 7,
+                  "risk_distance": 1.5, "target_r": 2.0,
+                  "checks": {"BUY": [True] * 7, "SELL": [False] * 7}}
+        with patch.object(worker, "fetch_spot_price", return_value=4300.0), \
+             patch.object(worker, "_json_request", return_value=(201, {"ok": True})) as request:
+            status, _, key = worker.publish_signal(signal)
+        self.assertEqual(status, 201)
+        self.assertTrue(key.endswith(":BUY:S7"))
+        payload = request.call_args.kwargs["payload"]
+        self.assertEqual((payload["sl"], payload["tp"]), (4298.5, 4303.0))
+
+    def test_fresh_mt5_quote_anchors_stop_and_target(self):
+        signal = {"side": "SELL", "bar": "2026-09-23 06:05:00", "score": 6,
+                  "risk_distance": 2.0, "target_r": 1.25,
+                  "checks": {"SELL": [True]*6+[False], "BUY": [False]*7}}
+        with patch.object(worker, "fetch_spot_price") as external, \
+             patch.object(worker, "_json_request", return_value=(201, {"ok": True})) as request:
+            worker.publish_signal(signal, {"client_state_fresh": True, "price": "4350.00"})
+        external.assert_not_called()
+        payload = request.call_args.kwargs["payload"]
+        self.assertEqual((payload["sl"], payload["tp"]), (4352.0, 4347.5))
 
     def test_first_break_above_resistance_is_not_chased(self):
         values = make_values("up")
