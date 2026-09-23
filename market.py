@@ -104,6 +104,48 @@ class Market:
     def __init__(self, key, session=None):
         self.key = key
         self.session = session or requests.Session()
+        self.last_source = "unknown"
+
+    def _fetch_yahoo_fallback(self, now):
+        try:
+            response = self.session.get(
+                "https://query1.finance.yahoo.com/v8/finance/chart/GC=F",
+                params={"interval": "5m", "range": "5d"},
+                headers={"User-Agent": "LaithObserver/1.0"}, timeout=(5, 20))
+        except requests.RequestException:
+            raise DataError("market_fallback_connection_failed") from None
+        if response.status_code != 200:
+            raise DataError(f"market_fallback_http_{response.status_code}")
+        try:
+            payload = response.json()
+            result = payload["chart"]["result"][0]
+            timestamps = result["timestamp"]
+            quote = result["indicators"]["quote"][0]
+        except (ValueError, KeyError, IndexError, TypeError):
+            raise DataError("market_fallback_response_invalid") from None
+        bars = []
+        for i, ts in enumerate(timestamps):
+            try:
+                values = [quote[name][i] for name in ("open", "high", "low", "close")]
+                if any(value is None for value in values):
+                    continue
+                o, h, l, cl = map(float, values)
+                start = datetime.fromtimestamp(int(ts), UTC)
+                if start.timestamp() % 300:
+                    continue
+                if not all(math.isfinite(v) and v > 0 for v in (o, h, l, cl)):
+                    continue
+                if not l <= min(o, cl) <= max(o, cl) <= h:
+                    continue
+                bars.append(Bar(start, o, h, l, cl, 5))
+            except (IndexError, TypeError, ValueError, OverflowError):
+                continue
+        bars = closed_only(sorted({b.start: b for b in bars}.values(), key=lambda b: b.start), now)
+        require_fresh(bars, now)
+        if len(bars) < 300:
+            raise DataError("market_fallback_insufficient_history")
+        self.last_source = "Yahoo GC=F"
+        return bars
 
     def fetch(self, now):
         try:
@@ -114,6 +156,8 @@ class Market:
                         "format": "JSON"}, timeout=(5, 25))
         except requests.RequestException:
             raise DataError("market_connection_failed") from None
+        if response.status_code == 429:
+            return self._fetch_yahoo_fallback(now)
         if response.status_code != 200:
             raise DataError(f"market_http_{response.status_code}")
         try:
@@ -122,7 +166,10 @@ class Market:
             raise DataError("market_response_not_json") from None
         if isinstance(payload, dict) and payload.get("status") == "error":
             code = payload.get("code")
-            raise DataError("market_quota_reached" if code == 429 else "market_provider_error")
+            if code == 429:
+                return self._fetch_yahoo_fallback(now)
+            raise DataError("market_provider_error")
         bars = closed_only(parse_bars(payload, now), now)
         require_fresh(bars, now)
+        self.last_source = "Twelve Data"
         return bars
