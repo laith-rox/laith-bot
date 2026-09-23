@@ -1,9 +1,6 @@
 """Safety guard for Laith V4 quick paper signals only.
 
-Quick candidates are now shown even when weak/high-risk or when another quick
-candidate in the same direction is active, because Laith explicitly wants to
-make the manual entry decision himself. The stop-streak cooldown remains the
-one suppression guard to prevent immediate repeated losses after two stops.
+Quick candidates remain visible when weak/high-risk, but correlated exposure is capped:\nonly one active quick per direction and at most two active quicks total. The stop-streak\ncooldown remains active after repeated losses.
 """
 
 STOP_STREAK_LIMIT = 2
@@ -35,8 +32,26 @@ def _stop_streak(trades, side):
 
 
 def guard_quick_setup(setup, trades, now):
-    """Block only a same-side stop-streak cooldown; expose other candidates with warnings."""
+    """Cap correlated exposure, then apply the same-side stop-streak cooldown."""
     side = setup.get("side")
+    active = [trade for trade in (trades or []) if trade.get("status") in ("active", "uncertain_delivery")]
+    same_side = [trade for trade in active if trade.get("side") == side]
+    if same_side:
+        return {
+            "allowed": False,
+            "reason": "same_side_exposure",
+            "side": side,
+            "detail": "يوجد بالفعل Quick مفتوحة بنفس الاتجاه",
+            "active_count": len(active),
+        }
+    if len(active) >= 2:
+        return {
+            "allowed": False,
+            "reason": "max_quick_exposure",
+            "side": side,
+            "detail": "تم بلوغ حد صفقتين Quick مفتوحتين",
+            "active_count": len(active),
+        }
     streak, last_stop_time = _stop_streak(trades, side)
     if streak >= STOP_STREAK_LIMIT and last_stop_time:
         cooldown_until = last_stop_time + STOP_COOLDOWN_SECONDS
