@@ -20,7 +20,7 @@ from news import NewsGuard
 from storage import Store
 from transport import Telegram, SecretFilter, dispatch
 
-VERSION = "2.3.0"
+VERSION = "2.3.1-observer"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -82,7 +82,7 @@ class App:
             self.store.set("early_watch", updated)
             self.monitor_reversal(updated, decision, epoch, is_early=True)
 
-    def periodic_reports(self, decision, bars, now, blocked=None):
+    def periodic_reports(self, decision, bars, now, blocked=None):\n        if os.getenv("OBSERVER_MODE", "0").strip() == "1":\n            return
         epoch = now.timestamp()
         current = self.store.get("current_report")
         if current and current.get("watch") and epoch <= current["ends_at"] + 120:
@@ -313,7 +313,7 @@ def main():
         interval = 300  # Required five-minute monitoring cadence.
         LOG.info("laith_bot_started version=%s persistent_state=%s commands=%s interval=%s",
                  VERSION, bool(mount), commands_enabled, interval)
-        store.enqueue("release:" + VERSION, "service",
+        if os.getenv("OBSERVER_MODE", "0").strip() != "1":\n            store.enqueue("release:" + VERSION, "service",
             "✅ <b>بوت ليث 2.3 — تمييز التصحيح المحتمل عن الانعكاس</b>\n"
             "اتجاه الساعة ونطاق سابق يحددان السياق. التصحيح المحتمل يوقف اقتراح الدخول حتى تأكيد العودة، والكسر المؤكد يطلق تحذيرًا. "
             "لا صفقات مضمونة ولا نسب نجاح مختلقة. عند تعادل المؤشرات أو غياب البيانات يظهر ذلك بوضوح.\n"
