@@ -26,7 +26,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-adaptive-rebound-v9"
+WORKER_VERSION = "bridge-night-sniper-v10"
 
 
 def _ema(values, period):
@@ -112,6 +112,10 @@ def compute_signal(values):
         close=close, recent_high=recent_high, recent_low=recent_low, momentum=momentum, hour_local=hour_local)
     side=d.side
     guard_reason = None
+    # Night sniper window: 19:00-04:29 Palestine local time. Keep 0.01 lot
+    # and existing EA risk gate; only tighten the signal stop distance.
+    minute_local = hour_local * 60 + datetime.fromisoformat(last["datetime"]).minute
+    night_sniper = minute_local >= 19*60 or minute_local < 4*60+30
     # Do not confuse a short pullback with a new trend. The 21/55 EMA regime
     # represents roughly 30-60 minutes of structure on these five-minute bars.
     lookback = min(7, len(ema21)-1)
@@ -170,6 +174,11 @@ def compute_signal(values):
     else:
         risk_cap = 1.60 if d.mode == "SNIPER" else 3.20
         risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
+    if night_sniper and side and d.mode != "REBOUND":
+        # Night trades are short-lived scalps. A 0.01 XAUUSD position maps
+        # roughly $1 price distance to about $1 P/L; cap planned stop at $2.
+        risk_distance = min(risk_distance, 2.00)
+        d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, "night_sniper")
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
     else: sl=tp=None
@@ -336,7 +345,7 @@ def run_forever():
     validate_config()
     print(
         f"bridge_signal_worker_started version={WORKER_VERSION} symbol={SYMBOL} interval=5m "
-        f"adaptive_modes=SNIPER,MAIN,REBOUND,WAIT volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
+        f"adaptive_modes=SNIPER,MAIN,REBOUND,NIGHT_SNIPER,WAIT volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
         f"allow_stale_mt5_state={ALLOW_STALE_MT5_STATE}",
         flush=True,
     )
