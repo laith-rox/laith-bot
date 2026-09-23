@@ -19,7 +19,8 @@ from safety_monitor import start_safety_worker
 from v4_quick_5m import analyze_quick_5m
 from v4_quick import build_quick
 
-VERSION = "2.8.0"
+VERSION = "2.8.1-observer"
+OBSERVER_MODE = os.getenv("OBSERVER_MODE", "0").strip() == "1"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
@@ -103,6 +104,8 @@ class App:
             LOG.warning("laith_v4quick_unavailable reason=%s", str(exc))
 
     def periodic_reports(self,decision,bars,now,blocked=None):
+        if OBSERVER_MODE:
+            return
         epoch=now.timestamp(); slot=int(epoch//900); current=self.store.get("current_report")
         if self.store.has_important_update(epoch):
             self.store.supersede_routine()
@@ -134,7 +137,7 @@ class App:
                 LOG.info("follow_prepared id=%s buy=%s sell=%s",follow_id,decision.get("buy"),decision.get("sell"))
 
     def cycle(self,now,clock=None):
-        clock=clock or DecisionClock(now); epoch=now.timestamp(); self.store.set("heartbeat",epoch); active=self.store.active()
+        clock=clock or DecisionClock(now); epoch=now.timestamp(); self.store.set("heartbeat",epoch); active=None if OBSERVER_MODE else self.store.active()
         if not entry_window(now) and not active and not self.store.get("early_watch"):
             self.store.set("last_analysis",{"side":"WAIT","reason":"outside_entry_window"}); return
         try: bars=self.market.fetch(now)
@@ -156,17 +159,19 @@ class App:
         try:
             decision=analyze(bars,now); now=clock.now(); epoch=now.timestamp(); require_fresh(bars,now,600); decision=dict(decision,**decision_metadata(bars,now))
         except DataError as exc: decision={"side":"WAIT","reason":str(exc)}
-        active=self.store.active()
+        active=None if OBSERVER_MODE else self.store.active()
         if active and active["status"]!="pending": self.monitor_reversal(active,decision,epoch)
-        self.monitor_early(bars,decision,now)
+        if not OBSERVER_MODE:
+            self.monitor_early(bars,decision,now)
         allowed_news,news_reason,_=self.news.check(now)
         now=clock.now(); epoch=now.timestamp()
         try:
             require_fresh(bars,now,600)
         except DataError as exc:
             decision={"side":"WAIT","reason":str(exc)}
-        raw_decision=dict(decision); original_side=decision["side"]; active=self.store.active()
-        if self.store.get("paused",False): reason="paused"
+        raw_decision=dict(decision); original_side=decision["side"]; active=None if OBSERVER_MODE else self.store.active()
+        if OBSERVER_MODE: reason=None
+        elif self.store.get("paused",False): reason="paused"
         elif active: reason="active_signal"
         elif not entry_window(now): reason="outside_entry_window"
         elif not allowed_news: reason=news_reason
@@ -178,7 +183,7 @@ class App:
         if reason: decision=dict(decision,model_side=original_side,side="WAIT",reason=reason)
         self.store.record(now,decision,bars)
         LOG.info("analysis side=%s reason=%s buy=%s sell=%s closed_5m=%s last_close=%s",decision["side"],decision.get("reason"),raw_decision.get("buy"),raw_decision.get("sell"),len(bars),bars[-1].end.isoformat())
-        if decision["side"] in ("BUY","SELL"):
+        if decision["side"] in ("BUY","SELL") and not OBSERVER_MODE:
             try:
                 # A closed 5m candle remains usable briefly after its close. The provider's
                 # exchange-rate timestamp can lag even while the candle feed is current.
@@ -222,8 +227,13 @@ class App:
             except DataError as exc:
                 reason=str(exc); self.store.set('last_error',reason)
                 LOG.warning('entry_blocked reason=%s',reason)
-        self.quick_v4_update(raw_decision,bars,now)
-        self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
+        if OBSERVER_MODE:
+            LOG.info("observer_analysis side=%s buy=%s sell=%s price=%s reason=%s",
+                     raw_decision.get("side"),raw_decision.get("buy"),raw_decision.get("sell"),
+                     raw_decision.get("price"),raw_decision.get("reason"))
+        else:
+            self.quick_v4_update(raw_decision,bars,now)
+            self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
 
     def commands(self,now):
         offset=self.store.get("update_offset",0); updates=self.telegram.read("getUpdates",offset=offset,timeout=0,allowed_updates='["message"]',limit=20)
@@ -251,11 +261,13 @@ class App:
 
 def run(args):
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    store=Store(args.db); telegram=Telegram(args.telegram_token,args.telegram_chat); market=Market(args.twelve_key); news=NewsGuard(store); stop=start_worker(args.db,args.twelve_key)
-    safety_stop=start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
+    store=Store(args.db); telegram=Telegram(args.telegram_token,args.telegram_chat); market=Market(args.twelve_key); news=NewsGuard(store)
+    stop=None if OBSERVER_MODE else start_worker(args.db,args.twelve_key)
+    safety_stop=None if OBSERVER_MODE else start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
     try:
-        LOG.info("starting version=%s",VERSION)
-        store.enqueue('release:2.6.3:messages','release',
+        LOG.info("starting version=%s observer=%s",VERSION,OBSERVER_MODE)
+        if not OBSERVER_MODE:
+            store.enqueue('release:2.6.3:messages','release',
                       '✅ <b>ترتيب رسائل بوت ليث صار مفعّل</b>\n\n'
                       '🟢🔴 دخول واضح: سعر، وقف، هدفان.\n'
                       '🔎 تحديث كل 5د مرتبط برسالة الإشارة الأصلية.\n'
@@ -266,13 +278,18 @@ def run(args):
             now=datetime.now(UTC)
             try:
                 app=App(store,market,telegram,news,args.cooldown)
-                try: app.commands(now)
-                except Exception as exc: LOG.warning("telegram_commands_failed category=%s",type(exc).__name__)
+                if not OBSERVER_MODE:
+                    try: app.commands(now)
+                    except Exception as exc: LOG.warning("telegram_commands_failed category=%s",type(exc).__name__)
                 app.cycle(datetime.now(UTC))
-                dispatch(store,telegram,market=market)
+                if not OBSERVER_MODE:
+                    dispatch(store,telegram,market=market)
             except Exception: LOG.exception("cycle_failed")
             time.sleep(args.interval)
-    finally: safety_stop.set(); stop.set(); store.close()
+    finally:
+        if safety_stop: safety_stop.set()
+        if stop: stop.set()
+        store.close()
 
 def parser():
     p=argparse.ArgumentParser(); p.add_argument('--db',default=os.getenv('DB_PATH','/data/laith.db')); p.add_argument('--telegram-token',default=os.getenv('TELEGRAM_BOT_TOKEN')); p.add_argument('--telegram-chat',default=os.getenv('TELEGRAM_CHAT_ID')); p.add_argument('--twelve-key',default=os.getenv('TWELVE_DATA_API_KEY')); p.add_argument('--interval',type=int,default=int(os.getenv('CHECK_INTERVAL_SECONDS','20'))); p.add_argument('--cooldown',type=int,default=int(os.getenv('SIGNAL_COOLDOWN_MINUTES','60'))); return p
