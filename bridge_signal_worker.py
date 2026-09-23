@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v18"
+WORKER_VERSION = "bridge-fast-scalp-v19-primary2of3"
 
 
 def _ema(values, period):
@@ -159,6 +159,26 @@ def compute_signal(values):
             guard_reason = "lower_wick_rejection"
     if guard_reason:
         side = None
+
+    # User-approved DEMO fast/sniper rule: quick-capture trades only.
+    # Any 2 of trend, momentum and RSI are sufficient. This can intentionally
+    # take a correction against the larger trend when momentum+RSI agree.
+    # MAIN rules and all EA hard DEMO/risk gates remain unchanged.
+    primary_buy = int(ema8[-1] > ema21[-1]) + int(momentum > 0) + int(rsi >= 52.0)
+    primary_sell = int(ema8[-1] < ema21[-1]) + int(momentum < 0) + int(rsi <= 48.0)
+    if side is None and max(primary_buy, primary_sell) >= 2:
+        if primary_buy > primary_sell:
+            side, primary_strength = "BUY", primary_buy
+        elif primary_sell > primary_buy:
+            side, primary_strength = "SELL", primary_sell
+        else:
+            side, primary_strength = None, 0
+        if side:
+            guard_reason = None
+            quick_conf = 5 if primary_strength == 2 else 7
+            d = type(d)("SNIPER", side, quick_conf, 0.40 if primary_strength == 2 else 0.55,
+                        0.0, 1.10 if primary_strength == 2 else 1.25,
+                        "fast_primary_2of3" if primary_strength == 2 else "fast_primary_3of3")
 
     # DEMO rebound entry after an extended selloff. Require exhaustion plus
     # an actual bullish rejection candle; never reverse on RSI alone.
