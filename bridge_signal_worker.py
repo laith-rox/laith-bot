@@ -147,8 +147,7 @@ def compute_signal(values):
             guard_reason = "lower_wick_rejection"
     if guard_reason:
         side = None
-    # Preserve the volatility-based stop instead of squeezing it into a fixed
-    # dollar price distance. The EA sizes the allowed loss from DEMO equity.
+    # Use volatility for the structural stop; the EA gates monetary risk.
     risk_distance=max(0.80,atr*d.stop_atr) if side else 0.0
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
@@ -249,8 +248,7 @@ def fetch_spot_price():
 
 def publish_signal(signal, health=None):
     side = signal["side"]
-    # Prefer MT5's fresh bid/ask midpoint; an external spot quote can drift
-    # enough to make the broker reject otherwise sensible stops.
+    # Prefer fresh MT5 price so external spot drift does not invalidate stops.
     reported = (health or {}).get("price") if (health or {}).get("client_state_fresh") else None
     try:
         spot = float(reported)
@@ -265,10 +263,12 @@ def publish_signal(signal, health=None):
     else:
         sl = spot + risk_distance
         tp = spot - risk_distance * float(signal.get("target_r", 1.5))
+    trade_mode = str(signal.get("mode") or "SNIPER").upper()
     payload = {
         "mode": "DEMO",
-        # Signed key carries the condition count; it is not a win probability.
-        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{side}:S{signal['score']}",
+        "trade_mode": trade_mode,
+        # Grade is a count of checks, not a calibrated win probability.
+        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:S{signal['score']}",
         "symbol": "XAUUSD",
         "side": side,
         "volume": VOLUME,
