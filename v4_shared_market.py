@@ -229,13 +229,12 @@ class SharedV4Market(Market):
             max_entry_delay_seconds = 300
 
         current = self._shared_current_bar if self._shared_slot == slot else None
+        # Do not immediately repeat time_series inside the same slot when the
+        # provider omitted the forming candle. That duplicate request was adding
+        # quota pressure without improving the reference in production.
         if current is None and self._current_retry_slot != slot:
             self._current_retry_slot = slot
-            try:
-                bars, current = self._fetch_provider_snapshot(now)
-                self._store_snapshot(now, bars, current)
-            except DataError as exc:
-                LOG.warning("quick_current_candle_refresh_failed reason=%s", exc)
+            LOG.info("quick_current_candle_retry_skipped reason=provider_omits_forming_bar slot=%s", slot)
 
         if current is None or current.start != slot_start:
             try:
