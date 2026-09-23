@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v17"
+WORKER_VERSION = "bridge-fast-scalp-v18"
 
 
 def _ema(values, period):
@@ -175,6 +175,25 @@ def compute_signal(values):
         side = "BUY"
         guard_reason = None
         d = type(d)("REBOUND", "BUY", 8, 0.60, 0.0, 1.25, "selloff_exhaustion_rebound")
+
+    # Fast DEMO edge override: when the adaptive engine says no_edge but one
+    # side has a clear 5/7 vs <=1/7 advantage, allow a confirmed night scalp.
+    # Balanced/ambiguous readings (for example 3/7 vs 3/7) remain blocked.
+    if side is None and night_sniper and d.reason == "no_edge":
+        fast_buy = (
+            buy_score >= 5 and sell_score <= 1 and not macro_down
+            and close > ema8[-1] and momentum > 0 and close > open_
+            and upper_wick <= max(1.25*body, 0.45*atr)
+        )
+        fast_sell = (
+            sell_score >= 5 and buy_score <= 1 and not macro_up
+            and close < ema8[-1] and momentum < 0 and close < open_
+            and lower_wick <= max(1.25*body, 0.45*atr)
+        )
+        if fast_buy or fast_sell:
+            side = "BUY" if fast_buy else "SELL"
+            guard_reason = None
+            d = type(d)("NIGHT_SNIPER", side, 7, 0.45, 0.0, 1.25, "fast_5v1_edge")
 
     # Night-only scout: during the approved 19:00-04:29 window, accept
     # a clean 4/7 micro-edge only when price action confirms it. This raises
