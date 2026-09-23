@@ -27,7 +27,7 @@ ALLOW_STALE_MT5_STATE = os.getenv("ALLOW_STALE_MT5_STATE", "false").strip().lowe
 SYMBOL = "XAU/USD"
 YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
-WORKER_VERSION = "bridge-night-feed-v13"
+WORKER_VERSION = "bridge-fast-scalp-v15"
 
 
 def _ema(values, period):
@@ -176,14 +176,14 @@ def compute_signal(values):
         bullish_confirm = close > open_ and close >= rows[-2]["close"] and body >= 0.18*atr
         bearish_confirm = close < open_ and close <= rows[-2]["close"] and body >= 0.18*atr
         scout_buy = (
-            buy_score >= 4 and buy_score - sell_score >= 2
+            buy_score >= 3 and buy_score - sell_score >= 2
             and not macro_down and close > ema8[-1] and momentum > 0
             and bullish_confirm and 42.0 <= rsi < 70.0
             and not ((close >= recent_high - 0.15*atr) and not held_break_up)
             and upper_wick <= max(1.00*body, 0.35*atr)
         )
         scout_sell = (
-            sell_score >= 4 and sell_score - buy_score >= 2
+            sell_score >= 3 and sell_score - buy_score >= 2
             and not macro_up and close < ema8[-1] and momentum < 0
             and bearish_confirm and 30.0 < rsi <= 58.0
             and not ((close <= recent_low + 0.15*atr) and not held_break_down)
@@ -193,10 +193,10 @@ def compute_signal(values):
             side = "BUY" if scout_buy else "SELL"
             guard_reason = None
             scout_score = max(buy_score, sell_score)
-            d = type(d)("NIGHT_SNIPER", side, 6 if scout_score == 4 else 7,
-                        0.45 if scout_score == 4 else 0.50, 0.0,
-                        1.10 if scout_score == 4 else 1.20,
-                        "night_4of7_micro" if scout_score == 4 else "night_5of7_scout")
+            d = type(d)("NIGHT_SNIPER", side, 6 if scout_score <= 4 else 7,
+                        0.40 if scout_score == 3 else (0.45 if scout_score == 4 else 0.50), 0.0,
+                        1.10 if scout_score <= 4 else 1.20,
+                        "night_3of7_fast" if scout_score == 3 else ("night_4of7_micro" if scout_score == 4 else "night_5of7_scout"))
 
     if d.mode == "REBOUND" and side == "BUY":
         raw_risk = close - last["low"] + max(0.20, 0.10 * atr)
@@ -208,7 +208,7 @@ def compute_signal(values):
         # Night trades are short-lived scalps. Keep the tighter stop requested:
         # 1.50 for opportunistic 5/7 scouts, up to 2.00 for stronger setups.
         strength = max(buy_score, sell_score)
-        cap = 1.20 if strength == 4 else (1.50 if strength == 5 else 2.00)
+        cap = 1.00 if strength == 3 else (1.20 if strength == 4 else (1.50 if strength == 5 else 2.00))
         risk_distance = min(risk_distance, cap)
         d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
