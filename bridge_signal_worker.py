@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from email.utils import parsedate_to_datetime
 from adaptive_sniper_engine import decide
+from multi_timeframe_structure import analyze_structure
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
 BRIDGE_PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "").strip()
@@ -29,7 +30,8 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v21d-http-detail"
+_MTF_CACHE = {}
+WORKER_VERSION = "bridge-mtf-structure-v22"
 
 
 def _ema(values, period):
@@ -331,44 +333,81 @@ def _parse_yahoo_rows(payload):
     return list(reversed(rows))
 
 
-def fetch_market_values():
-    global _LAST_GOOD_MARKET_ROWS, _LAST_GOOD_MARKET_AT
-    """Fetch 5m gold candles with redundant Yahoo endpoints/ranges.
+def fetch_market_values_tf(interval="5m", ranges=("5d","1mo")):
+    """Fetch closed-candle source rows for one timeframe with short safe cache."""
+    errors=[]; nonce=int(time.time()//30)
+    for host in ("query1.finance.yahoo.com","query2.finance.yahoo.com"):
+        for range_ in ranges:
+            try:
+                params=urlencode({"interval":interval,"range":range_,"_":nonce})
+                url=f"https://{host}/v8/finance/chart/{YAHOO_SYMBOL}?{params}"
+                status,payload=_json_request(url,headers={
+                    "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    "Cache-Control":"no-cache",
+                },timeout=8)
+                if status==200:
+                    values=_parse_yahoo_rows(payload)
+                    _MTF_CACHE[interval]=(values,time.time())
+                    return values
+                errors.append(f"{host}:{interval}:{range_}:{status}")
+            except Exception as exc:
+                errors.append(f"{host}:{interval}:{range_}:{type(exc).__name__}:{exc}")
+    cached=_MTF_CACHE.get(interval)
+    if cached and time.time()-cached[1] <= 360:
+        print(f"market_feed_fallback interval={interval} age={time.time()-cached[1]:.0f}s",flush=True)
+        return cached[0]
+    raise RuntimeError("market_feed_all_failed:"+"|".join(errors))
 
-    This remains a directional proxy for DEMO commissioning only. The MT5 EA
-    remains the execution and safety gate. Multiple hosts prevent a single
-    Yahoo edge returning 503 from putting the worker to sleep.
-    """
-    errors = []
-    nonce = int(time.time() // 30)
-    attempts = [
-        ("query1.finance.yahoo.com", "5d"),
-        ("query2.finance.yahoo.com", "5d"),
-        ("query1.finance.yahoo.com", "1mo"),
-        ("query2.finance.yahoo.com", "1mo"),
-    ]
-    for host, range_ in attempts:
-        try:
-            params = urlencode({"interval": "5m", "range": range_, "_": nonce})
-            url = f"https://{host}/v8/finance/chart/{YAHOO_SYMBOL}?{params}"
-            status, payload = _json_request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Cache-Control": "no-cache",
-            }, timeout=8)
-            if status == 200:
-                rows = _parse_yahoo_rows(payload)
-                _LAST_GOOD_MARKET_ROWS, _LAST_GOOD_MARKET_AT = rows, time.time()
-                return rows
-            errors.append(f"{host}:{status}")
-        except Exception as exc:
-            errors.append(f"{host}:{type(exc).__name__}:{exc}")
-    # Short provider outages must not blind the DEMO worker. Reuse only a
-    # recent successful candle snapshot; never use an old cache for entries.
-    cache_age = time.time() - _LAST_GOOD_MARKET_AT
-    if _LAST_GOOD_MARKET_ROWS is not None and cache_age <= 360:
-        print(f"market_feed_fallback source=recent_cache age={cache_age:.0f}s errors={'|'.join(errors)}", flush=True)
-        return _LAST_GOOD_MARKET_ROWS
-    raise RuntimeError("market_feed_all_failed:" + "|".join(errors))
+
+def fetch_market_values():
+    # Backward-compatible 5m accessor used by unit tests and diagnostics.
+    return fetch_market_values_tf("5m",("5d","1mo"))
+
+
+def fetch_multitimeframe_values():
+    return {
+        "5m": fetch_market_values_tf("5m",("5d","1mo")),
+        "15m": fetch_market_values_tf("15m",("5d","1mo")),
+        "1h": fetch_market_values_tf("1h",("1mo","3mo")),
+    }
+
+
+def apply_mtf_structure(signal, mtf):
+    """Make H4/M15/M5 structure the entry gate for DEMO trades."""
+    out=dict(signal)
+    side=mtf.get("side")
+    if side not in ("BUY","SELL"):
+        out["side"]=None
+        out["reason"]=mtf.get("reason","mtf_wait")
+        out["mtf"]=mtf
+        return out
+
+    aligned = (side=="BUY" and mtf.get("h4_bias")=="UP") or (side=="SELL" and mtf.get("h4_bias")=="DOWN")
+    breakout = mtf.get("break_up") if side=="BUY" else mtf.get("break_down")
+    retest = mtf.get("retest_up") if side=="BUY" else mtf.get("retest_down")
+    m5confirm = mtf.get("m5_confirm_buy") if side=="BUY" else mtf.get("m5_confirm_sell")
+    original = list((signal.get("checks") or {}).get(side) or [False]*7)
+    score5 = int(signal.get("buy_score",0) if side=="BUY" else signal.get("sell_score",0))
+    checks=[bool(aligned),bool(breakout),bool(retest or breakout),bool(m5confirm),
+            score5>=4, bool(original[0] if len(original)>0 else False),
+            bool(original[4] if len(original)>4 else False)]
+    if sum(checks)<5:
+        out["side"]=None; out["reason"]="mtf_structure_not_fully_confirmed"; out["mtf"]=mtf
+        return out
+
+    out["side"]=side
+    out["mode"]="MAIN" if aligned else "SNIPER"
+    out["confidence"]=9 if retest and aligned else 8
+    out["reason"]=mtf.get("reason","mtf_structure_entry")
+    out["checks"]={"BUY":[False]*7,"SELL":[False]*7}
+    out["checks"][side]=checks
+    # Structure trades need room, but retain the existing absolute risk caps.
+    atr15=float(mtf.get("m15_atr") or 0)
+    cap=3.20 if out["mode"]=="MAIN" else 1.60
+    out["risk_distance"]=max(0.80,min(cap,max(float(signal.get("risk_distance") or 0),0.90*atr15)))
+    out["target_r"]=2.0 if out["mode"]=="MAIN" else 1.25
+    out["mtf"]=mtf
+    return out
 
 
 def bridge_health():
@@ -509,7 +548,13 @@ def run_forever():
                 time.sleep(POLL_SECONDS)
                 continue
 
-            signal = compute_signal(fetch_market_values())
+            feeds = fetch_multitimeframe_values()
+            m5_rows = normalize_rows(feeds["5m"])
+            m15_rows = normalize_rows(feeds["15m"])
+            h1_rows = normalize_rows(feeds["1h"])
+            signal = compute_signal(feeds["5m"])
+            mtf = analyze_structure(m5_rows, m15_rows, h1_rows)
+            signal = apply_mtf_structure(signal, mtf)
             if signal["bar"] == last_bar:
                 time.sleep(POLL_SECONDS)
                 continue
@@ -518,7 +563,10 @@ def run_forever():
             if not signal["side"]:
                 print(
                     f"bridge_signal_wait bar={signal['bar']} buy={signal['buy_score']}/7 "
-                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f} reason={signal.get('reason')}",
+                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
+                    f"h4={signal.get('mtf',{}).get('h4_bias','?')} "
+                    f"m15S={signal.get('mtf',{}).get('m15_support','?')} "
+                    f"m15R={signal.get('mtf',{}).get('m15_resistance','?')}",
                     flush=True,
                 )
                 time.sleep(POLL_SECONDS)
@@ -532,7 +580,10 @@ def run_forever():
                 print(
                     f"bridge_signal_published key={key} side={signal['side']} "
                     f"mode={signal.get('mode')} score={signal['score']}/7 confidence={signal.get('confidence')} reference_proxy={signal['reference_close']:.2f} "
-                    f"risk_distance={signal['risk_distance']:.2f}",
+                    f"risk_distance={signal['risk_distance']:.2f} reason={signal.get('reason')} "
+                    f"h4={signal.get('mtf',{}).get('h4_bias','?')} "
+                    f"m15S={signal.get('mtf',{}).get('m15_support','?')} "
+                    f"m15R={signal.get('mtf',{}).get('m15_resistance','?')}",
                     flush=True,
                 )
             else:
