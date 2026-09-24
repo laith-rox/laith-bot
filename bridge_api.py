@@ -23,7 +23,7 @@ HMAC_SECRET = os.getenv("BRIDGE_HMAC_SECRET", "")
 CONFIG_ENABLED = os.getenv("BRIDGE_ENABLED", "false").strip().lower() == "true"
 MAX_AGE_SECONDS = 30
 DELIVERY_LEASE_SECONDS = 5
-MAX_PENDING = 1
+MAX_PENDING = 4
 FIXED_VOLUME = 0.01
 STATE_FRESH_SECONDS = 10
 
@@ -55,6 +55,12 @@ def _command_text(item: dict) -> str:
         return "|".join([
             "DEMO", item["key"], str(item["ts"]), item["symbol"],
             item["side"], item["volume"], item["sl"], item["tp"],
+        ])
+    ticket = str(item.get("ticket", "")).strip()
+    if ticket:
+        return "|".join([
+            "DEMO", "ACTION", item["key"], str(item["ts"]), item["symbol"],
+            action, ticket, item.get("sl", "0.00000"), item.get("tp", "0.00000"),
         ])
     return "|".join([
         "DEMO", "ACTION", item["key"], str(item["ts"]), item["symbol"],
@@ -139,12 +145,25 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
         return False, "volume_must_be_0_01"
     if sl <= 0 or tp <= 0:
         return False, "sl_tp_required"
-    checks = data.get("checks", {})
-    selected = checks.get(side) if isinstance(checks, dict) else None
-    if not isinstance(selected, list) or len(selected) != 7:
-        return False, "seven_checks_required"
-    if sum(bool(x) for x in selected) < 5:
-        return False, "fast_conditions_not_met"
+    trade_mode = str(data.get("trade_mode", "SNIPER")).upper()
+    if trade_mode == "MAIN":
+        analysis = data.get("analysis", {})
+        required = ("h4_bias", "m15_structure", "m5_confirmation", "invalidation")
+        if not isinstance(analysis, dict) or any(not analysis.get(k) for k in required):
+            return False, "main_analysis_required"
+        if str(analysis.get("h4_bias")).upper() not in ("UP", "DOWN"):
+            return False, "main_h4_bias_required"
+        if side == "BUY" and str(analysis.get("h4_bias")).upper() != "UP":
+            return False, "main_bias_mismatch"
+        if side == "SELL" and str(analysis.get("h4_bias")).upper() != "DOWN":
+            return False, "main_bias_mismatch"
+    else:
+        checks = data.get("checks", {})
+        selected = checks.get(side) if isinstance(checks, dict) else None
+        if not isinstance(selected, list) or len(selected) != 7:
+            return False, "seven_checks_required"
+        if sum(bool(x) for x in selected) < 5:
+            return False, "fast_conditions_not_met"
     return True, "approved"
 
 
@@ -245,6 +264,9 @@ class Handler(BaseHTTPRequestHandler):
                     "effective_risk_budget_usd": (_client_state or {}).get("effective_risk_budget_usd"),
                     "commissioning_used": (_client_state or {}).get("commissioning_used"),
                     "commissioning_remaining": (_client_state or {}).get("commissioning_remaining"),
+                    "positions": (_client_state or {}).get("positions", []),
+                    "owned_position_count": (_client_state or {}).get("owned_position_count", 0),
+                    "total_position_risk_usd": (_client_state or {}).get("total_position_risk_usd", "0.00"),
                 }
             return self._json(200, payload)
 
@@ -352,6 +374,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(409, {"ok": False, "reason": "position_or_command_limit"})
                 item = {
                     "action": "OPEN",
+                    "trade_mode": str(data.get("trade_mode", "SNIPER")).upper(),
                     "key": key,
                     "ts": int(time.time()),
                     "symbol": "XAUUSD",
@@ -380,10 +403,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(400, {"ok": False, "reason": reason})
                 if not _state_is_fresh():
                     return self._json(409, {"ok": False, "reason": "client_state_stale"})
-                if not bool((_client_state or {}).get("position_open")):
-                    return self._json(409, {"ok": False, "reason": "no_open_position"})
-                if not bool((_client_state or {}).get("position_owned")):
-                    return self._json(409, {"ok": False, "reason": "position_not_owned_by_bridge"})
+                target_ticket = str(data.get("ticket", "")).strip()
+                positions = (_client_state or {}).get("positions", [])
+                if target_ticket:
+                    match = next((p for p in positions if str(p.get("ticket")) == target_ticket and bool(p.get("owned"))), None)
+                    if match is None:
+                        return self._json(409, {"ok": False, "reason": "target_ticket_not_owned"})
+                else:
+                    if not bool((_client_state or {}).get("position_open")):
+                        return self._json(409, {"ok": False, "reason": "no_open_position"})
+                    if not bool((_client_state or {}).get("position_owned")):
+                        return self._json(409, {"ok": False, "reason": "position_not_owned_by_bridge"})
                 key = str(data["key"])
                 if key in _items:
                     return self._json(409, {"ok": False, "reason": "duplicate_order", "key": key})
@@ -395,6 +425,7 @@ class Handler(BaseHTTPRequestHandler):
                     "key": key,
                     "ts": int(time.time()),
                     "symbol": "XAUUSD",
+                    "ticket": target_ticket,
                     "sl": f"{float(data.get('sl', 0)):.5f}",
                     "tp": f"{float(data.get('tp', 0)):.5f}",
                     "reason": str(data.get("reason", "")),
@@ -413,6 +444,24 @@ class Handler(BaseHTTPRequestHandler):
             symbol = str(data.get("symbol", "")).upper()
             if "XAUUSD" not in symbol:
                 return self._json(400, {"ok": False, "reason": "gold_only"})
+            raw_positions = data.get("positions", [])
+            positions = []
+            if isinstance(raw_positions, list):
+                for p in raw_positions[:20]:
+                    if not isinstance(p, dict):
+                        continue
+                    positions.append({
+                        "ticket": str(p.get("ticket", ""))[:40],
+                        "owned": bool(p.get("owned")),
+                        "side": str(p.get("side", ""))[:8],
+                        "volume": str(p.get("volume", ""))[:24],
+                        "open_price": str(p.get("open_price", ""))[:32],
+                        "sl": str(p.get("sl", ""))[:32],
+                        "tp": str(p.get("tp", ""))[:32],
+                        "price": str(p.get("price", ""))[:32],
+                        "profit": str(p.get("profit", ""))[:32],
+                        "risk_usd": str(p.get("risk_usd", ""))[:32],
+                    })
             clean_state = {
                 "mode": "DEMO",
                 "symbol": symbol[:32],
@@ -433,6 +482,9 @@ class Handler(BaseHTTPRequestHandler):
                 "effective_risk_budget_usd": str(data.get("effective_risk_budget_usd", ""))[:32],
                 "commissioning_used": str(data.get("commissioning_used", ""))[:16],
                 "commissioning_remaining": str(data.get("commissioning_remaining", ""))[:16],
+                "positions": positions,
+                "owned_position_count": int(data.get("owned_position_count", len([p for p in positions if p.get("owned")])) or 0),
+                "total_position_risk_usd": str(data.get("total_position_risk_usd", "0.00"))[:32],
                 "received_at": time.time(),
             }
             with _lock:
