@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v20-correction-adaptive"
+WORKER_VERSION = "bridge-structure-stop-v22"
 
 
 def _ema(values, period):
@@ -160,36 +160,13 @@ def compute_signal(values):
     if guard_reason:
         side = None
 
-    # User-approved resistance/support sniping: treat a tested level as an
-    # entry zone only after price-action confirmation. A bearish rejection at
-    # resistance can trigger a quick SELL; a bullish rejection at support can
-    # trigger a quick BUY. Do not blindly fade a level or chase the first break.
-    near_resistance = last["high"] >= recent_high - 0.12 * atr
-    near_support = last["low"] <= recent_low + 0.12 * atr
-    resistance_rejection = (
-        near_resistance and close < open_ and upper_wick >= max(0.35 * atr, 0.75 * body)
-        and momentum <= 0 and rsi >= 48.0
-    )
-    support_rejection = (
-        near_support and close > open_ and lower_wick >= max(0.35 * atr, 0.75 * body)
-        and momentum >= 0 and rsi <= 52.0
-    )
-    if side is None and resistance_rejection and not held_break_up:
-        side = "SELL"
-        guard_reason = None
-        d = type(d)("REJECTION_SCALP", "SELL", 6, 0.40, 1.0, 0.90, "resistance_rejection_sniper")
-    elif side is None and support_rejection and not held_break_down:
-        side = "BUY"
-        guard_reason = None
-        d = type(d)("REJECTION_SCALP", "BUY", 6, 0.40, 1.0, 0.90, "support_rejection_sniper")
-
     # User-approved DEMO fast/sniper rule: quick-capture trades only.
     # Any 2 of trend, momentum and RSI are sufficient. This can intentionally
     # take a correction against the larger trend when momentum+RSI agree.
     # MAIN rules and all EA hard DEMO/risk gates remain unchanged.
     primary_buy = int(ema8[-1] > ema21[-1]) + int(momentum > 0) + int(rsi >= 52.0)
     primary_sell = int(ema8[-1] < ema21[-1]) + int(momentum < 0) + int(rsi <= 48.0)
-    if side is None and max(primary_buy, primary_sell) >= 2:
+    if side is None and guard_reason not in ("resistance_not_confirmed", "support_not_confirmed", "upper_wick_rejection", "lower_wick_rejection") and max(primary_buy, primary_sell) >= 2:
         if primary_buy > primary_sell:
             side, primary_strength = "BUY", primary_buy
         elif primary_sell > primary_buy:
@@ -275,20 +252,37 @@ def compute_signal(values):
                         1.10 if scout_score <= 4 else 1.20,
                         "night_3of7_fast" if scout_score == 3 else ("night_4of7_micro" if scout_score == 4 else "night_5of7_scout"))
 
-    if d.mode == "REBOUND" and side == "BUY":
-        raw_risk = close - last["low"] + max(0.20, 0.10 * atr)
-        risk_distance = max(0.80, min(3.20, raw_risk))
+    # Structure-based invalidation stop. SELL stops belong above the recent
+    # resistance zone; BUY stops belong below recent support. If the structural
+    # stop needs more room than the existing mode cap, reject the setup instead
+    # of widening risk. This preserves the existing DEMO risk ceiling.
+    strength = max(buy_score, sell_score)
+    if d.mode == "CORRECTION_SCALP":
+        risk_cap = 1.00 if strength <= 4 else 1.30
+    elif d.mode in ("SNIPER", "NIGHT_SNIPER"):
+        risk_cap = 1.10 if strength <= 3 else (1.35 if strength <= 4 else 1.60)
     else:
-        # Adaptive stop: stronger setups get room to breathe; medium/weak quick
-        # trades and correction scalps stay tighter. Never exceed existing caps.
-        strength = max(buy_score, sell_score)
-        if d.mode == "CORRECTION_SCALP":
-            risk_cap = 1.00 if strength <= 4 else 1.30
-        elif d.mode in ("SNIPER", "NIGHT_SNIPER"):
-            risk_cap = 1.10 if strength <= 3 else (1.35 if strength <= 4 else 1.60)
-        else:
-            risk_cap = 2.00 if strength <= 4 else (2.60 if strength <= 5 else 3.20)
-        risk_distance=max(0.80,min(risk_cap,atr*d.stop_atr)) if side else 0.0
+        risk_cap = 2.00 if strength <= 4 else (2.60 if strength <= 5 else 3.20)
+
+    structure_pad = max(0.15, 0.10 * atr)
+    if side == "BUY":
+        structure_stop = recent_low - structure_pad
+        structural_risk = close - structure_stop
+    elif side == "SELL":
+        structure_stop = recent_high + structure_pad
+        structural_risk = structure_stop - close
+    else:
+        structural_risk = 0.0
+
+    if d.mode == "REBOUND" and side == "BUY":
+        structural_risk = max(structural_risk, close - last["low"] + max(0.20, 0.10 * atr))
+
+    if side and (structural_risk <= 0 or structural_risk > risk_cap):
+        side = None
+        guard_reason = "structure_stop_exceeds_risk_cap"
+        risk_distance = 0.0
+    else:
+        risk_distance = max(0.80, structural_risk) if side else 0.0
     if night_sniper and side and d.mode != "REBOUND":
         # Night trades are short-lived scalps. Keep the tighter stop requested:
         # 1.50 for opportunistic 5/7 scouts, up to 2.00 for stronger setups.
@@ -316,9 +310,17 @@ def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
         data = json.dumps(payload, separators=(",", ":")).encode()
         request_headers["Content-Type"] = "application/json"
     req = Request(url, data=data, method=method, headers=request_headers)
-    with urlopen(req, timeout=timeout) as response:
-        raw = response.read().decode()
-        return response.status, json.loads(raw) if raw else {}
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode()
+            return response.status, json.loads(raw) if raw else {}
+    except HTTPError as exc:
+        raw = exc.read().decode() if exc.fp else ""
+        try:
+            payload = json.loads(raw) if raw else {}
+        except Exception:
+            payload = {"detail": raw[:300]}
+        return exc.code, payload
 
 
 def _parse_yahoo_rows(payload):
@@ -387,10 +389,20 @@ def fetch_market_values():
 
 
 def bridge_health():
-    status, payload = _json_request(f"{BRIDGE_URL}/health")
-    if status != 200:
-        raise RuntimeError(f"bridge_health_http_{status}")
-    return payload
+    # Railway public routing can briefly return 503 during edge/container handoff.
+    # Retry health only; this never bypasses state/risk gates or publishes a trade.
+    last_error = None
+    for attempt in range(3):
+        try:
+            status, payload = _json_request(f"{BRIDGE_URL}/health")
+            if status == 200:
+                return payload
+            last_error = RuntimeError(f"bridge_health_http_{status}")
+        except (HTTPError, URLError, TimeoutError) as exc:
+            last_error = exc
+        if attempt < 2:
+            time.sleep(2)
+    raise RuntimeError(f"bridge_health_unavailable:{last_error}")
 
 
 def fetch_spot_price():
@@ -414,9 +426,13 @@ def fetch_spot_price():
     return price
 
 
-def publish_signal(signal):
+def publish_signal(signal, spot_override=None):
     side = signal["side"]
-    spot = fetch_spot_price()
+    # Prefer the fresh MT5 broker price already authenticated through /state.
+    # External spot remains fallback only.
+    spot = float(spot_override or 0)
+    if spot <= 0:
+        spot = fetch_spot_price()
     risk_distance = float(signal["risk_distance"])
     if side == "BUY":
         sl = spot - risk_distance
@@ -525,7 +541,8 @@ def run_forever():
                 time.sleep(POLL_SECONDS)
                 continue
 
-            status, response, key = publish_signal(signal)
+            mt5_spot = float(health.get("price") or 0) if health.get("client_state_fresh") else 0.0
+            status, response, key = publish_signal(signal, mt5_spot)
             if status == 201 and response.get("ok") is True:
                 if MAX_PUBLISH_PER_HOUR > 0:
                     publishes.append(time.time())
