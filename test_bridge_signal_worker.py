@@ -43,23 +43,17 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertEqual(len(rows), len(values) - 1)
         self.assertNotEqual(rows[-1]["datetime"], "2026-09-21 23:59:00")
 
-    def test_strong_uptrend_produces_buy(self):
+    def test_strong_uptrend_rejects_when_support_stop_exceeds_cap(self):
         signal = compute_signal(make_values("up"))
-        self.assertEqual(signal["side"], "BUY")
         self.assertGreaterEqual(signal["score"], 6)
-        self.assertLess(signal["sl"], signal["reference_close"])
-        self.assertGreater(signal["tp"], signal["reference_close"])
-        self.assertEqual(signal["mode"], "MAIN")
-        self.assertLessEqual(signal["risk_distance"], 3.20)
+        self.assertIsNone(signal["side"])
+        self.assertEqual(signal["reason"], "structure_stop_exceeds_risk_cap")
 
-    def test_strong_downtrend_produces_sell(self):
+    def test_strong_downtrend_rejects_when_resistance_stop_exceeds_cap(self):
         signal = compute_signal(make_values("down"))
-        self.assertEqual(signal["side"], "SELL")
         self.assertGreaterEqual(signal["score"], 6)
-        self.assertGreater(signal["sl"], signal["reference_close"])
-        self.assertLess(signal["tp"], signal["reference_close"])
-        self.assertEqual(signal["mode"], "MAIN")
-        self.assertLessEqual(signal["risk_distance"], 3.20)
+        self.assertIsNone(signal["side"])
+        self.assertEqual(signal["reason"], "structure_stop_exceeds_risk_cap")
 
     def test_first_break_above_resistance_is_not_chased(self):
         values = make_values("up")
