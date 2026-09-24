@@ -98,7 +98,11 @@ class PublishLimitTests(unittest.TestCase):
                             MAX_PUBLISH_PER_HOUR=cap,
                             ALLOW_STALE_MT5_STATE=False), \
              patch.object(worker, "bridge_health", return_value=health), \
-             patch.object(worker, "fetch_market_values", return_value=[]), \
+             patch.object(worker, "fetch_multitimeframe_values", return_value={"5m":[],"15m":[],"1h":[]}), \
+             patch.object(worker, "normalize_rows", return_value=[]), \
+             patch.object(worker, "analyze_structure", return_value={"side":"BUY"}), \
+             patch.object(worker, "apply_main_structure", side_effect=lambda s,m:s), \
+             patch.object(worker, "same_entry_copies", return_value=1), \
              patch.object(worker, "compute_signal", side_effect=signals), \
              patch.object(worker, "publish_signal",
                           return_value=(201, {"ok": True}, "test")) as publish, \
@@ -135,6 +139,23 @@ class PublishLimitTests(unittest.TestCase):
                 worker.validate_config()
 
 
+class MultiPositionDecisionTests(unittest.TestCase):
+    def test_open_position_does_not_block_when_pending_capacity_exists(self):
+        health={"mode":"DEMO","enabled":True,"client_state_fresh":True,
+                "position_open":True,"pending":0}
+        self.assertIsNone(worker.execution_block_reason(health))
+
+    def test_pending_capacity_still_blocks(self):
+        health={"mode":"DEMO","enabled":True,"client_state_fresh":True,
+                "position_open":True,"pending":4}
+        self.assertEqual(worker.execution_block_reason(health),"pending_command_limit")
+
+    def test_same_entry_copies_respect_unchanged_half_budget(self):
+        signal={"risk_distance":1.0}
+        health={"effective_risk_budget_usd":"6.00","total_position_risk_usd":"1.00"}
+        self.assertEqual(worker.same_entry_copies(signal,health),2)
+
+
 class LegacyCompatibilityTests(unittest.TestCase):
     def setUp(self):
         self.health = {"mode": "DEMO", "enabled": True,
@@ -154,8 +175,7 @@ class LegacyCompatibilityTests(unittest.TestCase):
                 ({"client_last_seen_age": 11}, "mt5_state_stale"),
                 ({"mode": "LIVE"}, "bridge_not_demo"),
                 ({"enabled": False}, "bridge_disabled"),
-                ({"pending": 1}, "position_or_pending"),
-                ({"position_open": True}, "position_or_pending"),
+                ({"pending": 4}, "pending_command_limit"),
             ]:
                 with self.subTest(changes=changes):
                     self.assertEqual(worker.execution_block_reason({**self.health, **changes}), reason)
