@@ -87,6 +87,27 @@ class BridgeSignalWorkerTests(unittest.TestCase):
 
 
 
+class MultiTimeframeGateTests(unittest.TestCase):
+    def base_signal(self):
+        return {
+            "side":"BUY","mode":"MAIN","reason":"x","risk_distance":1.2,
+            "buy_score":6,"sell_score":1,
+            "checks":{"BUY":[True]*7,"SELL":[False]*7},
+        }
+
+    def test_no_structure_means_no_trade(self):
+        out=worker.apply_mtf_structure(self.base_signal(),{"side":None,"reason":"mtf_wait"})
+        self.assertIsNone(out["side"])
+
+    def test_confirmed_buy_structure_becomes_main(self):
+        mtf={"side":"BUY","h4_bias":"UP","break_up":True,"retest_up":True,
+             "m5_confirm_buy":True,"m15_atr":2.0,"reason":"m15_resistance_break_retest"}
+        out=worker.apply_mtf_structure(self.base_signal(),mtf)
+        self.assertEqual((out["side"],out["mode"]),("BUY","MAIN"))
+        self.assertGreaterEqual(sum(out["checks"]["BUY"]),5)
+        self.assertLessEqual(out["risk_distance"],3.20)
+
+
 class StopWorker(BaseException):
     pass
 
@@ -104,7 +125,11 @@ class PublishLimitTests(unittest.TestCase):
                             MAX_PUBLISH_PER_HOUR=cap,
                             ALLOW_STALE_MT5_STATE=False), \
              patch.object(worker, "bridge_health", return_value=health), \
-             patch.object(worker, "fetch_market_values", return_value=[]), \
+             patch.object(worker, "fetch_multitimeframe_values",
+                          return_value={"5m": [], "15m": [], "1h": []}), \
+             patch.object(worker, "normalize_rows", return_value=[]), \
+             patch.object(worker, "analyze_structure", return_value={"side": "BUY"}), \
+             patch.object(worker, "apply_mtf_structure", side_effect=lambda s, m: s), \
              patch.object(worker, "compute_signal", side_effect=signals), \
              patch.object(worker, "publish_signal",
                           return_value=(201, {"ok": True}, "test")) as publish, \
