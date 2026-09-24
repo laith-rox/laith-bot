@@ -97,9 +97,10 @@ def emergency_message(snapshot):
     marker = "🚨" if snapshot.get("severity") == "مرتفعة" else "⚠️"
     side_ar = "شراء" if snapshot.get("side") == "BUY" else "بيع"
     opp_ar = "بيع" if snapshot.get("opposite_side") == "SELL" else "شراء"
+    direction_arrow = "⬆️" if snapshot.get("opposite_side") == "BUY" else "⬇️"
     reasons = " — ".join(str(x) for x in (snapshot.get("reasons") or [])[:2]) or "انعكاس محتمل"
     lines = [
-        f"{marker} <b>طوارئ V4 — احتمال انعكاس</b>",
+        f"{marker} <b>طوارئ V4 — احتمال انعكاس {direction_arrow}</b>",
         f"🔴① وقف/إبطال الصفقة: <b>{_fmt(snapshot.get('stop'))}</b>",
         f"🔴② درجة التحذير: <b>{snapshot.get('severity', '—')}</b>",
         f"🟠③ السعر / الدخول: {_fmt(snapshot.get('price'))} / {_fmt(snapshot.get('entry'))}",
