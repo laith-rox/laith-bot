@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("BRIDGE_URL", "https://example.invalid")
 os.environ.setdefault("BRIDGE_PUBLISH_TOKEN", "test-only")
@@ -9,6 +10,7 @@ from bridge_emergency_worker import (
     evaluate_profit_guardian,
     protected_profit_floor,
     select_exit_reason,
+    manage_close,
 )
 
 
