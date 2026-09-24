@@ -28,6 +28,7 @@ class BridgeValidationTests(unittest.TestCase):
             "key": "open-test",
             "symbol": "XAUUSD",
             "side": "BUY",
+            "trade_mode": "MAIN",
             "volume": 0.01,
             "sl": 3900,
             "tp": 4100,
@@ -38,7 +39,7 @@ class BridgeValidationTests(unittest.TestCase):
 
     def test_fast_gate_accepts_five_and_rejects_four(self):
         base = {"mode":"DEMO","key":"fast5","symbol":"XAUUSD","side":"BUY",
-                "volume":0.01,"sl":3900,"tp":4100,"forced":False}
+                "trade_mode":"MAIN","volume":0.01,"sl":3900,"tp":4100,"forced":False}
         p={**base,"checks":{"BUY":[True,True,True,True,True,False,False]}}
         self.assertEqual(bridge_api._validate_publish(p),(True,"approved"))
         p["key"]="fast4"; p["checks"]={"BUY":[True,True,True,True,False,False,False]}
@@ -46,7 +47,7 @@ class BridgeValidationTests(unittest.TestCase):
 
     def test_live_and_forced_remain_blocked(self):
         p={"mode":"LIVE","key":"live","symbol":"XAUUSD","side":"BUY","volume":0.01,
-           "sl":3900,"tp":4100,"forced":False,"checks":{"BUY":[True]*7}}
+           "trade_mode":"MAIN","sl":3900,"tp":4100,"forced":False,"checks":{"BUY":[True]*7}}
         self.assertEqual(bridge_api._validate_publish(p),(False,"demo_only"))
         p["mode"]="DEMO"; p["forced"]=True
         self.assertEqual(bridge_api._validate_publish(p),(False,"forced_bias_blocked"))
