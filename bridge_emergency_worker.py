@@ -130,10 +130,15 @@ def evaluate_emergency(state, samples):
     long_momentum = direction * (float(samples[-1]) - float(samples[0]))
 
     near_stop = stop_room <= max(0.25, 0.18 * risk)
+    # Do not mistake a normal early pullback for a true accelerating loss.
+    # This exit now needs a deeper move (roughly half the planned stop risk),
+    # a longer observation window, and adverse momentum on both horizons.
+    # Near-stop remains an immediate hard exit below.
     accelerated_loss = (
-        edge <= -max(0.60, 0.20 * risk)
-        and short_momentum <= -max(0.20, 0.08 * risk)
-        and long_momentum < 0
+        len(samples) >= 10
+        and edge <= -max(1.00, 0.50 * risk)
+        and short_momentum <= -max(0.30, 0.10 * risk)
+        and long_momentum <= -max(0.45, 0.15 * risk)
     )
     failed_breakout = (
         best_edge >= max(0.35, 0.12 * risk)
@@ -177,7 +182,7 @@ def run_forever():
     close_requested_ticket = ""
     ticks = 0
     print(
-        f"bridge_emergency_started version=3 poll={POLL}s window={WINDOW} "
+        f"bridge_emergency_started version=3.1 poll={POLL}s window={WINDOW} "
         f"confirm={CONFIRM} min_adverse={MIN_ADVERSE:.2f} "
         f"profit_guard_arm={PROFIT_GUARD_ARM_USD:.2f} "
         f"profit_guard_min_giveback={PROFIT_GUARD_MIN_GIVEBACK_USD:.2f}",
