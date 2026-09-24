@@ -325,11 +325,19 @@ class Handler(BaseHTTPRequestHandler):
             if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
                 return self._send(401, "UNAUTHORIZED")
             fields = {k: (v[0] if v else "") for k, v in q.items()}
-            text = "|".join([
-                "DEMO", "ACTION", fields.get("key", ""), fields.get("ts", ""),
-                fields.get("symbol", ""), fields.get("action", ""),
-                fields.get("sl", ""), fields.get("tp", ""),
-            ])
+            ticket = fields.get("ticket", "").strip()
+            if ticket:
+                text = "|".join([
+                    "DEMO", "ACTION", fields.get("key", ""), fields.get("ts", ""),
+                    fields.get("symbol", ""), fields.get("action", ""), ticket,
+                    fields.get("sl", ""), fields.get("tp", ""),
+                ])
+            else:
+                text = "|".join([
+                    "DEMO", "ACTION", fields.get("key", ""), fields.get("ts", ""),
+                    fields.get("symbol", ""), fields.get("action", ""),
+                    fields.get("sl", ""), fields.get("tp", ""),
+                ])
             sig = fields.get("sig", "")
             try:
                 ts = int(fields.get("ts", "0"))
