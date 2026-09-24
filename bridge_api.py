@@ -166,23 +166,23 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
         return False, "volume_must_be_0_01"
     if sl <= 0 or tp <= 0:
         return False, "sl_tp_required"
-    if trade_mode == "MAIN":
-        analysis = data.get("analysis", {})
+    analysis = data.get("analysis")
+    if trade_mode == "MAIN" and isinstance(analysis, dict) and analysis:
         required = ("h4_bias", "m15_structure", "m5_confirmation", "invalidation")
-        if not isinstance(analysis, dict) or any(not analysis.get(k) for k in required):
+        if any(not analysis.get(k) for k in required):
             return False, "main_analysis_required"
         bias = str(analysis.get("h4_bias", "")).upper()
         if bias not in ("UP", "DOWN"):
             return False, "main_h4_bias_required"
         if (side == "BUY" and bias != "UP") or (side == "SELL" and bias != "DOWN"):
             return False, "main_bias_mismatch"
-    else:
-        checks = data.get("checks", {})
-        selected = checks.get(side) if isinstance(checks, dict) else None
-        if not isinstance(selected, list) or len(selected) != 7:
-            return False, "seven_checks_required"
-        if sum(bool(x) for x in selected) < 5:
-            return False, "fast_conditions_not_met"
+        return True, "approved"
+    checks = data.get("checks", {})
+    selected = checks.get(side) if isinstance(checks, dict) else None
+    if not isinstance(selected, list) or len(selected) != 7:
+        return False, "seven_checks_required"
+    if sum(bool(x) for x in selected) < 5:
+        return False, "fast_conditions_not_met"
     return True, "approved"
 
 
