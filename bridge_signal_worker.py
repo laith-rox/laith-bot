@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v21-morning-main"
+WORKER_VERSION = "bridge-fast-scalp-v21b-morning-main"
 
 
 def _ema(values, period):
@@ -364,10 +364,20 @@ def fetch_market_values():
 
 
 def bridge_health():
-    status, payload = _json_request(f"{BRIDGE_URL}/health")
-    if status != 200:
-        raise RuntimeError(f"bridge_health_http_{status}")
-    return payload
+    # Railway public routing can briefly return 503 during edge/container handoff.
+    # Retry health only; this never bypasses state/risk gates or publishes a trade.
+    last_error = None
+    for attempt in range(3):
+        try:
+            status, payload = _json_request(f"{BRIDGE_URL}/health")
+            if status == 200:
+                return payload
+            last_error = RuntimeError(f"bridge_health_http_{status}")
+        except (HTTPError, URLError, TimeoutError) as exc:
+            last_error = exc
+        if attempt < 2:
+            time.sleep(2)
+    raise RuntimeError(f"bridge_health_unavailable:{last_error}")
 
 
 def fetch_spot_price():
