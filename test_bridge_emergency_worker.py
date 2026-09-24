@@ -1,5 +1,7 @@
 import os
 import unittest
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 os.environ.setdefault("BRIDGE_URL", "https://example.invalid")
 os.environ.setdefault("BRIDGE_PUBLISH_TOKEN", "test-only")
@@ -109,3 +111,15 @@ class ProfitGuardianTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MainMorningPolicyTests(unittest.TestCase):
+    def test_palestine_morning_window(self):
+        tz = ZoneInfo("Asia/Hebron")
+        self.assertTrue(main_morning_window(datetime(2026, 9, 25, 4, 30, tzinfo=tz)))
+        self.assertTrue(main_morning_window(datetime(2026, 9, 25, 6, 59, tzinfo=tz)))
+        self.assertFalse(main_morning_window(datetime(2026, 9, 25, 7, 0, tzinfo=tz)))
+
+    def test_main_profit_lock_buy_and_sell(self):
+        self.assertAlmostEqual(main_profit_lock_sl("BUY", 4200.0, 15.0), 4210.5)
+        self.assertAlmostEqual(main_profit_lock_sl("SELL", 4200.0, 15.0), 4189.5)
