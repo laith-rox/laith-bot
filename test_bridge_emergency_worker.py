@@ -43,6 +43,20 @@ class EmergencyEvaluationTests(unittest.TestCase):
         self.assertEqual(reason, "emergency_near_stop")
         self.assertTrue(hard)
 
+    def test_early_normal_pullback_does_not_trigger_accelerating_loss(self):
+        # Mirrors the failure mode seen on the morning MAIN: about one-third
+        # of planned stop risk against entry, followed by recovery potential.
+        samples = [100.0, 99.9, 99.7, 99.4, 99.1, 98.9, 98.8]
+        reason, hard = evaluate_emergency(self.state(price=98.8), samples)
+        self.assertNotEqual(reason, "emergency_accelerating_loss")
+        self.assertFalse(hard)
+
+    def test_deep_sustained_loss_still_triggers_accelerating_loss(self):
+        samples = [100.0, 99.8, 99.6, 99.3, 99.0, 98.7, 98.4, 98.1, 97.8, 97.5]
+        reason, hard = evaluate_emergency(self.state(price=97.5), samples)
+        self.assertEqual(reason, "emergency_accelerating_loss")
+        self.assertFalse(hard)
+
 
 class ProfitGuardianTests(unittest.TestCase):
     def state(self, side="BUY", price=102.0, profit=2.0):
