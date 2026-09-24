@@ -160,6 +160,27 @@ def compute_signal(values):
     if guard_reason:
         side = None
 
+    # Confirmed support/resistance rejection entries. Do not blindly fade
+    # a level: require wick rejection plus momentum/RSI confirmation.
+    near_resistance = last["high"] >= recent_high - 0.12 * atr
+    near_support = last["low"] <= recent_low + 0.12 * atr
+    resistance_rejection = (
+        near_resistance and close < open_ and upper_wick >= max(0.35 * atr, 0.75 * body)
+        and momentum <= 0 and rsi >= 48.0
+    )
+    support_rejection = (
+        near_support and close > open_ and lower_wick >= max(0.35 * atr, 0.75 * body)
+        and momentum >= 0 and rsi <= 52.0
+    )
+    if side is None and resistance_rejection and not held_break_up:
+        side = "SELL"
+        guard_reason = None
+        d = type(d)("REJECTION_SCALP", "SELL", 6, 0.40, 1.0, 0.90, "resistance_rejection_sniper")
+    elif side is None and support_rejection and not held_break_down:
+        side = "BUY"
+        guard_reason = None
+        d = type(d)("REJECTION_SCALP", "BUY", 6, 0.40, 1.0, 0.90, "support_rejection_sniper")
+
     # User-approved DEMO fast/sniper rule: quick-capture trades only.
     # Any 2 of trend, momentum and RSI are sufficient. This can intentionally
     # take a correction against the larger trend when momentum+RSI agree.
