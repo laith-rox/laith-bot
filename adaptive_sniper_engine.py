@@ -43,9 +43,9 @@ def decide(*, buy_score:int, sell_score:int, rsi:float, atr:float,
     # before considering fast sniper entries. The overlay worker may later add
     # one SNIPER while a MAIN is already open, but execution risk remains gated.
     day_main = 4 <= hour_local < 20
-    if day_main and buy_score >= 6 and trend_up and mom_up:
+    if day_main and buy_score >= 5 and trend_up and mom_up:
         return Decision("MAIN", "BUY", min(10,buy_score+2), 1.0, 1.35, 2.0, "day_trend_structure")
-    if day_main and sell_score >= 6 and trend_dn and mom_dn:
+    if day_main and sell_score >= 5 and trend_dn and mom_dn:
         return Decision("MAIN", "SELL", min(10,sell_score+2), 1.0, 1.35, 2.0, "day_trend_structure")
 
     # Fast sniper: momentum + RSI are the two primary triggers, but require
