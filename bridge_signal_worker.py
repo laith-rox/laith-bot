@@ -447,14 +447,25 @@ def apply_main_structure(signal, mtf):
     out=dict(signal)
     side=mtf.get("side")
     if side not in ("BUY","SELL"):
-        out["side"]=None; out["reason"]=mtf.get("reason","mtf_wait"); out["mtf"]=mtf
+        out["mtf"]=mtf
+        if out.get("side") and str(out.get("mode") or "").upper() != "MAIN":
+            out["mode"]="SNIPER"
+            return out
+        out["side"]=None; out["reason"]=mtf.get("reason","mtf_wait")
         return out
     out["side"]=side
     out["mode"]="MAIN"
     out["confidence"]=9 if (mtf.get("retest_up") or mtf.get("retest_down")) else 8
     out["reason"]=mtf.get("reason","mtf_structure_entry")
     atr15=float(mtf.get("m15_atr") or 0)
-    out["risk_distance"]=max(0.80,max(float(signal.get("risk_distance") or 0),0.90*atr15))
+    ref=float(signal.get("reference_close") or 0)
+    if side=="BUY":
+        invalidation=float(mtf.get("m15_resistance") or ref)-max(0.20,0.20*atr15)
+        structural=max(0.80,ref-invalidation)
+    else:
+        invalidation=float(mtf.get("m15_support") or ref)+max(0.20,0.20*atr15)
+        structural=max(0.80,invalidation-ref)
+    out["risk_distance"]=structural
     out["target_r"]=2.0
     out["analysis"]={
         "h4_bias":mtf.get("h4_bias"),
@@ -531,7 +542,7 @@ def publish_signal(signal, spot_override=None, copy_index=1):
     else:
         sl = spot + risk_distance
         tp = spot - risk_distance * float(signal.get("target_r", 1.5))
-    trade_mode = str(signal.get("mode") or "SNIPER").upper()
+    trade_mode = "MAIN" if str(signal.get("mode") or "").upper() == "MAIN" else "SNIPER"
     payload = {
         "mode": "DEMO",
         "trade_mode": trade_mode,
