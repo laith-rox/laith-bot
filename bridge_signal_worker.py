@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from email.utils import parsedate_to_datetime
 from adaptive_sniper_engine import decide
+from multi_timeframe_structure import analyze_structure
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
 BRIDGE_PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "").strip()
@@ -29,7 +30,8 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-structure-stop-v22"
+_MTF_CACHE = {}
+WORKER_VERSION = "bridge-mtf-multiposition-v23"
 
 
 def _ema(values, period):
@@ -409,6 +411,74 @@ def fetch_market_values():
     raise RuntimeError("market_feed_all_failed:" + "|".join(errors))
 
 
+
+def fetch_market_values_tf(interval, ranges):
+    errors=[]; nonce=int(time.time()//30)
+    for host in ("query1.finance.yahoo.com","query2.finance.yahoo.com"):
+        for range_ in ranges:
+            try:
+                params=urlencode({"interval":interval,"range":range_,"_":nonce})
+                status,payload=_json_request(
+                    f"https://{host}/v8/finance/chart/{YAHOO_SYMBOL}?{params}",
+                    headers={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64)","Cache-Control":"no-cache"},
+                    timeout=8)
+                if status==200:
+                    values=_parse_yahoo_rows(payload)
+                    _MTF_CACHE[interval]=(values,time.time())
+                    return values
+                errors.append(f"{host}:{interval}:{range_}:{status}")
+            except Exception as exc:
+                errors.append(f"{host}:{interval}:{range_}:{type(exc).__name__}:{exc}")
+    cached=_MTF_CACHE.get(interval)
+    if cached and time.time()-cached[1] <= 360:
+        return cached[0]
+    raise RuntimeError("mtf_market_feed_failed:"+"|".join(errors))
+
+
+def fetch_multitimeframe_values():
+    return {
+        "5m": fetch_market_values_tf("5m",("5d","1mo")),
+        "15m": fetch_market_values_tf("15m",("5d","1mo")),
+        "1h": fetch_market_values_tf("1h",("1mo","3mo")),
+    }
+
+
+def apply_main_structure(signal, mtf):
+    out=dict(signal)
+    side=mtf.get("side")
+    if side not in ("BUY","SELL"):
+        out["side"]=None; out["reason"]=mtf.get("reason","mtf_wait"); out["mtf"]=mtf
+        return out
+    out["side"]=side
+    out["mode"]="MAIN"
+    out["confidence"]=9 if (mtf.get("retest_up") or mtf.get("retest_down")) else 8
+    out["reason"]=mtf.get("reason","mtf_structure_entry")
+    atr15=float(mtf.get("m15_atr") or 0)
+    out["risk_distance"]=max(0.80,max(float(signal.get("risk_distance") or 0),0.90*atr15))
+    out["target_r"]=2.0
+    out["analysis"]={
+        "h4_bias":mtf.get("h4_bias"),
+        "m15_structure":out["reason"],
+        "m5_confirmation":"bullish_followthrough" if side=="BUY" else "bearish_followthrough",
+        "invalidation":"below_structure_zone" if side=="BUY" else "above_structure_zone",
+        "h4_support":mtf.get("h4_support"),
+        "h4_resistance":mtf.get("h4_resistance"),
+        "m15_support":mtf.get("m15_support"),
+        "m15_resistance":mtf.get("m15_resistance"),
+    }
+    out["mtf"]=mtf
+    return out
+
+
+def same_entry_copies(signal, health):
+    """Allow multiple 0.01 tickets only inside the unchanged S5 aggregate budget."""
+    risk=max(0.01,float(signal.get("risk_distance") or 0))
+    full=float(health.get("effective_risk_budget_usd") or 0)
+    budget=0.50*full
+    used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
+    available=max(0.0,budget-used)
+    return max(1,min(4,int(available//risk))) if available+0.01>=risk else 0
+
 def bridge_health():
     # Railway public routing can briefly return 503 during edge/container handoff.
     # Retry health only; this never bypasses state/risk gates or publishes a trade.
@@ -447,7 +517,7 @@ def fetch_spot_price():
     return price
 
 
-def publish_signal(signal, spot_override=None):
+def publish_signal(signal, spot_override=None, copy_index=1):
     side = signal["side"]
     # Prefer the fresh MT5 broker price already authenticated through /state.
     # External spot remains fallback only.
@@ -465,7 +535,7 @@ def publish_signal(signal, spot_override=None):
     payload = {
         "mode": "DEMO",
         "trade_mode": trade_mode,
-        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}",
+        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:C{copy_index}",
         "symbol": "XAUUSD",
         "side": side,
         "volume": VOLUME,
@@ -474,6 +544,8 @@ def publish_signal(signal, spot_override=None):
         "forced": False,
         "checks": signal["checks"],
     }
+    if trade_mode == "MAIN":
+        payload["analysis"] = signal.get("analysis", {})
     status, response = _json_request(
         f"{BRIDGE_URL}/publish",
         method="POST",
@@ -512,8 +584,8 @@ def execution_block_reason(health):
             return "mt5_state_stale"
         if not health.get("client_poll_fresh"):
             return "mt5_disconnected"
-    if health.get("position_open") or int(health.get("pending", 0) or 0) > 0:
-        return "position_or_pending"
+    if int(health.get("pending", 0) or 0) >= 4:
+        return "pending_command_limit"
     return None
 
 
@@ -547,7 +619,10 @@ def run_forever():
                 time.sleep(POLL_SECONDS)
                 continue
 
-            signal = compute_signal(fetch_market_values())
+            feeds = fetch_multitimeframe_values()
+            signal = compute_signal(feeds["5m"])
+            mtf = analyze_structure(normalize_rows(feeds["5m"]), normalize_rows(feeds["15m"]), normalize_rows(feeds["1h"]))
+            signal = apply_main_structure(signal, mtf)
             if signal["bar"] == last_bar:
                 time.sleep(POLL_SECONDS)
                 continue
@@ -563,22 +638,27 @@ def run_forever():
                 continue
 
             mt5_spot = float(health.get("price") or 0) if health.get("client_state_fresh") else 0.0
-            status, response, key = publish_signal(signal, mt5_spot)
-            if status == 201 and response.get("ok") is True:
-                if MAX_PUBLISH_PER_HOUR > 0:
-                    publishes.append(time.time())
-                print(
-                    f"bridge_signal_published key={key} side={signal['side']} "
-                    f"mode={signal.get('mode')} score={signal['score']}/7 confidence={signal.get('confidence')} reference_proxy={signal['reference_close']:.2f} "
-                    f"risk_distance={signal['risk_distance']:.2f}",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"bridge_signal_publish_rejected status={status} "
-                    f"reason={response.get('reason','unknown')}",
-                    flush=True,
-                )
+            copies = same_entry_copies(signal, health)
+            if copies <= 0:
+                print("bridge_signal_skip reason=aggregate_risk_budget", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+            for copy_index in range(1, copies + 1):
+                status, response, key = publish_signal(signal, mt5_spot, copy_index)
+                if status == 201 and response.get("ok") is True:
+                    if MAX_PUBLISH_PER_HOUR > 0:
+                        publishes.append(time.time())
+                    print(
+                        f"bridge_signal_published key={key} side={signal['side']} "
+                        f"mode={signal.get('mode')} confidence={signal.get('confidence')} copies={copies} "
+                        f"reference_proxy={signal['reference_close']:.2f} risk_distance={signal['risk_distance']:.2f} "
+                        f"h4={signal.get('mtf',{}).get('h4_bias')} m15S={signal.get('mtf',{}).get('m15_support')} "
+                        f"m15R={signal.get('mtf',{}).get('m15_resistance')}",
+                        flush=True,
+                    )
+                else:
+                    print(f"bridge_signal_publish_rejected status={status} reason={response.get('reason','unknown')}", flush=True)
+                    break
         except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
             print(f"bridge_signal_error type={type(exc).__name__} detail={exc}", flush=True)
         except Exception as exc:
