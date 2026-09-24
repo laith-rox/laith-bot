@@ -84,7 +84,7 @@ def warning_message(trade,event):
                       'نسبة شروط مرصودة؛ ليست احتمال استمرار التصحيح، حتى عند 100%.\n')
         else:
             evidence='📊 نسبة تحقق المؤشرات: غير متاحة\n'
-    return (f"<b>{labels[event['kind']]}</b>\n{side} | <code>{escape(trade['id'])}</code>\n"
+    return (f"<b>{labels[event['kind']]}</b>\n{side}\n"
             f"إغلاق الدقيقة: <b>{event['price']:.2f}</b> | {local_time(event['stamp'])} فلسطين\n"
             f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n{evidence}{action}\n"
             'Twelve Data؛ ليس سعر وسيطك الحي. تحذير احتمالي، لا إغلاق آلي.')
