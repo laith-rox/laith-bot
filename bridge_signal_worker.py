@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v21b-morning-main"
+WORKER_VERSION = "bridge-fast-scalp-v21c-mt5-spot"
 
 
 def _ema(values, period):
@@ -401,9 +401,13 @@ def fetch_spot_price():
     return price
 
 
-def publish_signal(signal):
+def publish_signal(signal, spot_override=None):
     side = signal["side"]
-    spot = fetch_spot_price()
+    # Prefer the fresh MT5 broker price already authenticated through /state.
+    # External spot remains fallback only.
+    spot = float(spot_override or 0)
+    if spot <= 0:
+        spot = fetch_spot_price()
     risk_distance = float(signal["risk_distance"])
     if side == "BUY":
         sl = spot - risk_distance
@@ -512,7 +516,8 @@ def run_forever():
                 time.sleep(POLL_SECONDS)
                 continue
 
-            status, response, key = publish_signal(signal)
+            mt5_spot = float(health.get("price") or 0) if health.get("client_state_fresh") else 0.0
+            status, response, key = publish_signal(signal, mt5_spot)
             if status == 201 and response.get("ok") is True:
                 if MAX_PUBLISH_PER_HOUR > 0:
                     publishes.append(time.time())
