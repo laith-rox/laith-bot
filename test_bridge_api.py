@@ -51,6 +51,23 @@ class BridgeValidationTests(unittest.TestCase):
         p["mode"]="DEMO"; p["forced"]=True
         self.assertEqual(bridge_api._validate_publish(p),(False,"forced_bias_blocked"))
 
+
+    def test_main_uses_analysis_instead_of_fast_score(self):
+        p={"mode":"DEMO","trade_mode":"MAIN","key":"main-analysis","symbol":"XAUUSD",
+           "side":"BUY","volume":0.01,"sl":3900,"tp":4100,"forced":False,
+           "checks":{"BUY":[False]*7},
+           "analysis":{"h4_bias":"UP","m15_structure":"resistance_break_retest",
+                       "m5_confirmation":"bullish_followthrough","invalidation":"below_retest_zone"}}
+        self.assertEqual(bridge_api._validate_publish(p),(True,"approved"))
+        p["analysis"]["h4_bias"]="DOWN"
+        self.assertEqual(bridge_api._validate_publish(p),(False,"main_bias_mismatch"))
+
+    def test_fast_trade_still_requires_five_of_seven(self):
+        p={"mode":"DEMO","trade_mode":"SNIPER","key":"fast-analysis","symbol":"XAUUSD",
+           "side":"BUY","volume":0.01,"sl":3900,"tp":4100,"forced":False,
+           "checks":{"BUY":[True,True,True,True,False,False,False]}}
+        self.assertEqual(bridge_api._validate_publish(p),(False,"fast_conditions_not_met"))
+
     def test_manage_modify_and_close(self):
         modify = {
             "mode": "DEMO",
