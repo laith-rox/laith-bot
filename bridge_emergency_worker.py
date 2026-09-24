@@ -163,6 +163,23 @@ def evaluate_emergency(state, samples):
     return None, False
 
 
+def select_exit_reason(emergency_reason, emergency_hard, guardian_reason, guardian_hard):
+    """Runtime policy: guard profit, or act only on hard last-resort danger.
+
+    Soft loss-side pattern detections remain diagnostic signals, but they are
+    deliberately not allowed to close a DEMO position. This gives normal
+    pullbacks room to recover while the broker SL and near-stop emergency stay
+    intact.
+    """
+    if guardian_hard:
+        return guardian_reason, True
+    if emergency_hard:
+        return emergency_reason, True
+    if guardian_reason:
+        return guardian_reason, False
+    return None, False
+
+
 def validate_config():
     missing = [name for name, value in (
         ("BRIDGE_URL", BRIDGE_URL),
@@ -182,7 +199,7 @@ def run_forever():
     close_requested_ticket = ""
     ticks = 0
     print(
-        f"bridge_emergency_started version=3.1 poll={POLL}s window={WINDOW} "
+        f"bridge_emergency_started version=3.2 poll={POLL}s window={WINDOW} "
         f"confirm={CONFIRM} min_adverse={MIN_ADVERSE:.2f} "
         f"profit_guard_arm={PROFIT_GUARD_ARM_USD:.2f} "
         f"profit_guard_min_giveback={PROFIT_GUARD_MIN_GIVEBACK_USD:.2f}",
@@ -229,14 +246,9 @@ def run_forever():
             guardian_reason, guardian_hard = evaluate_profit_guardian(
                 health, list(prices), list(profits), peak_profit
             )
-            if guardian_hard:
-                reason, hard = guardian_reason, True
-            elif emergency_hard:
-                reason, hard = emergency_reason, True
-            elif guardian_reason:
-                reason, hard = guardian_reason, False
-            else:
-                reason, hard = emergency_reason, False
+            reason, hard = select_exit_reason(
+                emergency_reason, emergency_hard, guardian_reason, guardian_hard
+            )
 
             pressure = pressure + 1 if reason else max(0, pressure - 1)
             ticks += 1
