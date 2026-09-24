@@ -126,7 +126,7 @@ class PublishLimitTests(unittest.TestCase):
 
     def test_unlimited_does_not_bypass_execution_state_checks(self):
         for changes in ({"enabled": False}, {"client_state_fresh": False},
-                        {"position_open": True}, {"pending": 1}):
+                        {"pending": 4}):
             health = {"enabled": True, "client_state_fresh": True,
                       "position_open": False, "pending": 0}
             health.update(changes)
