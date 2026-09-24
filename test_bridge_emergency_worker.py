@@ -8,6 +8,7 @@ from bridge_emergency_worker import (
     evaluate_emergency,
     evaluate_profit_guardian,
     protected_profit_floor,
+    select_exit_reason,
 )
 
 
@@ -119,6 +120,29 @@ class ProfitGuardianTests(unittest.TestCase):
         )
         self.assertEqual(reason, "profit_guardian_confirmed_correction")
         self.assertFalse(hard)
+
+
+class RuntimePolicyTests(unittest.TestCase):
+    def test_soft_loss_reversal_is_diagnostic_only(self):
+        self.assertEqual(
+            select_exit_reason("emergency_confirmed_reversal", False, None, False),
+            (None, False),
+        )
+
+    def test_near_stop_still_closes_immediately(self):
+        self.assertEqual(
+            select_exit_reason("emergency_near_stop", True, None, False),
+            ("emergency_near_stop", True),
+        )
+
+    def test_profit_guardian_still_controls_profitable_trade(self):
+        self.assertEqual(
+            select_exit_reason(
+                "emergency_failed_breakout", False,
+                "profit_guardian_confirmed_correction", False,
+            ),
+            ("profit_guardian_confirmed_correction", False),
+        )
 
 
 if __name__ == "__main__":
