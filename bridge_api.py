@@ -101,6 +101,22 @@ def _state_age(now: float | None = None) -> float | None:
         return None
 
 
+def _owned_position_trade_mode() -> str:
+    """Return the OPEN trade mode for the currently reported bridge-owned ticket."""
+    if not _client_state or not _client_state.get("position_owned"):
+        return ""
+    ticket = str(_client_state.get("ticket") or "")
+    if not ticket:
+        return ""
+    for item in reversed(list(_items.values())):
+        ack = item.get("ack") or {}
+        if str(item.get("action", "OPEN")).upper() != "OPEN":
+            continue
+        if ack.get("ok") is True and str(ack.get("ticket") or "") == ticket:
+            return str(item.get("trade_mode") or "").upper()
+    return ""
+
+
 def _state_is_fresh(now: float | None = None) -> bool:
     age = _state_age(now)
     return age is not None and age <= STATE_FRESH_SECONDS
@@ -232,6 +248,7 @@ class Handler(BaseHTTPRequestHandler):
                     "client_poll_fresh": poll_age is not None and poll_age <= STATE_FRESH_SECONDS,
                     "client_last_poll_age": round(poll_age, 2) if poll_age is not None else None,
                     "position_open": bool((_client_state or {}).get("position_open")),
+                    "trade_mode": _owned_position_trade_mode(),
                     "position_owned": bool((_client_state or {}).get("position_owned")),
                     "ticket": (_client_state or {}).get("ticket"),
                     "side": (_client_state or {}).get("side"),
