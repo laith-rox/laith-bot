@@ -14,6 +14,8 @@ from collections import deque
 import json
 import os
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").rstrip("/")
@@ -25,6 +27,9 @@ CONFIRM = max(1, int(os.getenv("EMERGENCY_CONFIRM", "2")))
 HEARTBEAT_EVERY = max(6, int(os.getenv("EMERGENCY_HEARTBEAT_EVERY", "12")))
 PROFIT_GUARD_ARM_USD = max(0.50, float(os.getenv("PROFIT_GUARD_ARM_USD", "1.00")))
 PROFIT_GUARD_MIN_GIVEBACK_USD = max(0.20, float(os.getenv("PROFIT_GUARD_MIN_GIVEBACK_USD", "0.40")))
+MAIN_PROTECT_TRIGGER_USD = 15.0
+MAIN_PROTECT_FRACTION = 0.70
+PALESTINE_TZ = ZoneInfo("Asia/Hebron")
 
 
 def req(path, method="GET", payload=None):
@@ -44,6 +49,28 @@ def manage_close(ticket, reason):
     body = {"mode": "DEMO", "key": key, "symbol": "XAUUSD",
             "action": "CLOSE", "reason": reason}
     return req("/manage", "POST", body)
+
+
+def manage_modify(ticket, sl, tp, reason):
+    key = f"emgmod:{ticket}:{int(time.time())}"
+    body = {"mode": "DEMO", "key": key, "symbol": "XAUUSD",
+            "action": "MODIFY", "sl": round(float(sl), 5), "tp": round(float(tp), 5),
+            "reason": reason}
+    return req("/manage", "POST", body)
+
+
+def main_morning_window(now=None):
+    now = now or datetime.now(PALESTINE_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=PALESTINE_TZ)
+    local = now.astimezone(PALESTINE_TZ)
+    minute = local.hour * 60 + local.minute
+    return 4 * 60 + 30 <= minute < 7 * 60
+
+
+def main_profit_lock_sl(side, entry, peak_profit):
+    locked = MAIN_PROTECT_FRACTION * float(peak_profit)
+    return entry + locked if side == "BUY" else entry - locked
 
 
 def protected_profit_floor(peak_profit):
