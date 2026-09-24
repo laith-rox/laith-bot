@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v21c-mt5-spot"
+WORKER_VERSION = "bridge-fast-scalp-v21d-http-detail"
 
 
 def _ema(values, period):
@@ -293,9 +293,17 @@ def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
         data = json.dumps(payload, separators=(",", ":")).encode()
         request_headers["Content-Type"] = "application/json"
     req = Request(url, data=data, method=method, headers=request_headers)
-    with urlopen(req, timeout=timeout) as response:
-        raw = response.read().decode()
-        return response.status, json.loads(raw) if raw else {}
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode()
+            return response.status, json.loads(raw) if raw else {}
+    except HTTPError as exc:
+        raw = exc.read().decode() if exc.fp else ""
+        try:
+            payload = json.loads(raw) if raw else {}
+        except Exception:
+            payload = {"detail": raw[:300]}
+        return exc.code, payload
 
 
 def _parse_yahoo_rows(payload):
