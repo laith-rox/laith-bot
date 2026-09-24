@@ -29,7 +29,7 @@ YAHOO_SYMBOL = "GC=F"
 VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
-WORKER_VERSION = "bridge-fast-scalp-v20-correction-adaptive"
+WORKER_VERSION = "bridge-fast-scalp-v21-morning-main"
 
 
 def _ema(values, period):
@@ -166,7 +166,7 @@ def compute_signal(values):
     # MAIN rules and all EA hard DEMO/risk gates remain unchanged.
     primary_buy = int(ema8[-1] > ema21[-1]) + int(momentum > 0) + int(rsi >= 52.0)
     primary_sell = int(ema8[-1] < ema21[-1]) + int(momentum < 0) + int(rsi <= 48.0)
-    if side is None and max(primary_buy, primary_sell) >= 2:
+    if side is None and guard_reason not in ("resistance_not_confirmed", "support_not_confirmed", "upper_wick_rejection", "lower_wick_rejection") and max(primary_buy, primary_sell) >= 2:
         if primary_buy > primary_sell:
             side, primary_strength = "BUY", primary_buy
         elif primary_sell > primary_buy:
