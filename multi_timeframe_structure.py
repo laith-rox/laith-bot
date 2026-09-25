@@ -62,7 +62,7 @@ def analyze_structure(m5, m15, h1):
     h4_res = max(r["high"] for r in h4[-13:-1])
     h4_sup = min(r["low"] for r in h4[-13:-1])
 
-    # M15 is the execution structure map. Exclude the two newest closed bars
+    # M15 is both the directional and execution structure map. Exclude the two newest closed bars
     # from the level so they can prove a breakout and hold/retest.
     atr15 = max(_atr(m15,14), 0.01)
     zone = max(0.20, 0.12*atr15)
@@ -95,7 +95,7 @@ def analyze_structure(m5, m15, h1):
         side = "SELL"; reason = "m15_support_break_retest" if retest_dn else "m15_support_break_hold"
 
     return {
-        "side": side, "reason": reason, "h4_bias": h4_bias,
+        "side": side, "reason": reason, "h4_bias": h4_bias, "m15_bias": m15_bias,\n        "buy_zone_low": buy_zone_low, "buy_zone_high": buy_zone_high,\n        "sell_zone_low": sell_zone_low, "sell_zone_high": sell_zone_high,
         "h4_support": h4_sup, "h4_resistance": h4_res,
         "m15_support": support, "m15_resistance": resistance,
         "m15_atr": atr15, "break_up": break_up, "break_down": break_dn,
