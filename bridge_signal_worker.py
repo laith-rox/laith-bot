@@ -31,7 +31,7 @@ VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
 _MTF_CACHE = {}
-WORKER_VERSION = "bridge-mtf-multiposition-v23"
+WORKER_VERSION = "bridge-mtf-medium-v24"
 
 
 def _ema(values, period):
@@ -448,7 +448,20 @@ def apply_main_structure(signal, mtf):
     side=mtf.get("side")
     if side not in ("BUY","SELL"):
         out["mtf"]=mtf
-        if out.get("side") and str(out.get("mode") or "").upper() != "MAIN":
+        raw_side=out.get("side")
+        score=int(out.get("score") or 0)
+        h4=str(mtf.get("h4_bias") or "NEUTRAL").upper()
+        m5_ok=(raw_side=="BUY" and mtf.get("m5_confirm_buy")) or (raw_side=="SELL" and mtf.get("m5_confirm_sell"))
+        aligned=(raw_side=="BUY" and h4!="DOWN") or (raw_side=="SELL" and h4!="UP")
+        # Medium continuation: the strict M15 breakout model is for MAIN entries,
+        # but it must not erase a clean 5m setup that agrees with H4/M5.
+        # Execute it as the existing SNIPER risk class, not as MAIN.
+        if raw_side in ("BUY","SELL") and score >= 5 and m5_ok and aligned:
+            out["mode"]="SNIPER"
+            out["confidence"]=6 if score==5 else 7
+            out["reason"]="mtf_medium_continuation"
+            return out
+        if raw_side and str(out.get("mode") or "").upper() != "MAIN":
             out["mode"]="SNIPER"
             return out
         out["side"]=None; out["reason"]=mtf.get("reason","mtf_wait")
@@ -642,7 +655,10 @@ def run_forever():
             if not signal["side"]:
                 print(
                     f"bridge_signal_wait bar={signal['bar']} buy={signal['buy_score']}/7 "
-                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f} reason={signal.get('reason')}",
+                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
+                    f"h4={signal.get('mtf',{}).get('h4_bias')} "
+                    f"m5buy={signal.get('mtf',{}).get('m5_confirm_buy')} m5sell={signal.get('mtf',{}).get('m5_confirm_sell')} "
+                    f"m15S={signal.get('mtf',{}).get('m15_support')} m15R={signal.get('mtf',{}).get('m15_resistance')}",
                     flush=True,
                 )
                 time.sleep(POLL_SECONDS)
