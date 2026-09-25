@@ -461,7 +461,8 @@ def publish_signal(signal, spot_override=None):
     else:
         sl = spot + risk_distance
         tp = spot - risk_distance * float(signal.get("target_r", 1.5))
-    trade_mode = str(signal.get("mode") or "SNIPER").upper()
+    internal_mode = str(signal.get("mode") or "SNIPER").upper()
+    trade_mode = "MAIN" if internal_mode == "MAIN" else "SNIPER"
     payload = {
         "mode": "DEMO",
         "trade_mode": trade_mode,
