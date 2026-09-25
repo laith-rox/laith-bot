@@ -15,6 +15,17 @@ class V4QuickGuardTests(unittest.TestCase):
         result = guard_quick_setup(setup, [], self.now)
         self.assertTrue(result["allowed"])
 
+    def test_blocks_weak_setup_when_entry_uses_delayed_reference(self):
+        setup = {"side": "BUY", "score": 4, "risk_level": "مرتفعة", "delayed_reference": True}
+        result = guard_quick_setup(setup, [], self.now)
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["reason"], "fallback_strength_below_5")
+
+    def test_allows_five_of_seven_when_entry_uses_delayed_reference(self):
+        setup = {"side": "BUY", "score": 5, "risk_level": "مرتفعة", "delayed_reference": True}
+        result = guard_quick_setup(setup, [], self.now)
+        self.assertTrue(result["allowed"])
+
     def test_blocks_same_side_candidate_while_previous_is_active(self):
         setup = {"side": "SELL", "score": 5, "risk_level": "متوسطة"}
         rows = [{"id": "old", "status": "active", "side": "SELL"}]
