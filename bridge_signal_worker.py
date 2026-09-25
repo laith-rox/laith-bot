@@ -18,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from email.utils import parsedate_to_datetime
 from adaptive_sniper_engine import decide
 from multi_timeframe_structure import analyze_structure
+from technical_confirmation import analyze as analyze_technical
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").strip().rstrip("/")
 BRIDGE_PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "").strip()
@@ -31,7 +32,7 @@ VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
 _MTF_CACHE = {}
-WORKER_VERSION = "bridge-mt5-candles-v25"
+WORKER_VERSION = "bridge-tech-pattern-v26"
 
 
 def _ema(values, period):
@@ -91,12 +92,14 @@ def normalize_rows(values):
             "high": float(item["high"]),
             "low": float(item["low"]),
             "close": float(item["close"]),
+            "tick_volume": float(item.get("tick_volume") or 0),
         })
     return rows
 
 
 def compute_signal(values):
     rows = normalize_rows(values)
+    tech = analyze_technical(rows)
     closes = [r["close"] for r in rows]
     ema8, ema21, ema55 = _ema(closes, 8), _ema(closes, 21), _ema(closes, 55)
     last = rows[-1]; close = last["close"]; open_ = last["open"]
@@ -301,9 +304,25 @@ def compute_signal(values):
         structural_risk = max(structural_risk, close - last["low"] + max(0.20, 0.10 * atr))
 
     if side and (structural_risk <= 0 or structural_risk > risk_cap):
-        side = None
-        guard_reason = "structure_stop_exceeds_risk_cap"
-        risk_distance = 0.0
+        # Medium setup rescue: when the candle/indicator layer agrees with the
+        # original signal, use the latest candle as the scalp invalidation
+        # instead of rejecting a good entry because an older swing is too far.
+        # The existing risk cap is never widened.
+        tscore = tech["bull_score"] if side=="BUY" else tech["bear_score"]
+        oscore = tech["bear_score"] if side=="BUY" else tech["bull_score"]
+        local_stop = (last["low"]-structure_pad) if side=="BUY" else (last["high"]+structure_pad)
+        local_risk = (close-local_stop) if side=="BUY" else (local_stop-close)
+        strong_original = max(buy_score,sell_score) >= 6
+        tech_agrees = tscore >= oscore+2 and (tech.get("adx") or 0) >= 18
+        if strong_original and tech_agrees and 0 < local_risk <= risk_cap:
+            structural_risk = local_risk
+            risk_distance = max(0.80,local_risk)
+            guard_reason = None
+            d = type(d)("SNIPER",side,6,min(0.55,d.risk_mult or 0.55),0.0,1.0,"technical_medium_local_invalidation")
+        else:
+            side = None
+            guard_reason = "structure_stop_exceeds_risk_cap"
+            risk_distance = 0.0
     else:
         risk_distance = max(0.80, structural_risk) if side else 0.0
     if night_sniper and side and d.mode != "REBOUND":
@@ -321,7 +340,8 @@ def compute_signal(values):
         "reference_close":close,"rsi":rsi,"atr":atr,"atr_baseline":atr_baseline,
         "risk_distance":risk_distance,"sl":sl,"tp":tp,"mode":d.mode,
         "confidence":d.confidence,"risk_mult":d.risk_mult,"target_r":d.target_r,
-        "reason":guard_reason or d.reason,"held_breakout":held_break_up if d.side=="BUY" else held_break_down}
+        "reason":guard_reason or d.reason,"held_breakout":held_break_up if d.side=="BUY" else held_break_down,
+        "technical":tech}
 
 
 def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
