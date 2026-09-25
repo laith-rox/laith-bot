@@ -139,6 +139,24 @@ class PublishLimitTests(unittest.TestCase):
                 worker.validate_config()
 
 
+class MediumContinuationTests(unittest.TestCase):
+    def test_clean_buy_is_not_erased_by_strict_mtf_wait(self):
+        signal={"side":"BUY","mode":"MAIN","score":6,"confidence":7,"reason":"x"}
+        mtf={"side":None,"reason":"mtf_wait","h4_bias":"UP",
+             "m5_confirm_buy":True,"m5_confirm_sell":False}
+        out=worker.apply_main_structure(signal,mtf)
+        self.assertEqual(out["side"],"BUY")
+        self.assertEqual(out["mode"],"SNIPER")
+        self.assertEqual(out["reason"],"mtf_medium_continuation")
+
+    def test_medium_buy_is_blocked_against_h4_down(self):
+        signal={"side":"BUY","mode":"MAIN","score":6,"confidence":7,"reason":"x"}
+        mtf={"side":None,"reason":"mtf_wait","h4_bias":"DOWN",
+             "m5_confirm_buy":True,"m5_confirm_sell":False}
+        out=worker.apply_main_structure(signal,mtf)
+        self.assertIsNone(out["side"])
+
+
 class MultiPositionDecisionTests(unittest.TestCase):
     def test_open_position_does_not_block_when_pending_capacity_exists(self):
         health={"mode":"DEMO","enabled":True,"client_state_fresh":True,
