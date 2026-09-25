@@ -31,7 +31,7 @@ VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
 _MTF_CACHE = {}
-WORKER_VERSION = "bridge-mtf-medium-v24"
+WORKER_VERSION = "bridge-mt5-candles-v25"
 
 
 def _ema(values, period):
@@ -436,6 +436,17 @@ def fetch_market_values_tf(interval, ranges):
 
 
 def fetch_multitimeframe_values():
+    # Primary source: the exact JustMarkets MT5 DEMO candles relayed by the EA.
+    # This keeps support/resistance aligned with the chart that actually executes.
+    try:
+        status,payload=_json_request(f"{BRIDGE_URL}/market",timeout=6)
+        if status==200 and payload.get("ok") is True:
+            feeds={"5m":payload.get("m5"),"15m":payload.get("m15"),"1h":payload.get("h1")}
+            if all(isinstance(v,list) and len(v)>=30 for v in feeds.values()):
+                return feeds
+    except Exception as exc:
+        print(f"broker_market_feed_fallback reason={type(exc).__name__}:{exc}",flush=True)
+    # Directional proxy fallback only if broker relay is temporarily unavailable.
     return {
         "5m": fetch_market_values_tf("5m",("5d","1mo")),
         "15m": fetch_market_values_tf("15m",("5d","1mo")),
