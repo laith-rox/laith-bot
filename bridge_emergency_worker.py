@@ -27,6 +27,9 @@ CONFIRM = max(1, int(os.getenv("EMERGENCY_CONFIRM", "2")))
 HEARTBEAT_EVERY = max(6, int(os.getenv("EMERGENCY_HEARTBEAT_EVERY", "12")))
 PROFIT_GUARD_ARM_USD = max(0.50, float(os.getenv("PROFIT_GUARD_ARM_USD", "1.00")))
 PROFIT_GUARD_MIN_GIVEBACK_USD = max(0.20, float(os.getenv("PROFIT_GUARD_MIN_GIVEBACK_USD", "0.40")))
+INSURANCE_ARM_USD = max(0.80, float(os.getenv("ENTRY_INSURANCE_ARM_USD", "1.20")))
+INSURANCE_LOCK_USD = max(0.05, float(os.getenv("ENTRY_INSURANCE_LOCK_USD", "0.20")))
+INSURANCE_STEP_USD = max(0.20, float(os.getenv("ENTRY_INSURANCE_STEP_USD", "0.50")))
 MAIN_PROTECT_TRIGGER_USD = 15.0
 MAIN_PROTECT_FRACTION = 0.70
 PALESTINE_TZ = ZoneInfo("Asia/Hebron")
@@ -195,15 +198,27 @@ def validate_config():
         raise RuntimeError("missing_config:" + ",".join(missing))
 
 
+def insured_sl(side, entry, current_sl, peak_profit):
+    """Breakeven-plus ratchet. Never loosens the existing broker stop."""
+    if peak_profit < INSURANCE_ARM_USD:
+        return None
+    # Lock a small gain first, then add half of each additional profit step.
+    extra = max(0.0, peak_profit - INSURANCE_ARM_USD)
+    locked = INSURANCE_LOCK_USD + 0.50 * (extra // INSURANCE_STEP_USD) * INSURANCE_STEP_USD
+    candidate = entry + locked if side == "BUY" else entry - locked
+    if side == "BUY":
+        return candidate if candidate > current_sl + 0.05 else None
+    return candidate if candidate < current_sl - 0.05 else None
+
+
 def run_forever():
     validate_config()
     tracked = {}
     ticks = 0
     print(
-        f"bridge_emergency_started version=3.4-multiposition poll={POLL}s window={WINDOW} "
-        f"confirm={CONFIRM} min_adverse={MIN_ADVERSE:.2f} "
-        f"profit_guard_arm={PROFIT_GUARD_ARM_USD:.2f} "
-        f"profit_guard_min_giveback={PROFIT_GUARD_MIN_GIVEBACK_USD:.2f}",
+        f"bridge_entry_insurance_started version=4.0 poll={POLL}s "
+        f"arm={INSURANCE_ARM_USD:.2f} lock={INSURANCE_LOCK_USD:.2f} step={INSURANCE_STEP_USD:.2f} "
+        f"emergency_auto_close=false",
         flush=True,
     )
     while True:
@@ -220,47 +235,33 @@ def run_forever():
                 if stale not in live:
                     tracked.pop(stale, None)
             for p in owned:
-                ticket=str(p.get("ticket") or ""); side=str(p.get("side") or "").upper()
+                ticket = str(p.get("ticket") or "")
+                side = str(p.get("side") or "").upper()
                 try:
-                    price=float(p.get("price") or health.get("price") or 0)
-                    stop=float(p.get("sl") or 0); entry=float(p.get("open_price") or 0)
-                    profit=float(p.get("profit") or 0)
-                except (TypeError,ValueError):
+                    price = float(p.get("price") or health.get("price") or 0)
+                    stop = float(p.get("sl") or 0)
+                    entry = float(p.get("open_price") or 0)
+                    tp = float(p.get("tp") or 0)
+                    profit = float(p.get("profit") or 0)
+                except (TypeError, ValueError):
                     continue
-                if not ticket or side not in ("BUY","SELL") or min(price,stop,entry)<=0:
+                if not ticket or side not in ("BUY","SELL") or min(price, stop, entry) <= 0:
                     continue
-                s=tracked.get(ticket)
-                if s is None:
-                    s={"prices":deque(maxlen=WINDOW),"profits":deque(maxlen=WINDOW),
-                       "peak":max(0.0,profit),"pressure":0,"close_requested":False}
-                    tracked[ticket]=s
-                    print(f"bridge_emergency_tracking ticket={ticket} side={side} entry={entry:.2f} stop={stop:.2f} profit={profit:.2f}",flush=True)
-                if s["close_requested"]:
-                    continue
-                s["prices"].append(price); s["profits"].append(profit); s["peak"]=max(s["peak"],profit)
-                state=dict(p); state["price"]=price
-                emergency_reason,emergency_hard=evaluate_emergency(state,list(s["prices"]))
-                guardian_reason,guardian_hard=evaluate_profit_guardian(state,list(s["prices"]),list(s["profits"]),s["peak"])
-                if guardian_hard: reason,hard=guardian_reason,True
-                elif emergency_hard: reason,hard=emergency_reason,True
-                elif guardian_reason: reason,hard=guardian_reason,False
-                else: reason,hard=emergency_reason,False
-                s["pressure"]=s["pressure"]+1 if reason else max(0,s["pressure"]-1)
-                ticks+=1
+                s = tracked.setdefault(ticket, {"peak": max(0.0, profit), "last_requested_sl": None})
+                s["peak"] = max(float(s["peak"]), profit)
+                target_sl = insured_sl(side, entry, stop, s["peak"])
+                ticks += 1
+                if target_sl is not None:
+                    # Do not place insurance beyond the current market price.
+                    valid = target_sl < price if side == "BUY" else target_sl > price
+                    if valid and (s["last_requested_sl"] is None or abs(target_sl-s["last_requested_sl"]) >= 0.05):
+                        code, response = manage_modify(ticket, target_sl, tp, "entry_insurance")
+                        print(f"bridge_entry_insurance_modify ticket={ticket} side={side} profit={profit:.2f} peak={s['peak']:.2f} old_sl={stop:.2f} new_sl={target_sl:.2f} http={code} response={response}", flush=True)
+                        if code == 201 and response.get("ok") is True:
+                            s["last_requested_sl"] = target_sl
                 if ticks % HEARTBEAT_EVERY == 0:
-                    floor=protected_profit_floor(s["peak"])
-                    floor_text="off" if floor is None else f"{floor:.2f}"
-                    print(f"bridge_emergency_heartbeat ticket={ticket} side={side} price={price:.2f} profit={profit:.2f} peak_profit={s['peak']:.2f} protected_floor={floor_text} pressure={s['pressure']}/{CONFIRM} reason={reason or 'clear'}",flush=True)
-                if reason and (hard or s["pressure"]>=CONFIRM):
-                    code,response=manage_close(ticket,reason)
-                    print(f"bridge_emergency_close ticket={ticket} reason={reason} hard={hard} profit={profit:.2f} peak_profit={s['peak']:.2f} http={code} response={response}",flush=True)
-                    if code==201 and response.get("ok") is True:
-                        s["close_requested"]=True
-                    s["pressure"]=0
+                    print(f"bridge_entry_insurance_heartbeat ticket={ticket} side={side} profit={profit:.2f} peak={s['peak']:.2f} sl={stop:.2f}", flush=True)
         except Exception as exc:
-            print(f"bridge_emergency_error type={type(exc).__name__} detail={exc}",flush=True)
+            print(f"bridge_entry_insurance_error type={type(exc).__name__} detail={exc}", flush=True)
         time.sleep(POLL)
 
-
-if __name__ == "__main__":
-    run_forever()
