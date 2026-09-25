@@ -11,7 +11,7 @@ from bridge_emergency_worker import (
     evaluate_profit_guardian,
     protected_profit_floor,
     main_morning_window,
-    main_profit_lock_sl,
+    main_profit_lock_sl,\n    insured_sl,
 )
 
 
