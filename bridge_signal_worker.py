@@ -86,7 +86,7 @@ def normalize_rows(values):
     rows = []
     for item in reversed(closed):
         rows.append({
-            "datetime": str(item.get("datetime", "")),
+            "datetime": str(item.get("datetime", "")).replace(".", "-", 2),
             "open": float(item["open"]),
             "high": float(item["high"]),
             "low": float(item["low"]),
