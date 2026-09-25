@@ -32,7 +32,7 @@ VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
 _MTF_CACHE = {}
-WORKER_VERSION = "bridge-tech-pattern-v26"
+WORKER_VERSION = "bridge-m15-zones-v27"
 
 
 def _ema(values, period):
@@ -484,8 +484,9 @@ def apply_main_structure(signal, mtf):
         raw_side=out.get("side")
         score=int(out.get("score") or 0)
         h4=str(mtf.get("h4_bias") or "NEUTRAL").upper()
+        m15=str(mtf.get("m15_bias") or "NEUTRAL").upper()
         m5_ok=(raw_side=="BUY" and mtf.get("m5_confirm_buy")) or (raw_side=="SELL" and mtf.get("m5_confirm_sell"))
-        aligned=(raw_side=="BUY" and h4!="DOWN") or (raw_side=="SELL" and h4!="UP")
+        aligned=(raw_side=="BUY" and m15=="UP") or (raw_side=="SELL" and m15=="DOWN")
         tech=out.get("technical") or {}
         # If the older structure gate erased the side, rebuild a medium scalp
         # only from a strong 6/7 M5 signal + M5 confirmation + technical consensus.
@@ -544,6 +545,8 @@ def apply_main_structure(signal, mtf):
     out["target_r"]=2.0
     out["analysis"]={
         "h4_bias":mtf.get("h4_bias"),
+        "m15_bias":mtf.get("m15_bias"),
+        "entry_zone":[mtf.get("buy_zone_low"),mtf.get("buy_zone_high")] if side=="BUY" else [mtf.get("sell_zone_low"),mtf.get("sell_zone_high")],
         "m15_structure":out["reason"],
         "m5_confirmation":"bullish_followthrough" if side=="BUY" else "bearish_followthrough",
         "invalidation":"below_structure_zone" if side=="BUY" else "above_structure_zone",
