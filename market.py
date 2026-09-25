@@ -32,9 +32,24 @@ def _activate_quota_breaker(response=None):
 def _provider_429(response):
     if response is None or response.status_code != 429:
         return False
-    # The V4 account has a daily credit cap. Once a 429 is observed after that cap,
-    # preserving the remaining worker and blocking stale entries is safer than retrying.
     _quota_diagnostics(response, "quota_breaker")
+    message = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            message = str(payload.get("message") or "").lower()
+    except (ValueError, TypeError):
+        pass
+    # Twelve Data also returns HTTP 429 for the per-minute credit limit. That is
+    # temporary and must not trip the daily breaker for the rest of the UTC day.
+    minute_limit = (
+        "current minute" in message
+        or "per minute" in message
+        or ("minute" in message and "wait for the next minute" in message)
+    )
+    if minute_limit:
+        LOG.warning("twelve_minute_quota_limit temporary=true")
+        return False
     _activate_quota_breaker(response)
     return True
 
