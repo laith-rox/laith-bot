@@ -48,6 +48,24 @@ class V4SharedMarketTests(unittest.TestCase):
             market.fetch(self.now + timedelta(minutes=5))
         self.assertEqual(market.session.get.call_count, 1)
 
+    def test_minute_quota_429_does_not_activate_daily_breaker(self):
+        market = SharedV4Market("dummy")
+        response = Mock()
+        response.status_code = 429
+        response.headers = {"api-credits-used": "10", "api-credits-left": "0"}
+        response.json.return_value = {
+            "code": 429,
+            "status": "error",
+            "message": "You have run out of API credits for the current minute. Wait for the next minute.",
+        }
+        market.session.get = Mock(return_value=response)
+        with self.assertRaisesRegex(DataError, "market_http_429"):
+            market.fetch(self.now)
+        self.assertFalse(market_module._quota_blocked())
+        with self.assertRaisesRegex(DataError, "market_http_429"):
+            market.fetch(self.now + timedelta(minutes=1))
+        self.assertEqual(market.session.get.call_count, 2)
+
     def test_same_five_minute_slot_reuses_one_provider_fetch(self):
         market = SharedV4Market("dummy")
         with patch.object(market, "_fetch_provider_snapshot", return_value=(self.bars, self.current)) as provider_fetch:
