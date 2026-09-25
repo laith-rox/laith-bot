@@ -472,6 +472,15 @@ def apply_main_structure(signal, mtf):
             out["confidence"]=6 if score==5 else 7
             out["reason"]="mtf_medium_continuation"
             return out
+        # Strong 6/7 M5 confirmation can take a short countertrend bounce/pullback
+        # even when H4 points the other way. It remains SNIPER with a smaller
+        # target; it is never promoted to MAIN.
+        if raw_side in ("BUY","SELL") and score >= 6 and m5_ok:
+            out["mode"]="SNIPER"
+            out["confidence"]=6
+            out["target_r"]=min(float(out.get("target_r") or 1.0),1.0)
+            out["reason"]="mtf_countertrend_medium"
+            return out
         if raw_side and str(out.get("mode") or "").upper() != "MAIN":
             out["mode"]="SNIPER"
             return out
