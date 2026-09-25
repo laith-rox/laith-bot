@@ -95,7 +95,7 @@ def analyze_structure(m5, m15, h1):
         side = "SELL"; reason = "m15_support_break_retest" if retest_dn else "m15_support_break_hold"
 
     return {
-        "side": side, "reason": reason, "h4_bias": h4_bias, "m15_bias": m15_bias,\n        "buy_zone_low": buy_zone_low, "buy_zone_high": buy_zone_high,\n        "sell_zone_low": sell_zone_low, "sell_zone_high": sell_zone_high,
+        "side": side, "reason": reason, "h4_bias": h4_bias, "m15_bias": m15_bias,\n        "buy_zone_low": buy_zone_low, "buy_zone_high": buy_zone_high,\n        "sell_zone_low": sell_zone_low, "sell_zone_high": sell_zone_high, "m15_bias": m15_bias,\n        "buy_zone_low": buy_zone_low, "buy_zone_high": buy_zone_high,\n        "sell_zone_low": sell_zone_low, "sell_zone_high": sell_zone_high,
         "h4_support": h4_sup, "h4_resistance": h4_res,
         "m15_support": support, "m15_resistance": resistance,
         "m15_atr": atr15, "break_up": break_up, "break_down": break_dn,
