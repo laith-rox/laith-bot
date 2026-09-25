@@ -483,7 +483,7 @@ def apply_main_structure(signal, mtf):
         out["mtf"]=mtf
         raw_side=out.get("side")
         score=int(out.get("score") or 0)
-        h4=str(mtf.get("h4_bias") or "NEUTRAL").upper()\n        m15=str(mtf.get("m15_bias") or "NEUTRAL").upper()
+        h4=str(mtf.get("h4_bias") or "NEUTRAL").upper()
         m15=str(mtf.get("m15_bias") or "NEUTRAL").upper()
         m5_ok=(raw_side=="BUY" and mtf.get("m5_confirm_buy")) or (raw_side=="SELL" and mtf.get("m5_confirm_sell"))
         aligned=(raw_side=="BUY" and m15=="UP") or (raw_side=="SELL" and m15=="DOWN")
