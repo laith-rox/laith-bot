@@ -43,17 +43,19 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertEqual(len(rows), len(values) - 1)
         self.assertNotEqual(rows[-1]["datetime"], "2026-09-21 23:59:00")
 
-    def test_strong_uptrend_rejects_when_support_stop_exceeds_cap(self):
+    def test_strong_uptrend_can_use_local_medium_invalidation(self):
         signal = compute_signal(make_values("up"))
         self.assertGreaterEqual(signal["score"], 6)
-        self.assertIsNone(signal["side"])
-        self.assertEqual(signal["reason"], "structure_stop_exceeds_risk_cap")
+        self.assertEqual(signal["side"], "BUY")
+        self.assertEqual(signal["reason"], "technical_medium_local_invalidation")
+        self.assertLessEqual(signal["risk_distance"], 3.20)
 
-    def test_strong_downtrend_rejects_when_resistance_stop_exceeds_cap(self):
+    def test_strong_downtrend_can_use_local_medium_invalidation(self):
         signal = compute_signal(make_values("down"))
         self.assertGreaterEqual(signal["score"], 6)
-        self.assertIsNone(signal["side"])
-        self.assertEqual(signal["reason"], "structure_stop_exceeds_risk_cap")
+        self.assertEqual(signal["side"], "SELL")
+        self.assertEqual(signal["reason"], "technical_medium_local_invalidation")
+        self.assertLessEqual(signal["risk_distance"], 3.20)
 
     def test_first_break_above_resistance_is_not_chased(self):
         values = make_values("up")
