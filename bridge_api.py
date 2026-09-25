@@ -485,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
             if "XAUUSD" not in str(data.get("symbol", "")).upper():
                 return self._json(400, {"ok": False, "reason": "gold_only"})
             clean = {"mode": "DEMO", "symbol": str(data.get("symbol", ""))[:32], "received_at": time.time()}
-            for name, minimum, maximum in (("m5", 30, 80), ("m15", 35, 80), ("h1", 90, 140)):
+            for name, minimum, maximum in (("m5", 30, 260), ("m15", 35, 100), ("h1", 90, 140)):
                 rows = data.get(name)
                 if not isinstance(rows, list) or len(rows) < minimum:
                     return self._json(400, {"ok": False, "reason": f"{name}_rows_required"})
@@ -496,7 +496,8 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         safe.append({"datetime": str(row.get("datetime", ""))[:32],
                                      "open": f"{float(row['open']):.5f}", "high": f"{float(row['high']):.5f}",
-                                     "low": f"{float(row['low']):.5f}", "close": f"{float(row['close']):.5f}"})
+                                     "low": f"{float(row['low']):.5f}", "close": f"{float(row['close']):.5f}",
+                                     "tick_volume": str(int(float(row.get("tick_volume", 0) or 0)))})
                     except (KeyError, TypeError, ValueError):
                         continue
                 if len(safe) < minimum:
