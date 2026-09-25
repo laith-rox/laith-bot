@@ -125,3 +125,21 @@ class MainMorningPolicyTests(unittest.TestCase):
     def test_main_profit_lock_buy_and_sell(self):
         self.assertAlmostEqual(main_profit_lock_sl("BUY", 4200.0, 15.0), 4210.5)
         self.assertAlmostEqual(main_profit_lock_sl("SELL", 4200.0, 15.0), 4189.5)
+
+
+class EntryInsuranceTests(unittest.TestCase):
+    def test_not_armed_below_trigger(self):
+        self.assertIsNone(insured_sl("BUY", 4200.0, 4198.0, 1.19))
+
+    def test_buy_moves_to_breakeven_plus(self):
+        self.assertAlmostEqual(insured_sl("BUY", 4200.0, 4198.0, 1.20), 4200.20)
+
+    def test_sell_moves_to_breakeven_plus(self):
+        self.assertAlmostEqual(insured_sl("SELL", 4200.0, 4202.0, 1.20), 4199.80)
+
+    def test_never_loosens_existing_stop(self):
+        self.assertIsNone(insured_sl("BUY", 4200.0, 4200.50, 1.20))
+        self.assertIsNone(insured_sl("SELL", 4200.0, 4199.50, 1.20))
+
+    def test_ratchets_with_peak_profit(self):
+        self.assertAlmostEqual(insured_sl("BUY", 4200.0, 4198.0, 2.20), 4200.70)
