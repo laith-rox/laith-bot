@@ -34,6 +34,18 @@ def _stop_streak(trades, side):
 def guard_quick_setup(setup, trades, now):
     """Cap correlated exposure, then apply the same-side stop-streak cooldown."""
     side = setup.get("side")
+    try:
+        score = int(setup.get("score") or 0)
+    except (TypeError, ValueError):
+        score = 0
+    if setup.get("delayed_reference") and score < 5:
+        return {
+            "allowed": False,
+            "reason": "fallback_strength_below_5",
+            "side": side,
+            "detail": "مرجع الدخول آخر شمعة 5د مغلقة؛ يلزم 5/7 على الأقل",
+            "score": score,
+        }
     active = [trade for trade in (trades or []) if trade.get("status") in ("active", "uncertain_delivery")]
     same_side = [trade for trade in active if trade.get("side") == side]
     if same_side:
