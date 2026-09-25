@@ -250,6 +250,16 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         q = parse_qs(parsed.query)
 
+        if path == "/market":
+            with _lock:
+                market = dict(_market_state or {})
+            age = time.time() - float(market.get("received_at", 0) or 0)
+            if not market or age > 20:
+                return self._json(503, {"ok": False, "reason": "market_state_stale", "age": round(age, 2)})
+            market["ok"] = True
+            market["age"] = round(age, 2)
+            return self._json(200, market)
+
         if path == "/health":
             with _lock:
                 _clean()
@@ -385,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, "NOT_FOUND")
 
     def do_POST(self):
-        global _runtime_enabled, _client_state
+        global _runtime_enabled, _client_state, _market_state
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -465,6 +475,36 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 _items[key] = item
                 return self._json(201, {"ok": True, "key": key, "mode": "DEMO", "action": action})
+
+        if path == "/market":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            data = self._read_json()
+            if str(data.get("mode", "")).upper() != "DEMO":
+                return self._json(400, {"ok": False, "reason": "demo_only"})
+            if "XAUUSD" not in str(data.get("symbol", "")).upper():
+                return self._json(400, {"ok": False, "reason": "gold_only"})
+            clean = {"mode": "DEMO", "symbol": str(data.get("symbol", ""))[:32], "received_at": time.time()}
+            for name, minimum, maximum in (("m5", 30, 80), ("m15", 35, 80), ("h1", 90, 140)):
+                rows = data.get(name)
+                if not isinstance(rows, list) or len(rows) < minimum:
+                    return self._json(400, {"ok": False, "reason": f"{name}_rows_required"})
+                safe = []
+                for row in rows[:maximum]:
+                    if not isinstance(row, dict):
+                        continue
+                    try:
+                        safe.append({"datetime": str(row.get("datetime", ""))[:32],
+                                     "open": f"{float(row['open']):.5f}", "high": f"{float(row['high']):.5f}",
+                                     "low": f"{float(row['low']):.5f}", "close": f"{float(row['close']):.5f}"})
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                if len(safe) < minimum:
+                    return self._json(400, {"ok": False, "reason": f"{name}_valid_rows_required"})
+                clean[name] = safe
+            with _lock:
+                _market_state = clean
+            return self._json(200, {"ok": True, "received": True})
 
         if path == "/state":
             if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
