@@ -141,6 +141,28 @@ class PublishLimitTests(unittest.TestCase):
                 worker.validate_config()
 
 
+class TechnicalRecoveredMediumTests(unittest.TestCase):
+    def test_strong_erased_buy_can_recover_with_technical_consensus(self):
+        signal={"side":None,"mode":"MAIN","score":6,"confidence":7,"reason":"resistance_not_confirmed",
+                "target_r":2.0,"local_buy_risk":1.2,
+                "technical":{"bull_score":5,"bear_score":1}}
+        mtf={"side":None,"reason":"mtf_wait","h4_bias":"DOWN",
+             "m5_confirm_buy":True,"m5_confirm_sell":False}
+        out=worker.apply_main_structure(signal,mtf)
+        self.assertEqual(out["side"],"BUY")
+        self.assertEqual(out["mode"],"SNIPER")
+        self.assertEqual(out["reason"],"technical_medium_recovered")
+        self.assertLessEqual(out["risk_distance"],1.60)
+
+    def test_recovered_medium_never_widens_past_cap(self):
+        signal={"side":None,"mode":"MAIN","score":7,"confidence":8,"reason":"x",
+                "local_buy_risk":2.2,"technical":{"bull_score":6,"bear_score":1}}
+        mtf={"side":None,"reason":"mtf_wait","h4_bias":"DOWN",
+             "m5_confirm_buy":True,"m5_confirm_sell":False}
+        out=worker.apply_main_structure(signal,mtf)
+        self.assertIsNone(out["side"])
+
+
 class MediumContinuationTests(unittest.TestCase):
     def test_clean_buy_is_not_erased_by_strict_mtf_wait(self):
         signal={"side":"BUY","mode":"MAIN","score":6,"confidence":7,"reason":"x"}
