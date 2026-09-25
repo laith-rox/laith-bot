@@ -341,7 +341,9 @@ def compute_signal(values):
         "risk_distance":risk_distance,"sl":sl,"tp":tp,"mode":d.mode,
         "confidence":d.confidence,"risk_mult":d.risk_mult,"target_r":d.target_r,
         "reason":guard_reason or d.reason,"held_breakout":held_break_up if d.side=="BUY" else held_break_down,
-        "technical":tech}
+        "technical":tech,
+        "local_buy_risk":max(0.0,close-(last["low"]-structure_pad)),
+        "local_sell_risk":max(0.0,(last["high"]+structure_pad)-close)}
 
 
 def _json_request(url, method="GET", payload=None, headers=None, timeout=10):
@@ -484,6 +486,26 @@ def apply_main_structure(signal, mtf):
         h4=str(mtf.get("h4_bias") or "NEUTRAL").upper()
         m5_ok=(raw_side=="BUY" and mtf.get("m5_confirm_buy")) or (raw_side=="SELL" and mtf.get("m5_confirm_sell"))
         aligned=(raw_side=="BUY" and h4!="DOWN") or (raw_side=="SELL" and h4!="UP")
+        tech=out.get("technical") or {}
+        # If the older structure gate erased the side, rebuild a medium scalp
+        # only from a strong 6/7 M5 signal + M5 confirmation + technical consensus.
+        # It uses the latest candle invalidation and keeps the existing 1.60 cap.
+        if raw_side not in ("BUY","SELL") and score >= 6:
+            synth=None
+            if mtf.get("m5_confirm_buy") and int(tech.get("bull_score") or 0) >= int(tech.get("bear_score") or 0)+2:
+                synth="BUY"
+            elif mtf.get("m5_confirm_sell") and int(tech.get("bear_score") or 0) >= int(tech.get("bull_score") or 0)+2:
+                synth="SELL"
+            if synth:
+                lr=float(out.get("local_buy_risk") if synth=="BUY" else out.get("local_sell_risk") or 0)
+                if 0 < lr <= 1.60:
+                    out["side"]=synth
+                    out["mode"]="SNIPER"
+                    out["confidence"]=6
+                    out["risk_distance"]=max(0.80,lr)
+                    out["target_r"]=1.0
+                    out["reason"]="technical_medium_recovered"
+                    return out
         # Medium continuation: the strict M15 breakout model is for MAIN entries,
         # but it must not erase a clean 5m setup that agrees with H4/M5.
         # Execute it as the existing SNIPER risk class, not as MAIN.
