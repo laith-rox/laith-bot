@@ -149,12 +149,15 @@ class MediumContinuationTests(unittest.TestCase):
         self.assertEqual(out["mode"],"SNIPER")
         self.assertEqual(out["reason"],"mtf_medium_continuation")
 
-    def test_medium_buy_is_blocked_against_h4_down(self):
-        signal={"side":"BUY","mode":"MAIN","score":6,"confidence":7,"reason":"x"}
+    def test_strong_countertrend_buy_becomes_medium_sniper(self):
+        signal={"side":"BUY","mode":"MAIN","score":6,"confidence":7,"reason":"x","target_r":2.0}
         mtf={"side":None,"reason":"mtf_wait","h4_bias":"DOWN",
              "m5_confirm_buy":True,"m5_confirm_sell":False}
         out=worker.apply_main_structure(signal,mtf)
-        self.assertIsNone(out["side"])
+        self.assertEqual(out["side"],"BUY")
+        self.assertEqual(out["mode"],"SNIPER")
+        self.assertEqual(out["reason"],"mtf_countertrend_medium")
+        self.assertEqual(out["target_r"],1.0)
 
 
 class MultiPositionDecisionTests(unittest.TestCase):
