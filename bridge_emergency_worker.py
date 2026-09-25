@@ -241,7 +241,7 @@ def run_forever():
                     price = float(p.get("price") or health.get("price") or 0)
                     stop = float(p.get("sl") or 0)
                     entry = float(p.get("open_price") or 0)
-                    tp_raw = p.get("tp")\n                    tp = float(tp_raw) if tp_raw not in (None, "") else None
+                    tp = float(p.get("tp") or 0)
                     profit = float(p.get("profit") or 0)
                 except (TypeError, ValueError):
                     continue
