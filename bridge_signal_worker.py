@@ -32,7 +32,7 @@ VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
 _MTF_CACHE = {}
-WORKER_VERSION = "bridge-tech-pattern-v26"
+WORKER_VERSION = "bridge-indicator-stack-v1"
 
 
 def _ema(values, period):
@@ -110,8 +110,18 @@ def compute_signal(values):
     recent_high = max(r["high"] for r in rows[-6:-1])
     recent_low = min(r["low"] for r in rows[-6:-1])
     momentum = close - closes[-4]
-    buy = [ema8[-1] > ema21[-1], close > ema8[-1], ema8[-1] > ema8[-2], rsi >= 52.0, momentum > 0, close > open_, close > recent_high]
-    sell = [ema8[-1] < ema21[-1], close < ema8[-1], ema8[-1] < ema8[-2], rsi <= 48.0, momentum < 0, close < open_, close < recent_low]
+    # Compact indicator stack: trend + trend strength/direction are primary;
+    # RSI and volume confirm rather than creating a trade by themselves.
+    # Missing broker volume is neutral so a provider fallback cannot veto entries.
+    adx_ok = float(tech.get("adx") or 0) >= 16.0
+    plus_di = float(tech.get("plus_di") or 0)
+    minus_di = float(tech.get("minus_di") or 0)
+    volume_ratio = tech.get("volume_ratio")
+    volume_ok = volume_ratio is None or float(volume_ratio) >= 0.80
+    buy = [ema8[-1] > ema21[-1], plus_di > minus_di, adx_ok, rsi >= 52.0,
+           momentum > 0, volume_ok, close > recent_high]
+    sell = [ema8[-1] < ema21[-1], minus_di > plus_di, adx_ok, rsi <= 48.0,
+            momentum < 0, volume_ok, close < recent_low]
     buy_score, sell_score = sum(map(bool,buy)), sum(map(bool,sell))
     try: hour_local = (datetime.fromisoformat(last["datetime"]).hour + 3) % 24
     except Exception: hour_local = (datetime.now(timezone.utc).hour + 3) % 24
