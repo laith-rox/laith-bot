@@ -18,5 +18,8 @@ class TechnicalConfirmationTests(unittest.TestCase):
         self.assertGreater(out["bull_score"],out["bear_score"])
         self.assertIsNotNone(out["vwap"])
         self.assertIn("macd_hist",out)
+        self.assertGreater(out["plus_di"],out["minus_di"])
+        self.assertGreaterEqual(out["adx"],0)
+        self.assertIsNotNone(out["volume_ratio"])
 
 if __name__=="__main__": unittest.main()
