@@ -39,17 +39,20 @@ def patterns(rows):
     if f0["close"]<f0["open"] and f4["close"]<f4["open"] and f4["close"]<f0["low"] and all(q["close"]>q["open"] and f0["low"]<=q["low"]<=q["high"]<=f0["high"] for q in (f1,f2,f3)):bear.append("falling_three_methods")
     return bull,bear,neutral
 
-def adx(rows,n=14):
-    if len(rows)<n+2:return 0.
+def adx_di(rows,n=14):
+    if len(rows)<n+2:return 0.,0.,0.
     tr=[];p=[];m=[]
     for i in range(1,len(rows)):
         up=rows[i]["high"]-rows[i-1]["high"];dn=rows[i-1]["low"]-rows[i]["low"];pc=rows[i-1]["close"]
         tr.append(max(rows[i]["high"]-rows[i]["low"],abs(rows[i]["high"]-pc),abs(rows[i]["low"]-pc)))
         p.append(up if up>dn and up>0 else 0);m.append(dn if dn>up and dn>0 else 0)
     atr=sum(tr[-n:])
-    if atr<=0:return 0.
+    if atr<=0:return 0.,0.,0.
     pp=100*sum(p[-n:])/atr;mm=100*sum(m[-n:])/atr
-    return 100*abs(pp-mm)/max(pp+mm,1e-9)
+    return 100*abs(pp-mm)/max(pp+mm,1e-9),pp,mm
+
+def adx(rows,n=14):
+    return adx_di(rows,n)[0]
 
 def analyze(rows):
     closes=[r["close"] for r in rows]; e9=ema(closes,9);e21=ema(closes,21);e50=ema(closes,50)
@@ -59,6 +62,10 @@ def analyze(rows):
     volrows=[r for r in rows[-50:] if float(r.get("tick_volume") or 0)>0]; den=sum(float(r["tick_volume"]) for r in volrows)
     vw=sum(((r["high"]+r["low"]+r["close"])/3)*float(r["tick_volume"]) for r in volrows)/den if den else None
     bull,bear,neutral=patterns(rows); close=closes[-1]
+    ax,plus_di,minus_di=adx_di(rows)
+    recent_vol=[float(r.get("tick_volume") or 0) for r in rows[-21:]]
+    valid_vol=[v for v in recent_vol[:-1] if v>0]
+    volume_ratio=(recent_vol[-1]/(sum(valid_vol)/len(valid_vol))) if recent_vol[-1]>0 and valid_vol else None
     bull += ["ema9_21"] if e9[-1]>e21[-1] else []
     bear += ["ema9_21"] if e9[-1]<e21[-1] else []
     bull += ["above_ema50"] if close>e50[-1] else []; bear += ["below_ema50"] if close<e50[-1] else []
@@ -69,4 +76,5 @@ def analyze(rows):
     elif close>=upper:bear.append("bollinger_upper")
     return {"bull_score":len(bull),"bear_score":len(bear),"bull":bull,"bear":bear,"neutral":neutral,
             "ema9":e9[-1],"ema21":e21[-1],"ema50":e50[-1],"ema200":e200[-1] if e200 else None,
-            "macd_hist":hist,"boll_upper":upper,"boll_lower":lower,"vwap":vw,"adx":adx(rows)}
+            "macd_hist":hist,"boll_upper":upper,"boll_lower":lower,"vwap":vw,"adx":ax,
+            "plus_di":plus_di,"minus_di":minus_di,"volume_ratio":volume_ratio}
