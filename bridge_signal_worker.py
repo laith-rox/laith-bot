@@ -579,6 +579,48 @@ def same_entry_copies(signal, health):
     available=max(0.0,budget-used)
     return max(1,min(4,int(available//risk))) if available+0.01>=risk else 0
 
+
+def recover_strong_structural_entry(signal, health):
+    """Use a real candle invalidation for a strong setup when the fixed cap is too tight.
+
+    The EA independently checks actual broker entry, spread, and planned USD loss.
+    This is only a DEMO candidate; it cannot grant itself extra risk budget.
+    """
+    out = dict(signal)
+    if out.get("side") or out.get("reason") != "structure_stop_exceeds_risk_cap":
+        return out
+    if not health.get("client_state_fresh"):
+        return out
+    mtf = out.get("mtf") or {}
+    h4 = str(mtf.get("h4_bias") or "NEUTRAL").upper()
+    tech = out.get("technical") or {}
+    choices = []
+    for side in ("BUY", "SELL"):
+        score = int(out.get("buy_score" if side == "BUY" else "sell_score") or 0)
+        opposite = int(out.get("sell_score" if side == "BUY" else "buy_score") or 0)
+        confirms = mtf.get("m5_confirm_buy" if side == "BUY" else "m5_confirm_sell")
+        aligned = h4 == ("UP" if side == "BUY" else "DOWN")
+        breakout = mtf.get("break_up" if side == "BUY" else "break_down")
+        agreement = (int(tech.get("bull_score" if side == "BUY" else "bear_score") or 0)
+                     - int(tech.get("bear_score" if side == "BUY" else "bull_score") or 0))
+        if score >= 6 and score - opposite >= 3 and confirms and agreement >= 2 and (aligned or breakout):
+            choices.append((side, score))
+    if len(choices) != 1:
+        return out
+    side, score = choices[0]
+    raw_risk = float(out.get("local_buy_risk" if side == "BUY" else "local_sell_risk") or 0)
+    risk = max(0.80, raw_risk)
+    budget = float(health.get("effective_risk_budget_usd") or 0)
+    used = float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
+    available = max(0.0, budget - used)
+    if raw_risk <= 0 or risk > available or risk > 10.0:
+        out["reason"] = "strong_signal_stop_exceeds_budget"
+        return out
+    out.update(side=side, mode="SNIPER", confidence=7 if score == 7 else 6,
+               risk_distance=risk, target_r=1.0,
+               reason="strong_signal_candle_invalidation")
+    return out
+
 def bridge_health():
     # Railway public routing can briefly return 503 during edge/container handoff.
     # Retry health only; this never bypasses state/risk gates or publishes a trade.
@@ -723,6 +765,7 @@ def run_forever():
             signal = compute_signal(feeds["5m"])
             mtf = analyze_structure(normalize_rows(feeds["5m"]), normalize_rows(feeds["15m"]), normalize_rows(feeds["1h"]))
             signal = apply_main_structure(signal, mtf)
+            signal = recover_strong_structural_entry(signal, health)
             if signal["bar"] == last_bar:
                 time.sleep(POLL_SECONDS)
                 continue
