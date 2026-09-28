@@ -735,7 +735,9 @@ def run_forever():
                     f"h4={signal.get('mtf',{}).get('h4_bias')} "
                     f"m5buy={signal.get('mtf',{}).get('m5_confirm_buy')} m5sell={signal.get('mtf',{}).get('m5_confirm_sell')} "
                     f"m15S={signal.get('mtf',{}).get('m15_support')} m15R={signal.get('mtf',{}).get('m15_resistance')} "
-                    f"local_buy_risk={signal.get('local_buy_risk')} local_sell_risk={signal.get('local_sell_risk')}",
+                    f"local_buy_risk={signal.get('local_buy_risk')} local_sell_risk={signal.get('local_sell_risk')} "
+                    f"risk_budget={health.get('effective_risk_budget_usd')} "
+                    f"position_risk={health.get('total_position_risk_usd',health.get('position_risk_usd'))}",
                     flush=True,
                 )
                 time.sleep(POLL_SECONDS)
