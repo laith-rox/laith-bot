@@ -45,6 +45,14 @@ class BridgeValidationTests(unittest.TestCase):
         p["key"]="fast4"; p["checks"]={"BUY":[True,True,True,True,False,False,False]}
         self.assertEqual(bridge_api._validate_publish(p),(False,"fast_conditions_not_met"))
 
+    def test_signed_strength_suffix_must_match_checks(self):
+        p={"mode":"DEMO","key":"fast:S7","symbol":"XAUUSD","side":"SELL",
+           "trade_mode":"SNIPER","volume":0.01,"sl":4200,"tp":4100,"forced":False,
+           "checks":{"SELL":[True]*6+[False]}}
+        self.assertEqual(bridge_api._validate_publish(p),(False,"signal_strength_mismatch"))
+        p["key"]="fast:S6"
+        self.assertEqual(bridge_api._validate_publish(p),(True,"approved"))
+
     def test_live_and_forced_remain_blocked(self):
         p={"mode":"LIVE","key":"live","symbol":"XAUUSD","side":"BUY","volume":0.01,
            "trade_mode":"MAIN","sl":3900,"tp":4100,"forced":False,"checks":{"BUY":[True]*7}}
