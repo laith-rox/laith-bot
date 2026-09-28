@@ -205,6 +205,17 @@ class StrongStructuralEntryTests(unittest.TestCase):
         self.assertIsNone(result["side"])
         self.assertEqual(result["reason"], "strong_signal_stop_exceeds_budget")
 
+    def test_strong_setup_can_use_fifteen_dollar_cap_reported_by_ea(self):
+        result = worker.recover_strong_structural_entry(
+            {**self.signal, "local_sell_risk": 12.0},
+            {**self.health, "strong_risk_budget_usd": "15.00"})
+        self.assertEqual(result["side"], "SELL")
+        self.assertEqual(result["risk_distance"], 12.0)
+        result = worker.recover_strong_structural_entry(
+            {**self.signal, "local_sell_risk": 15.1},
+            {**self.health, "strong_risk_budget_usd": "15.00"})
+        self.assertIsNone(result["side"])
+
     def test_countertrend_requires_confirmed_breakout(self):
         result = worker.recover_strong_structural_entry(
             {**self.signal, "buy_score": 7, "sell_score": 2, "local_buy_risk": 3.1,
@@ -233,6 +244,14 @@ class MultiPositionDecisionTests(unittest.TestCase):
         signal={"risk_distance":1.0}
         health={"effective_risk_budget_usd":"6.00","total_position_risk_usd":"1.00"}
         self.assertEqual(worker.same_entry_copies(signal,health),4)
+
+    def test_strong_budget_only_applies_to_verified_strong_checks(self):
+        health={"effective_risk_budget_usd":"4.72","strong_risk_budget_usd":"15.00",
+                "total_position_risk_usd":"0.00"}
+        strong={"side":"SELL","checks":{"SELL":[True]*6+[False]},"risk_distance":12.0}
+        weak={"side":"SELL","checks":{"SELL":[True]*5+[False]*2},"risk_distance":12.0}
+        self.assertEqual(worker.same_entry_copies(strong,health),1)
+        self.assertEqual(worker.same_entry_copies(weak,health),0)
 
 
 class LegacyCompatibilityTests(unittest.TestCase):
