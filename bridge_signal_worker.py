@@ -572,7 +572,10 @@ def apply_main_structure(signal, mtf):
 def same_entry_copies(signal, health):
     """Allow multiple 0.01 tickets only inside the unchanged S5 aggregate budget."""
     risk=max(0.01,float(signal.get("risk_distance") or 0))
-    full=float(health.get("effective_risk_budget_usd") or 0)
+    selected=(signal.get("checks") or {}).get(signal.get("side"))
+    strength=sum(bool(x) for x in selected) if isinstance(selected,list) else int(signal.get("score") or 0)
+    budget_field="strong_risk_budget_usd" if strength>=6 and health.get("strong_risk_budget_usd") is not None else "effective_risk_budget_usd"
+    full=float(health.get(budget_field) or 0)
     # The EA enforces the DEMO loss gate; avoid halving its budget twice.
     budget=full
     used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
@@ -610,10 +613,10 @@ def recover_strong_structural_entry(signal, health):
     side, score = choices[0]
     raw_risk = float(out.get("local_buy_risk" if side == "BUY" else "local_sell_risk") or 0)
     risk = max(0.80, raw_risk)
-    budget = float(health.get("effective_risk_budget_usd") or 0)
+    budget = float(health.get("strong_risk_budget_usd") or health.get("effective_risk_budget_usd") or 0)
     used = float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
     available = max(0.0, budget - used)
-    if raw_risk <= 0 or risk > available or risk > 10.0:
+    if raw_risk <= 0 or risk > available or risk > 15.0:
         out["reason"] = "strong_signal_stop_exceeds_budget"
         return out
     out.update(side=side, mode="SNIPER", confidence=7 if score == 7 else 6,
@@ -677,7 +680,7 @@ def publish_signal(signal, spot_override=None, copy_index=1):
     payload = {
         "mode": "DEMO",
         "trade_mode": trade_mode,
-        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:C{copy_index}",
+        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:C{copy_index}:S{sum(bool(x) for x in signal['checks'][side])}",
         "symbol": "XAUUSD",
         "side": side,
         "volume": VOLUME,
@@ -779,7 +782,7 @@ def run_forever():
                     f"m5buy={signal.get('mtf',{}).get('m5_confirm_buy')} m5sell={signal.get('mtf',{}).get('m5_confirm_sell')} "
                     f"m15S={signal.get('mtf',{}).get('m15_support')} m15R={signal.get('mtf',{}).get('m15_resistance')} "
                     f"local_buy_risk={signal.get('local_buy_risk')} local_sell_risk={signal.get('local_sell_risk')} "
-                    f"risk_budget={health.get('effective_risk_budget_usd')} "
+                    f"risk_budget={health.get('effective_risk_budget_usd')} strong_risk_budget={health.get('strong_risk_budget_usd')} "
                     f"position_risk={health.get('total_position_risk_usd',health.get('position_risk_usd'))}",
                     flush=True,
                 )
