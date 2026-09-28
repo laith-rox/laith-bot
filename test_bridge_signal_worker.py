@@ -43,6 +43,13 @@ class BridgeSignalWorkerTests(unittest.TestCase):
         self.assertEqual(len(rows), len(values) - 1)
         self.assertNotEqual(rows[-1]["datetime"], "2026-09-21 23:59:00")
 
+    def test_bar_seconds_do_not_make_duplicate_signal_keys(self):
+        values=make_values("up")
+        first=compute_signal(values)
+        values[1]["datetime"]=values[1]["datetime"][:-2]+"01"
+        second=compute_signal(values)
+        self.assertEqual(first["bar"],second["bar"])
+
     def test_strong_uptrend_can_use_local_medium_invalidation(self):
         signal = compute_signal(make_values("up"))
         self.assertGreaterEqual(signal["score"], 6)
@@ -184,6 +191,45 @@ class MediumContinuationTests(unittest.TestCase):
         self.assertEqual(out["target_r"],1.0)
 
 
+class M15ContinuationStopTests(unittest.TestCase):
+    def setUp(self):
+        self.signal={"side":None,"reason":"structure_stop_exceeds_risk_cap",
+                     "reference_close":4119.0,"buy_score":1,"sell_score":6,
+                     "checks":{"SELL":[True,True,True,True,True,True,False]},
+                     "mtf":{"h4_bias":"DOWN","m5_confirm_sell":True,
+                            "m15_last_open":4124.0,"m15_last_close":4119.0,
+                            "m15_prev_close":4123.0,"m15_last_high":4126.0,
+                            "m15_prev_high":4127.0,"m15_atr":4.0,
+                            "break_down":True}}
+        self.health={"client_state_fresh":True,"effective_risk_budget_usd":"3.00",
+                     "strong_risk_budget_usd":"15.00","total_position_risk_usd":"0.00"}
+
+    def test_strong_breakout_uses_m15_high_and_budget(self):
+        out=worker.recover_m15_continuation(self.signal,self.health)
+        self.assertEqual(out["side"],"SELL")
+        self.assertEqual(out["mode"],"MAIN")
+        self.assertAlmostEqual(out["risk_distance"],8.4)
+        self.assertEqual(out["analysis"]["invalidation"],"m15_candle_extreme")
+
+    def test_medium_entry_needs_regular_budget(self):
+        s={**self.signal,"sell_score":5,
+           "checks":{"SELL":[True,True,False,True,True,True,False]}}
+        self.assertIsNone(worker.recover_m15_continuation(s,self.health)["side"])
+        s["mtf"]={**s["mtf"],"m15_last_high":4120.0,"m15_prev_high":4121.0}
+        self.assertEqual(worker.recover_m15_continuation(s,self.health)["side"],"SELL")
+
+    def test_no_countertrend_or_unconfirmed_m5_entry(self):
+        for change in ({"h4_bias":"UP"},{"m5_confirm_sell":False},
+                       {"m15_last_close":4125.0}):
+            s={**self.signal,"mtf":{**self.signal["mtf"],**change}}
+            with self.subTest(change=change):
+                self.assertIsNone(worker.recover_m15_continuation(s,self.health)["side"])
+
+    def test_no_entry_without_fresh_state(self):
+        self.assertIsNone(worker.recover_m15_continuation(
+            self.signal,{**self.health,"client_state_fresh":False})["side"])
+
+
 class StrongStructuralEntryTests(unittest.TestCase):
     def setUp(self):
         self.signal = {"side": None, "reason": "structure_stop_exceeds_risk_cap",
@@ -243,7 +289,7 @@ class MultiPositionDecisionTests(unittest.TestCase):
     def test_same_entry_copies_use_remaining_ea_budget(self):
         signal={"risk_distance":1.0}
         health={"effective_risk_budget_usd":"6.00","total_position_risk_usd":"1.00"}
-        self.assertEqual(worker.same_entry_copies(signal,health),4)
+        self.assertEqual(worker.same_entry_copies(signal,health),1)
 
     def test_strong_budget_only_applies_to_verified_strong_checks(self):
         health={"effective_risk_budget_usd":"4.72","strong_risk_budget_usd":"15.00",
