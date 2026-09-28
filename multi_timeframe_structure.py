@@ -99,6 +99,10 @@ def analyze_structure(m5, m15, h1):
         "h4_support": h4_sup, "h4_resistance": h4_res,
         "m15_support": support, "m15_resistance": resistance,
         "m15_atr": atr15, "break_up": break_up, "break_down": break_dn,
+        "m15_last_open": last["open"], "m15_last_close": last["close"],
+        "m15_last_low": last["low"], "m15_last_high": last["high"],
+        "m15_prev_close": prev["close"],
+        "m15_prev_low": prev["low"], "m15_prev_high": prev["high"],
         "retest_up": retest_up, "retest_down": retest_dn,
         "m5_confirm_buy": m5_buy, "m5_confirm_sell": m5_sell,
     }
