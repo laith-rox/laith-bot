@@ -184,6 +184,40 @@ class MediumContinuationTests(unittest.TestCase):
         self.assertEqual(out["target_r"],1.0)
 
 
+class StrongStructuralEntryTests(unittest.TestCase):
+    def setUp(self):
+        self.signal = {"side": None, "reason": "structure_stop_exceeds_risk_cap",
+                       "buy_score": 2, "sell_score": 7, "local_sell_risk": 4.24,
+                       "mtf": {"h4_bias": "DOWN", "m5_confirm_sell": True},
+                       "technical": {"bear_score": 5, "bull_score": 2}}
+        self.health = {"client_state_fresh": True, "effective_risk_budget_usd": "4.72",
+                       "total_position_risk_usd": "0.00"}
+
+    def test_strong_aligned_sell_uses_candle_invalidation_within_budget(self):
+        result = worker.recover_strong_structural_entry(self.signal, self.health)
+        self.assertEqual(result["side"], "SELL")
+        self.assertEqual(result["risk_distance"], 4.24)
+        self.assertEqual(result["target_r"], 1.0)
+
+    def test_wide_stop_cannot_be_clipped_to_fit_budget(self):
+        result = worker.recover_strong_structural_entry(
+            {**self.signal, "local_sell_risk": 8.71}, self.health)
+        self.assertIsNone(result["side"])
+        self.assertEqual(result["reason"], "strong_signal_stop_exceeds_budget")
+
+    def test_countertrend_requires_confirmed_breakout(self):
+        result = worker.recover_strong_structural_entry(
+            {**self.signal, "buy_score": 7, "sell_score": 2, "local_buy_risk": 3.1,
+             "mtf": {"h4_bias": "DOWN", "m5_confirm_buy": True, "break_up": False},
+             "technical": {"bear_score": 1, "bull_score": 5}}, self.health)
+        self.assertIsNone(result["side"])
+
+    def test_unconfirmed_resistance_is_not_overridden(self):
+        result = worker.recover_strong_structural_entry(
+            {**self.signal, "reason": "resistance_not_confirmed"}, self.health)
+        self.assertIsNone(result["side"])
+
+
 class MultiPositionDecisionTests(unittest.TestCase):
     def test_open_position_does_not_block_when_pending_capacity_exists(self):
         health={"mode":"DEMO","enabled":True,"client_state_fresh":True,
