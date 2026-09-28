@@ -1,6 +1,6 @@
-// Laith MT5 Demo Bridge EA — DEMO ONLY.
+﻿// Laith MT5 Demo Bridge EA â€” DEMO ONLY.
 // Polls the isolated Laith Execution Bridge over HTTPS.
-// Live accounts are rejected. Gold only. Fixed 0.01 lot. One open gold position max.
+// Live accounts are rejected. Gold only. Fixed 0.01 lot. Multiple DEMO positions share one aggregate risk ceiling.
 // Management v1.2: reports position state, supports verified MODIFY/CLOSE commands,
 // calculates planned loss in account currency, and persists a realized-profit risk wallet.
 #property strict
@@ -8,8 +8,8 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-input string BridgeBaseUrl = "";
-input string BridgeClientToken = "";
+input string BridgeBaseUrl = "https://bridge-api-production-5b7b.up.railway.app";
+input string BridgeClientToken = "a53584d2eb1e93ffdee243135048bdd00cfdebea851a8ff9";
 input int PollSeconds = 2;
 input bool LocalKillSwitch = true;
 input double DemoLots = 0.01;
@@ -17,6 +17,7 @@ input long MagicNumber = 56002;
 input double MaxProfitRiskUsd = 10.0;
 input int CommissioningTrades = 2;
 input double CommissioningRiskUsd = 2.0;
+input double MaxRiskPercent = 1.0; // Maximum share of DEMO equity per position.
 
 string g_base_url = "";
 string g_profit_baseline_name = "";
@@ -182,19 +183,20 @@ void MarkCommissioningUseIfNeeded(double planned_loss_usd)
       GlobalVariableSet(g_commissioning_used_name,(double)(used+1));
 }
 
-double OwnedPositionRiskToStopUsd()
+double PositionRiskToStopUsd(ulong ticket)
 {
-   ulong ticket=0;
-   if(!SelectOwnedGoldPosition(ticket))
+   if(ticket==0 || !PositionSelectByTicket(ticket))
       return 0.0;
-
+   string sym=PositionGetString(POSITION_SYMBOL);
+   long magic=(long)PositionGetInteger(POSITION_MAGIC);
+   if(sym!=_Symbol || StringFind(sym,"XAUUSD")<0 || magic!=MagicNumber)
+      return 0.0;
    long ptype=(long)PositionGetInteger(POSITION_TYPE);
    double volume=PositionGetDouble(POSITION_VOLUME);
    double open_price=PositionGetDouble(POSITION_PRICE_OPEN);
    double sl=PositionGetDouble(POSITION_SL);
    if(volume<=0 || open_price<=0 || sl<=0)
       return 0.0;
-
    double pnl=0.0;
    ENUM_ORDER_TYPE order_type=(ptype==POSITION_TYPE_BUY ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
    if(!OrderCalcProfit(order_type,_Symbol,volume,open_price,sl,pnl))
@@ -202,12 +204,51 @@ double OwnedPositionRiskToStopUsd()
    return MathMax(0.0,-pnl);
 }
 
-bool SafeInputs(string side,double volume,double sl,double tp)
+double TotalOwnedPositionRiskUsd()
+{
+   double total=0.0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket>0)
+         total+=PositionRiskToStopUsd(ticket);
+   }
+   return total;
+}
+
+bool SelectOwnedGoldPositionByTicket(ulong requested)
+{
+   if(requested==0 || !PositionSelectByTicket(requested))
+      return false;
+   string sym=PositionGetString(POSITION_SYMBOL);
+   long magic=(long)PositionGetInteger(POSITION_MAGIC);
+   return (sym==_Symbol && StringFind(sym,"XAUUSD")>=0 && magic==MagicNumber);
+}
+
+double SignalRiskBudgetUsd(string id)
+{
+   // The bridge verifies the S5/S6/S7 count before signing the command.
+   // Older commands without this suffix use the lowest tier.
+   int strength=5;
+   int marker=StringLen(id)-3;
+   if(marker>=0 && StringSubstr(id,marker,2)==":S")
+   {
+      int parsed=(int)StringToInteger(StringSubstr(id,marker+2));
+      if(parsed>=5 && parsed<=7) strength=parsed;
+   }
+   double equity=MathMax(0.0,AccountInfoDouble(ACCOUNT_EQUITY));
+   // Strong, verified DEMO signals may use a structural stop up to $15 loss.
+   // The additional equity cap prevents $15 risk on a much smaller account.
+   if(strength>=6)
+      return MathMin(15.0,equity*3.5/100.0);
+   return equity*MaxRiskPercent*0.50/100.0;
+}
+
+bool SafeInputs(string side,double volume,double sl,double tp,string id)
 {
    if(!IsDemoAccount()) return false;
    if(!IsGoldSymbol()) return false;
    if(LocalKillSwitch) return false;
-   if(HasOpenGoldPosition()) return false;
    if(MathAbs(DemoLots-0.01)>0.0000001) return false;
    if(MathAbs(volume-0.01)>0.0000001) return false;
    if(sl<=0 || tp<=0) return false;
@@ -219,15 +260,30 @@ bool SafeInputs(string side,double volume,double sl,double tp)
    if(side=="SELL" && !(sl>tick.bid && tp<tick.bid)) return false;
    if(side!="BUY" && side!="SELL") return false;
 
+   // Stops must be valid against the closing quote and broker's minimum distance.
+   double min_distance=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point+2.0*_Point;
+   if(side=="BUY" && (sl>=tick.bid-min_distance || tp<=tick.bid+min_distance))
+   {
+      Print("LAITH_BRIDGE_STOPS_REJECT id=",id," min_distance=",DoubleToString(min_distance,_Digits));
+      return false;
+   }
+   if(side=="SELL" && (sl<=tick.ask+min_distance || tp>=tick.ask-min_distance))
+   {
+      Print("LAITH_BRIDGE_STOPS_REJECT id=",id," min_distance=",DoubleToString(min_distance,_Digits));
+      return false;
+   }
+
    double planned_loss_usd=0.0;
    if(!CalcPlannedLossUsd(side,volume,sl,planned_loss_usd)) return false;
-   double budget=EffectiveRiskBudgetUsd();
-   if(planned_loss_usd>budget+0.01)
+   double budget=SignalRiskBudgetUsd(id);
+   double open_risk_usd=TotalOwnedPositionRiskUsd();
+   if(open_risk_usd+planned_loss_usd>budget+0.01)
    {
       Print("LAITH_BRIDGE_RISK_REJECT planned_loss_usd=",DoubleToString(planned_loss_usd,2),
-            " budget_usd=",DoubleToString(budget,2),
-            " realized_profit_usd=",DoubleToString(RealizedBridgeProfit(),2),
-            " commissioning_used=",CommissioningUsed(),"/",CommissioningTrades);
+            " open_risk_usd=",DoubleToString(open_risk_usd,2),
+            " aggregate_budget_usd=",DoubleToString(budget,2),
+            " equity_usd=",DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY),2),
+            " max_risk_percent=",DoubleToString(MaxRiskPercent,2));
       return false;
    }
    return true;
@@ -291,16 +347,16 @@ bool VerifyCommand(string key,string ts,string symbol,string side,string volume,
    return (code==200 && StringFind(body,"OK")>=0);
 }
 
-bool VerifyAction(string key,string ts,string symbol,string action,string sl,string tp,string sig)
+bool VerifyAction(string key,string ts,string symbol,string action,string ticket,string sl,string tp,string sig)
 {
    string url=g_base_url+
       "/verify-action?key="+key+
       "&ts="+ts+
       "&symbol="+symbol+
-      "&action="+action+
-      "&sl="+sl+
-      "&tp="+tp+
-      "&sig="+sig;
+      "&action="+action;
+   if(StringLen(ticket)>0)
+      url+="&ticket="+ticket;
+   url+="&sl="+sl+"&tp="+tp+"&sig="+sig;
    string body="";
    int code=HttpGet(url,body);
    return (code==200 && StringFind(body,"OK")>=0);
@@ -316,50 +372,102 @@ void AckCommand(string key,bool ok,long retcode,ulong ticket)
    Print("LAITH_BRIDGE_ACK key=",key," http=",code," body=",body);
 }
 
+string RatesJson(ENUM_TIMEFRAMES tf,int count)
+{
+   MqlRates rates[];
+   ArraySetAsSeries(rates,true);
+   int copied=CopyRates(_Symbol,tf,0,count,rates);
+   if(copied<=0)
+      return "[]";
+   int offset=(int)(TimeCurrent()-TimeGMT());
+   string out="[";
+   for(int i=0;i<copied;i++)
+   {
+      if(i>0) out+=",";
+      datetime utc_time=rates[i].time-offset;
+      out+="{\"datetime\":\""+TimeToString(utc_time,TIME_DATE|TIME_MINUTES|TIME_SECONDS)+"\""+
+           ",\"open\":"+DoubleToString(rates[i].open,_Digits)+
+           ",\"high\":"+DoubleToString(rates[i].high,_Digits)+
+           ",\"low\":"+DoubleToString(rates[i].low,_Digits)+
+           ",\"close\":"+DoubleToString(rates[i].close,_Digits)+
+           ",\"tick_volume\":"+IntegerToString((long)rates[i].tick_volume)+"}";
+   }
+   out+="]";
+   return out;
+}
+
+void PostMarketState()
+{
+   string m5=RatesJson(PERIOD_M5,240);
+   string m15=RatesJson(PERIOD_M15,100);
+   string h1=RatesJson(PERIOD_H1,120);
+   if(m5=="[]" || m15=="[]" || h1=="[]")
+   {
+      Print("LAITH_BRIDGE_MARKET_WAIT history_not_ready");
+      return;
+   }
+   string json="{\"mode\":\"DEMO\",\"symbol\":\""+_Symbol+"\",\"m5\":"+m5+",\"m15\":"+m15+",\"h1\":"+h1+"}";
+   string body="";
+   int code=HttpPostJson(g_base_url+"/market",json,body);
+   if(code!=200)
+      Print("LAITH_BRIDGE_MARKET_ERROR http=",code," body=",body);
+}
+
 void PostState()
 {
    if(!IsDemoAccount() || !IsGoldSymbol())
       return;
 
-   bool position_open=false;
-   bool position_owned=false;
+   bool position_open=false,position_owned=false;
    ulong ticket=0;
    string side="";
-   double volume=0.0;
-   double open_price=0.0;
-   double sl=0.0;
-   double tp=0.0;
-   double price=0.0;
-   double profit=0.0;
+   double volume=0.0,open_price=0.0,sl=0.0,tp=0.0,price=0.0,profit=0.0;
    long magic=0;
-   double position_risk_usd=0.0;
+   double position_risk_usd=0.0,total_position_risk_usd=0.0;
+   int owned_count=0;
+   string positions_json="[";
 
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong candidate=PositionGetTicket(i);
       if(candidate==0 || !PositionSelectByTicket(candidate))
          continue;
-
       string sym=PositionGetString(POSITION_SYMBOL);
       if(sym!=_Symbol || StringFind(sym,"XAUUSD")<0)
          continue;
 
-      position_open=true;
-      ticket=candidate;
-      magic=(long)PositionGetInteger(POSITION_MAGIC);
-      position_owned=(magic==MagicNumber);
+      long pmagic=(long)PositionGetInteger(POSITION_MAGIC);
+      bool owned=(pmagic==MagicNumber);
+      if(!owned)
+         continue;
       long ptype=(long)PositionGetInteger(POSITION_TYPE);
-      side=(ptype==POSITION_TYPE_BUY ? "BUY" : "SELL");
-      volume=PositionGetDouble(POSITION_VOLUME);
-      open_price=PositionGetDouble(POSITION_PRICE_OPEN);
-      sl=PositionGetDouble(POSITION_SL);
-      tp=PositionGetDouble(POSITION_TP);
-      price=PositionGetDouble(POSITION_PRICE_CURRENT);
-      profit=PositionGetDouble(POSITION_PROFIT);
-      if(position_owned)
-         position_risk_usd=OwnedPositionRiskToStopUsd();
-      break;
+      string pside=(ptype==POSITION_TYPE_BUY ? "BUY" : "SELL");
+      double pvolume=PositionGetDouble(POSITION_VOLUME);
+      double popen=PositionGetDouble(POSITION_PRICE_OPEN);
+      double psl=PositionGetDouble(POSITION_SL);
+      double ptp=PositionGetDouble(POSITION_TP);
+      double pprice=PositionGetDouble(POSITION_PRICE_CURRENT);
+      double pprofit=PositionGetDouble(POSITION_PROFIT);
+      double prisk=PositionRiskToStopUsd(candidate);
+      total_position_risk_usd+=prisk;
+      owned_count++;
+
+      if(StringLen(positions_json)>1) positions_json+=",";
+      positions_json+="{\"ticket\":\""+TicketToString(candidate)+"\",\"owned\":true"+
+                      ",\"side\":\""+pside+"\",\"volume\":\""+DoubleToString(pvolume,2)+"\""+
+                      ",\"open_price\":\""+DoubleToString(popen,_Digits)+"\""+
+                      ",\"sl\":\""+DoubleToString(psl,_Digits)+"\",\"tp\":\""+DoubleToString(ptp,_Digits)+"\""+
+                      ",\"price\":\""+DoubleToString(pprice,_Digits)+"\",\"profit\":\""+DoubleToString(pprofit,2)+"\""+
+                      ",\"risk_usd\":\""+DoubleToString(prisk,2)+"\"}";
+
+      if(!position_owned)
+      {
+         position_open=true; position_owned=true; ticket=candidate; magic=pmagic;
+         side=pside; volume=pvolume; open_price=popen; sl=psl; tp=ptp;
+         price=pprice; profit=pprofit; position_risk_usd=prisk;
+      }
    }
+   positions_json+="]";
 
    if(!position_open)
    {
@@ -371,21 +479,20 @@ void PostState()
    string json="{\"mode\":\"DEMO\",\"symbol\":\""+_Symbol+"\""+
                ",\"position_open\":"+(position_open?"true":"false")+
                ",\"position_owned\":"+(position_owned?"true":"false")+
-               ",\"ticket\":\""+TicketToString(ticket)+"\""+
-               ",\"side\":\""+side+"\""+
-               ",\"volume\":\""+DoubleToString(volume,2)+"\""+
-               ",\"open_price\":\""+DoubleToString(open_price,_Digits)+"\""+
-               ",\"sl\":\""+DoubleToString(sl,_Digits)+"\""+
-               ",\"tp\":\""+DoubleToString(tp,_Digits)+"\""+
-               ",\"price\":\""+DoubleToString(price,_Digits)+"\""+
-               ",\"profit\":\""+DoubleToString(profit,2)+"\""+
-               ",\"magic\":\""+IntegerToString(magic)+"\""+
-               ",\"position_risk_usd\":\""+DoubleToString(position_risk_usd,2)+"\""+
+               ",\"ticket\":\""+TicketToString(ticket)+"\",\"side\":\""+side+"\""+
+               ",\"volume\":\""+DoubleToString(volume,2)+"\",\"open_price\":\""+DoubleToString(open_price,_Digits)+"\""+
+               ",\"sl\":\""+DoubleToString(sl,_Digits)+"\",\"tp\":\""+DoubleToString(tp,_Digits)+"\""+
+               ",\"price\":\""+DoubleToString(price,_Digits)+"\",\"profit\":\""+DoubleToString(profit,2)+"\""+
+               ",\"magic\":\""+IntegerToString(magic)+"\",\"position_risk_usd\":\""+DoubleToString(position_risk_usd,2)+"\""+
+               ",\"total_position_risk_usd\":\""+DoubleToString(total_position_risk_usd,2)+"\""+
+               ",\"owned_position_count\":"+IntegerToString(owned_count)+
+               ",\"positions\":"+positions_json+
                ",\"realized_bridge_profit_usd\":\""+DoubleToString(RealizedBridgeProfit(),2)+"\""+
-               ",\"profit_risk_budget_usd\":\""+DoubleToString(ProfitOnlyRiskBudgetUsd(),2)+"\""+
-               ",\"effective_risk_budget_usd\":\""+DoubleToString(EffectiveRiskBudgetUsd(),2)+"\""+
-               ",\"commissioning_used\":\""+IntegerToString(CommissioningUsed())+"\""+
-               ",\"commissioning_remaining\":\""+IntegerToString((long)MathMax(0,CommissioningTrades-CommissioningUsed()))+"\"}";
+               ",\"profit_risk_budget_usd\":\"0.00\""+
+               ",\"effective_risk_budget_usd\":\""+DoubleToString(SignalRiskBudgetUsd(":S5"),2)+"\""+
+               ",\"strong_risk_budget_usd\":\""+DoubleToString(SignalRiskBudgetUsd(":S7"),2)+"\""+
+               ",\"commissioning_used\":\"0\",\"commissioning_remaining\":\"0\""+
+               ",\"risk_model\":\"equity_percentage\",\"risk_cap_percent\":\""+DoubleToString(MaxRiskPercent,2)+"\"}";
 
    string body="";
    int code=HttpPostJson(g_base_url+"/state",json,body);
@@ -398,7 +505,7 @@ bool ExecuteDemo(string side,double volume,double sl,double tp,string id)
    double planned_loss_usd=0.0;
    CalcPlannedLossUsd(side,volume,sl,planned_loss_usd);
 
-   if(!SafeInputs(side,volume,sl,tp))
+   if(!SafeInputs(side,volume,sl,tp,id))
    {
       Print("LAITH_BRIDGE_REJECT id=",id," reason=local_safety_gate");
       AckCommand(id,false,0,0);
@@ -416,17 +523,15 @@ bool ExecuteDemo(string side,double volume,double sl,double tp,string id)
 
    long retcode=(long)trade.ResultRetcode();
    ulong ticket=trade.ResultOrder();
-   if(ok)
-      MarkCommissioningUseIfNeeded(planned_loss_usd);
    Print("LAITH_BRIDGE_EXEC id=",id," side=",side," ok=",ok,
          " planned_loss_usd=",DoubleToString(planned_loss_usd,2),
-         " risk_budget_usd=",DoubleToString(EffectiveRiskBudgetUsd(),2),
+         " risk_budget_usd=",DoubleToString(SignalRiskBudgetUsd(id),2),
          " retcode=",retcode," ticket=",ticket);
    AckCommand(id,ok,retcode,ticket);
    return ok;
 }
 
-bool ModifyOwnedPosition(double sl,double tp,string id)
+bool ModifyOwnedPosition(double sl,double tp,string id,ulong target_ticket)
 {
    if(!IsDemoAccount() || !IsGoldSymbol() || LocalKillSwitch || sl<=0 || tp<=0)
    {
@@ -435,8 +540,9 @@ bool ModifyOwnedPosition(double sl,double tp,string id)
       return false;
    }
 
-   ulong ticket=0;
-   if(!SelectOwnedGoldPosition(ticket))
+   ulong ticket=target_ticket;
+   bool selected=(ticket>0 ? SelectOwnedGoldPositionByTicket(ticket) : SelectOwnedGoldPosition(ticket));
+   if(!selected)
    {
       Print("LAITH_BRIDGE_MANAGE_REJECT id=",id," action=MODIFY reason=no_owned_position");
       AckCommand(id,false,0,0);
@@ -474,7 +580,7 @@ bool ModifyOwnedPosition(double sl,double tp,string id)
    return ok;
 }
 
-bool CloseOwnedPosition(string id)
+bool CloseOwnedPosition(string id,ulong target_ticket)
 {
    if(!IsDemoAccount() || !IsGoldSymbol() || LocalKillSwitch)
    {
@@ -483,8 +589,9 @@ bool CloseOwnedPosition(string id)
       return false;
    }
 
-   ulong ticket=0;
-   if(!SelectOwnedGoldPosition(ticket))
+   ulong ticket=target_ticket;
+   bool selected=(ticket>0 ? SelectOwnedGoldPositionByTicket(ticket) : SelectOwnedGoldPosition(ticket));
+   if(!selected)
    {
       Print("LAITH_BRIDGE_MANAGE_REJECT id=",id," action=CLOSE reason=no_owned_position");
       AckCommand(id,false,0,0);
@@ -543,20 +650,25 @@ void HandleActionCommand(string body)
 {
    string parts[];
    int n=StringSplit(body,'|',parts);
-   // ACT|DEMO|ACTION|key|ts|symbol|action|sl|tp|sig
-   if(n!=10 || parts[0]!="ACT" || parts[1]!="DEMO" || parts[2]!="ACTION")
+   // Legacy: ACT|DEMO|ACTION|key|ts|symbol|action|sl|tp|sig
+   // Ticketed: ACT|DEMO|ACTION|key|ts|symbol|action|ticket|sl|tp|sig
+   if((n!=10 && n!=11) || parts[0]!="ACT" || parts[1]!="DEMO" || parts[2]!="ACTION")
    {
       Print("LAITH_BRIDGE_BAD_ACTION body=",body);
       return;
    }
 
-   string key=parts[3];
-   string ts=parts[4];
-   string symbol=parts[5];
-   string action=parts[6];
-   string sl_s=parts[7];
-   string tp_s=parts[8];
-   string sig=parts[9];
+   string key=parts[3],ts=parts[4],symbol=parts[5],action=parts[6];
+   string ticket_s="",sl_s="",tp_s="",sig="";
+   if(n==11)
+   {
+      ticket_s=parts[7]; sl_s=parts[8]; tp_s=parts[9]; sig=parts[10];
+   }
+   else
+   {
+      sl_s=parts[7]; tp_s=parts[8]; sig=parts[9];
+   }
+   ulong target_ticket=(ulong)StringToInteger(ticket_s);
 
    if(StringFind(symbol,"XAUUSD")<0)
    {
@@ -564,7 +676,7 @@ void HandleActionCommand(string body)
       return;
    }
 
-   if(!VerifyAction(key,ts,symbol,action,sl_s,tp_s,sig))
+   if(!VerifyAction(key,ts,symbol,action,ticket_s,sl_s,tp_s,sig))
    {
       Print("LAITH_BRIDGE_MANAGE_REJECT id=",key," reason=verify_failed");
       return;
@@ -572,12 +684,12 @@ void HandleActionCommand(string body)
 
    if(action=="MODIFY")
    {
-      ModifyOwnedPosition(StringToDouble(sl_s),StringToDouble(tp_s),key);
+      ModifyOwnedPosition(StringToDouble(sl_s),StringToDouble(tp_s),key,target_ticket);
       return;
    }
    if(action=="CLOSE")
    {
-      CloseOwnedPosition(key);
+      CloseOwnedPosition(key,target_ticket);
       return;
    }
 
@@ -588,6 +700,13 @@ void HandleActionCommand(string body)
 void PollBridge()
 {
    PostState();
+   static datetime last_market_post=0;
+   datetime now=TimeCurrent();
+   if(last_market_post==0 || now-last_market_post>=10)
+   {
+      PostMarketState();
+      last_market_post=now;
+   }
 
    if(LocalKillSwitch)
       return;
@@ -634,7 +753,7 @@ int OnInit()
       Print("LAITH_BRIDGE_DISABLED demo_lot_must_be_0_01");
       return INIT_PARAMETERS_INCORRECT;
    }
-   if(MaxProfitRiskUsd<=0 || MaxProfitRiskUsd>10.0 || CommissioningTrades<0 || CommissioningTrades>2 || CommissioningRiskUsd<0 || CommissioningRiskUsd>2.0)
+   if(MaxRiskPercent<=0 || MaxRiskPercent>1.0)
    {
       Print("LAITH_BRIDGE_DISABLED invalid_risk_settings");
       return INIT_PARAMETERS_INCORRECT;
@@ -652,11 +771,8 @@ int OnInit()
 
    Print("LAITH_BRIDGE_READY demo=true symbol=",_Symbol,
          " local_kill_switch=",LocalKillSwitch,
-         " management=true state_report=true risk_wallet=true",
-         " max_profit_risk_usd=",DoubleToString(MaxProfitRiskUsd,2),
-         " commissioning=",CommissioningUsed(),"/",CommissioningTrades,
-         " realized_profit_usd=",DoubleToString(RealizedBridgeProfit(),2),
-         " effective_budget_usd=",DoubleToString(EffectiveRiskBudgetUsd(),2),
+         " management=true state_report=true risk_model=equity_percentage",
+         " max_risk_percent=",DoubleToString(MaxRiskPercent,2),
          " url=",g_base_url);
    return INIT_SUCCEEDED;
 }
