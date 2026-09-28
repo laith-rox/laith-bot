@@ -32,7 +32,13 @@ VOLUME = 0.01
 _LAST_GOOD_MARKET_ROWS = None
 _LAST_GOOD_MARKET_AT = 0.0
 _MTF_CACHE = {}
-WORKER_VERSION = "bridge-indicator-stack-v1"
+WORKER_VERSION = "bridge-m15-continuation-v1"
+
+
+def closed_bar_key(value):
+    """Broker timestamps can differ by seconds for the same closed M5 candle."""
+    dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return dt.replace(minute=dt.minute // 5 * 5, second=0, microsecond=0).isoformat(sep=" ")
 
 
 def _ema(values, period):
@@ -345,7 +351,7 @@ def compute_signal(values):
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
     else: sl=tp=None
-    return {"bar":last["datetime"],"side":side,"score":max(buy_score,sell_score),
+    return {"bar":closed_bar_key(last["datetime"]),"side":side,"score":max(buy_score,sell_score),
         "buy_score":buy_score,"sell_score":sell_score,"checks":{"BUY":buy,"SELL":sell},
         "reference_close":close,"rsi":rsi,"atr":atr,"atr_baseline":atr_baseline,
         "risk_distance":risk_distance,"sl":sl,"tp":tp,"mode":d.mode,
@@ -547,11 +553,14 @@ def apply_main_structure(signal, mtf):
     out["reason"]=mtf.get("reason","mtf_structure_entry")
     atr15=float(mtf.get("m15_atr") or 0)
     ref=float(signal.get("reference_close") or 0)
+    pad=max(0.20,0.10*atr15)
     if side=="BUY":
-        invalidation=float(mtf.get("m15_resistance") or ref)-max(0.20,0.20*atr15)
+        invalidation=min(float(mtf.get("m15_last_low") or ref),
+                         float(mtf.get("m15_prev_low") or ref))-pad
         structural=max(0.80,ref-invalidation)
     else:
-        invalidation=float(mtf.get("m15_support") or ref)+max(0.20,0.20*atr15)
+        invalidation=max(float(mtf.get("m15_last_high") or ref),
+                         float(mtf.get("m15_prev_high") or ref))+pad
         structural=max(0.80,invalidation-ref)
     out["risk_distance"]=structural
     out["target_r"]=2.0
@@ -559,7 +568,7 @@ def apply_main_structure(signal, mtf):
         "h4_bias":mtf.get("h4_bias"),
         "m15_structure":out["reason"],
         "m5_confirmation":"bullish_followthrough" if side=="BUY" else "bearish_followthrough",
-        "invalidation":"below_structure_zone" if side=="BUY" else "above_structure_zone",
+        "invalidation":"below_m15_candles" if side=="BUY" else "above_m15_candles",
         "h4_support":mtf.get("h4_support"),
         "h4_resistance":mtf.get("h4_resistance"),
         "m15_support":mtf.get("m15_support"),
@@ -570,7 +579,7 @@ def apply_main_structure(signal, mtf):
 
 
 def same_entry_copies(signal, health):
-    """Allow multiple 0.01 tickets only inside the unchanged S5 aggregate budget."""
+    """Start with one ticket; a later closed candle can add another entry."""
     risk=max(0.01,float(signal.get("risk_distance") or 0))
     selected=(signal.get("checks") or {}).get(signal.get("side"))
     strength=sum(bool(x) for x in selected) if isinstance(selected,list) else int(signal.get("score") or 0)
@@ -580,7 +589,66 @@ def same_entry_copies(signal, health):
     budget=full
     used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
     available=max(0.0,budget-used)
-    return max(1,min(4,int(available//risk))) if available+0.01>=risk else 0
+    return 1 if available+0.01>=risk else 0
+
+
+def recover_m15_continuation(signal, health):
+    """Earlier aligned entry using a closed M15 candle as invalidation.
+
+    The EA calculates the actual broker loss and can still reject the order.
+    """
+    out=dict(signal)
+    if out.get("side") or out.get("reason") != "structure_stop_exceeds_risk_cap":
+        return out
+    if not health.get("client_state_fresh"):
+        return out
+    mtf=out.get("mtf") or {}
+    choices=[]
+    for side in ("BUY","SELL"):
+        score=int(out.get("buy_score" if side=="BUY" else "sell_score") or 0)
+        opposite=int(out.get("sell_score" if side=="BUY" else "buy_score") or 0)
+        checks=(out.get("checks") or {}).get(side) or []
+        primary=sum(bool(checks[i]) for i in (0,3,4)) if len(checks)>4 else 0
+        aligned=mtf.get("h4_bias")==("UP" if side=="BUY" else "DOWN")
+        m5=mtf.get("m5_confirm_buy" if side=="BUY" else "m5_confirm_sell")
+        a=float(mtf.get("m15_last_open") or 0)
+        c=float(mtf.get("m15_last_close") or 0)
+        previous=float(mtf.get("m15_prev_close") or 0)
+        m15=(c>a and c>previous) if side=="BUY" else (c<a and c<previous)
+        if score>=5 and score-opposite>=2 and primary>=2 and aligned and m5 and m15:
+            choices.append((side,score))
+    if len(choices)!=1:
+        return out
+    side,score=choices[0]
+    ref=float(out.get("reference_close") or 0)
+    pad=max(0.20,0.10*float(mtf.get("m15_atr") or 0))
+    if side=="BUY":
+        stop=min(float(mtf.get("m15_last_low") or 0),
+                 float(mtf.get("m15_prev_low") or 0))-pad
+        raw_risk=ref-stop
+    else:
+        stop=max(float(mtf.get("m15_last_high") or 0),
+                 float(mtf.get("m15_prev_high") or 0))+pad
+        raw_risk=stop-ref
+    risk=max(0.80,raw_risk)
+    budget_field="strong_risk_budget_usd" if score>=6 else "effective_risk_budget_usd"
+    budget=float(health.get(budget_field) or 0)
+    used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
+    if raw_risk<=0 or risk>min(15.0,budget-used):
+        out["reason"]="m15_stop_exceeds_budget"
+        return out
+    mode="MAIN" if mtf.get("break_up" if side=="BUY" else "break_down") else "SNIPER"
+    out.update(side=side,mode=mode,confidence=7 if score>=6 else 6,
+               risk_distance=risk,target_r=1.5 if mode=="MAIN" else 1.15,
+               reason="m15_aligned_continuation")
+    if mode=="MAIN":
+        out["analysis"]={"h4_bias":mtf.get("h4_bias"),
+                         "m15_structure":"aligned_continuation",
+                         "m5_confirmation":"directional_followthrough",
+                         "invalidation":"m15_candle_extreme",
+                         "m15_support":mtf.get("m15_support"),
+                         "m15_resistance":mtf.get("m15_resistance")}
+    return out
 
 
 def recover_strong_structural_entry(signal, health):
@@ -768,6 +836,7 @@ def run_forever():
             signal = compute_signal(feeds["5m"])
             mtf = analyze_structure(normalize_rows(feeds["5m"]), normalize_rows(feeds["15m"]), normalize_rows(feeds["1h"]))
             signal = apply_main_structure(signal, mtf)
+            signal = recover_m15_continuation(signal, health)
             signal = recover_strong_structural_entry(signal, health)
             if signal["bar"] == last_bar:
                 time.sleep(POLL_SECONDS)
@@ -797,7 +866,8 @@ def run_forever():
                       f"required={signal.get('risk_distance')} side={signal.get('side')}", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
-            for copy_index in range(1, copies + 1):
+            slots=MAX_PUBLISH_PER_HOUR-len(publishes) if MAX_PUBLISH_PER_HOUR>0 else copies
+            for copy_index in range(1, min(copies,slots) + 1):
                 status, response, key = publish_signal(signal, mt5_spot, copy_index)
                 if status == 201 and response.get("ok") is True:
                     if MAX_PUBLISH_PER_HOUR > 0:
