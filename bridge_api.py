@@ -166,6 +166,14 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
         return False, "volume_must_be_0_01"
     if sl <= 0 or tp <= 0:
         return False, "sl_tp_required"
+    # A strong-risk command carries its verified seven-condition count in the
+    # signed key. Never let an unverified S7 suffix raise the MT5 loss cap.
+    strength_match = re.search(r":S([567])$", key)
+    if strength_match:
+        checks = data.get("checks", {})
+        selected = checks.get(side) if isinstance(checks, dict) else None
+        if not isinstance(selected, list) or len(selected) != 7 or sum(bool(x) for x in selected) != int(strength_match.group(1)):
+            return False, "signal_strength_mismatch"
     analysis = data.get("analysis")
     if trade_mode == "MAIN" and isinstance(analysis, dict) and analysis:
         required = ("h4_bias", "m15_structure", "m5_confirmation", "invalidation")
@@ -292,6 +300,7 @@ class Handler(BaseHTTPRequestHandler):
                     "realized_bridge_profit_usd": (_client_state or {}).get("realized_bridge_profit_usd"),
                     "profit_risk_budget_usd": (_client_state or {}).get("profit_risk_budget_usd"),
                     "effective_risk_budget_usd": (_client_state or {}).get("effective_risk_budget_usd"),
+                    "strong_risk_budget_usd": (_client_state or {}).get("strong_risk_budget_usd"),
                     "commissioning_used": (_client_state or {}).get("commissioning_used"),
                     "commissioning_remaining": (_client_state or {}).get("commissioning_remaining"),
                     "positions": [
@@ -552,6 +561,7 @@ class Handler(BaseHTTPRequestHandler):
                 "realized_bridge_profit_usd": str(data.get("realized_bridge_profit_usd", ""))[:32],
                 "profit_risk_budget_usd": str(data.get("profit_risk_budget_usd", ""))[:32],
                 "effective_risk_budget_usd": str(data.get("effective_risk_budget_usd", ""))[:32],
+                "strong_risk_budget_usd": str(data.get("strong_risk_budget_usd", ""))[:32],
                 "commissioning_used": str(data.get("commissioning_used", ""))[:16],
                 "commissioning_remaining": str(data.get("commissioning_remaining", ""))[:16],
                 "positions": positions,
