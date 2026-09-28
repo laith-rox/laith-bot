@@ -731,7 +731,7 @@ def run_forever():
             if not signal["side"]:
                 print(
                     f"bridge_signal_wait bar={signal['bar']} buy={signal['buy_score']}/7 "
-                    f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
+                    f"sell={signal['sell_score']}/7 close={signal['reference_close']:.2f} rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
                     f"h4={signal.get('mtf',{}).get('h4_bias')} "
                     f"m5buy={signal.get('mtf',{}).get('m5_confirm_buy')} m5sell={signal.get('mtf',{}).get('m5_confirm_sell')} "
                     f"m15S={signal.get('mtf',{}).get('m15_support')} m15R={signal.get('mtf',{}).get('m15_resistance')} "
