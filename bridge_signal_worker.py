@@ -536,7 +536,10 @@ def apply_main_structure(signal, mtf):
         if raw_side and str(out.get("mode") or "").upper() != "MAIN":
             out["mode"]="SNIPER"
             return out
-        out["side"]=None; out["reason"]=mtf.get("reason","mtf_wait")
+        out["side"]=None
+        out["reason"]=(signal.get("reason") if raw_side not in ("BUY","SELL")
+                       and signal.get("reason") not in (None,"no_edge")
+                       else mtf.get("reason","mtf_wait"))
         return out
     out["side"]=side
     out["mode"]="MAIN"
@@ -570,7 +573,8 @@ def same_entry_copies(signal, health):
     """Allow multiple 0.01 tickets only inside the unchanged S5 aggregate budget."""
     risk=max(0.01,float(signal.get("risk_distance") or 0))
     full=float(health.get("effective_risk_budget_usd") or 0)
-    budget=0.50*full
+    # The EA enforces the DEMO loss gate; avoid halving its budget twice.
+    budget=full
     used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
     available=max(0.0,budget-used)
     return max(1,min(4,int(available//risk))) if available+0.01>=risk else 0
@@ -730,7 +734,8 @@ def run_forever():
                     f"sell={signal['sell_score']}/7 rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
                     f"h4={signal.get('mtf',{}).get('h4_bias')} "
                     f"m5buy={signal.get('mtf',{}).get('m5_confirm_buy')} m5sell={signal.get('mtf',{}).get('m5_confirm_sell')} "
-                    f"m15S={signal.get('mtf',{}).get('m15_support')} m15R={signal.get('mtf',{}).get('m15_resistance')}",
+                    f"m15S={signal.get('mtf',{}).get('m15_support')} m15R={signal.get('mtf',{}).get('m15_resistance')} "
+                    f"local_buy_risk={signal.get('local_buy_risk')} local_sell_risk={signal.get('local_sell_risk')}",
                     flush=True,
                 )
                 time.sleep(POLL_SECONDS)
@@ -739,7 +744,9 @@ def run_forever():
             mt5_spot = float(health.get("price") or 0) if health.get("client_state_fresh") else 0.0
             copies = same_entry_copies(signal, health)
             if copies <= 0:
-                print("bridge_signal_skip reason=aggregate_risk_budget", flush=True)
+                print(f"bridge_signal_skip reason=aggregate_risk_budget budget={health.get('effective_risk_budget_usd')} "
+                      f"used={health.get('total_position_risk_usd',health.get('position_risk_usd'))} "
+                      f"required={signal.get('risk_distance')} side={signal.get('side')}", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
             for copy_index in range(1, copies + 1):
