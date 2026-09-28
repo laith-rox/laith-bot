@@ -195,10 +195,10 @@ class MultiPositionDecisionTests(unittest.TestCase):
                 "position_open":True,"pending":4}
         self.assertEqual(worker.execution_block_reason(health),"pending_command_limit")
 
-    def test_same_entry_copies_respect_unchanged_half_budget(self):
+    def test_same_entry_copies_use_remaining_ea_budget(self):
         signal={"risk_distance":1.0}
         health={"effective_risk_budget_usd":"6.00","total_position_risk_usd":"1.00"}
-        self.assertEqual(worker.same_entry_copies(signal,health),2)
+        self.assertEqual(worker.same_entry_copies(signal,health),4)
 
 
 class LegacyCompatibilityTests(unittest.TestCase):
