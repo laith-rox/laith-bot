@@ -101,7 +101,7 @@ async function toggleVoiceCall(){
   voiceDC.onclose=function(){voiceStatus('انتهى الاتصال')};
   voicePC.onconnectionstatechange=function(){if(['failed','disconnected','closed'].includes(voicePC.connectionState))voiceStatus('الاتصال منقطع')};
   var offer=await voicePC.createOffer();await voicePC.setLocalDescription(offer);
-  var r=await fetch('https://laith-voice-production.up.railway.app/session',{method:'POST',headers:{'Content-Type':'application/sdp'},body:offer.sdp});
+  var r=await fetch('https://laith-voice-v2-production.up.railway.app/session',{method:'POST',headers:{'Content-Type':'application/sdp'},body:offer.sdp});
   if(!r.ok)throw new Error('voice backend '+r.status);
   await voicePC.setRemoteDescription({type:'answer',sdp:await r.text()});
   voiceStatus('جاري الاتصال…');
