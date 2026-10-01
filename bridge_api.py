@@ -282,7 +282,13 @@ class Handler(BaseHTTPRequestHandler):
                     rows = market.get(name) or []
                     if not rows:
                         return None
-                    row = rows[-1]
+                    # Publishers may send newest-first or oldest-first. Never
+                    # infer freshness from array position; select the greatest
+                    # ISO-like MT5 datetime explicitly.
+                    valid = [row for row in rows if isinstance(row, dict) and row.get("datetime")]
+                    if not valid:
+                        return None
+                    row = max(valid, key=lambda item: str(item.get("datetime", "")).replace(".", "-"))
                     return {
                         "datetime": row.get("datetime"),
                         "open": row.get("open"),
