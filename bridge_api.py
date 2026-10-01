@@ -268,6 +268,74 @@ class Handler(BaseHTTPRequestHandler):
             market["age"] = round(age, 2)
             return self._json(200, market)
 
+        if path == "/chatgpt-read":
+            # Sanitized, read-only DEMO snapshot. Never exposes execution tokens,
+            # ticket/magic identifiers, or any mutation capability.
+            now = time.time()
+            with _lock:
+                state = dict(_client_state or {})
+                market = dict(_market_state or {})
+                state_age = _state_age(now)
+                market_age = now - float(market.get("received_at", 0) or 0) if market else None
+
+                def last_bar(name):
+                    rows = market.get(name) or []
+                    if not rows:
+                        return None
+                    row = rows[-1]
+                    return {
+                        "datetime": row.get("datetime"),
+                        "open": row.get("open"),
+                        "high": row.get("high"),
+                        "low": row.get("low"),
+                        "close": row.get("close"),
+                    }
+
+                positions = []
+                for p in (state.get("positions") or [])[:20]:
+                    positions.append({
+                        "owned": bool(p.get("owned")),
+                        "side": p.get("side"),
+                        "volume": p.get("volume"),
+                        "open_price": p.get("open_price"),
+                        "sl": p.get("sl"),
+                        "tp": p.get("tp"),
+                        "price": p.get("price"),
+                        "profit": p.get("profit"),
+                        "risk_usd": p.get("risk_usd"),
+                    })
+
+                payload = {
+                    "ok": bool(state) and bool(market),
+                    "mode": "DEMO",
+                    "symbol": "XAUUSD",
+                    "server_time": now,
+                    "state_fresh": state_age is not None and state_age <= STATE_FRESH_SECONDS,
+                    "state_age": round(state_age, 2) if state_age is not None else None,
+                    "market_fresh": market_age is not None and market_age <= 20,
+                    "market_age": round(market_age, 2) if market_age is not None else None,
+                    "enabled": bool(_runtime_enabled),
+                    "position_open": bool(state.get("position_open")),
+                    "position_owned": bool(state.get("position_owned")),
+                    "side": state.get("side"),
+                    "volume": state.get("volume"),
+                    "open_price": state.get("open_price"),
+                    "sl": state.get("sl"),
+                    "tp": state.get("tp"),
+                    "price": state.get("price"),
+                    "profit": state.get("profit"),
+                    "position_risk_usd": state.get("position_risk_usd"),
+                    "total_position_risk_usd": state.get("total_position_risk_usd"),
+                    "owned_position_count": state.get("owned_position_count", 0),
+                    "positions": positions,
+                    "latest": {
+                        "m5": last_bar("m5"),
+                        "m15": last_bar("m15"),
+                        "h1": last_bar("h1"),
+                    },
+                }
+            return self._json(200 if payload["ok"] else 503, payload)
+
         if path == "/health":
             with _lock:
                 _clean()
