@@ -109,7 +109,8 @@ async function toggleVoiceCall(){
   if(!r.ok)throw new Error('voice backend '+r.status);
   await voicePC.setRemoteDescription({type:'answer',sdp:await r.text()});
   voiceStatus('جاري الاتصال…');
- }catch(e){console.error(e);voiceStatus('فشل الاتصال');await endVoiceCall(false);alert('تعذر تشغيل الاتصال الصوتي. تأكد من السماح للميكروفون وأن خدمة الصوت جاهزة.')}
+  setTimeout(function(){if(voicePC&&voicePC.connectionState!=='connected'&&voicePC.connectionState!=='closed')voiceStatus('الاتصال بطيء • تحقق من الشبكة والميكروفون')},8000);
+ }catch(e){console.error(e);var msg=(e&&e.name==='NotAllowedError')?'الميكروفون غير مسموح':(e&&String(e.message||'').includes('backend 401'))?'مشكلة مصادقة خدمة الصوت':(e&&String(e.message||'').includes('backend 5'))?'خدمة الصوت غير متاحة مؤقتًا':'فشل الاتصال • '+String((e&&e.message)||'تحقق من الشبكة');voiceStatus(msg);await endVoiceCall(false);alert(msg)}
 }
 async function endVoiceCall(show){
  try{if(voiceDC&&voiceDC.readyState==='open')voiceDC.send(JSON.stringify({type:'session.close'}))}catch(e){}
