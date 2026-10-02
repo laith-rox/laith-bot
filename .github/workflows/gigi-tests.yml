@@ -2,7 +2,7 @@ name: GIGI Gold Brain Tests
 
 on:
   push:
-    branches: [gigi-gold-brain-v1]
+    branches: [gigi-gold-brain-v1, gigi-market-fallback-v1]
   pull_request:
     branches: [main]
 
