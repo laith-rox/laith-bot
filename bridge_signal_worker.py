@@ -82,25 +82,32 @@ def _atr(rows, period=14):
 
 
 def normalize_rows(values):
-    """Convert Twelve Data newest-first values to oldest-first numeric rows.
+    """Normalize provider candles to oldest-first closed rows.
 
-    The newest item is intentionally dropped because it can still be the active
-    five-minute candle. Signals are generated only from the latest closed bar.
+    Sources do not share one array order: the MT5 relay is oldest-first while
+    Yahoo/Twelve-style fallbacks can be newest-first. Sort by the candle's own
+    timestamp instead of assuming source order, then drop only the newest
+    candle because it may still be active.
     """
     if not isinstance(values, list) or len(values) < 30:
         raise ValueError("not_enough_market_rows")
-    closed = values[1:]
     rows = []
-    for item in reversed(closed):
+    for item in values:
+        dt = str(item.get("datetime", "")).replace(".", "-", 2)
+        if not dt:
+            continue
         rows.append({
-            "datetime": str(item.get("datetime", "")).replace(".", "-", 2),
+            "datetime": dt,
             "open": float(item["open"]),
             "high": float(item["high"]),
             "low": float(item["low"]),
             "close": float(item["close"]),
             "tick_volume": float(item.get("tick_volume") or 0),
         })
-    return rows
+    if len(rows) < 30:
+        raise ValueError("not_enough_market_rows")
+    rows.sort(key=lambda row: datetime.fromisoformat(row["datetime"].replace("Z", "+00:00")))
+    return rows[:-1]
 
 
 def compute_signal(values):
