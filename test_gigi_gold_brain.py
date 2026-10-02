@@ -29,6 +29,32 @@ class GigiGoldBrainStoryTests(unittest.TestCase):
         story = GigiGoldBrain._candle_story(bars)
         self.assertEqual(story["lastPattern"], "BULL_ENGULFING")
 
+    def test_liquidity_map_finds_nearest_levels(self):
+        daily = {
+            "available": True,
+            "previous": {"high": 110, "low": 90, "open": 100, "close": 105},
+            "today": {"high": 106, "low": 96, "open": 101, "close": 103},
+        }
+        weekly = {
+            "available": True,
+            "previous": {"high": 120, "low": 80, "open": 95, "close": 108},
+        }
+        sessions = {"ranges": {"ASIA": {"high": 104, "low": 98, "open": 100, "close": 102}}}
+        liquidity = GigiGoldBrain._liquidity_map(103, daily, weekly, sessions)
+        self.assertEqual(liquidity["nearestAbove"]["price"], 104)
+        self.assertEqual(liquidity["nearestBelow"]["price"], 101)
+
+    def test_regime_detects_directional_trend(self):
+        start = datetime(2026, 9, 30, 0, 0, tzinfo=UTC)
+        m15 = []
+        h1 = []
+        for i in range(40):
+            m15.append(Bar(start + timedelta(minutes=15*i), 100+i, 101+i, 99+i, 100.8+i, 15))
+            h1.append(Bar(start + timedelta(hours=i), 100+2*i, 102+2*i, 99+2*i, 101.5+2*i, 60))
+        regime = GigiGoldBrain._market_regime(m15, h1)
+        self.assertEqual(regime["type"], "TREND")
+        self.assertEqual(regime["direction"], "UP")
+
     def test_previous_high_sweep_and_rejection(self):
         start = datetime(2026, 10, 1, 21, 0, tzinfo=UTC)
         bars = []
