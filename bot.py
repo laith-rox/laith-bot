@@ -19,14 +19,13 @@ from safety_monitor import start_safety_worker
 from v4_quick_5m import analyze_quick_5m
 from v4_quick import build_quick
 
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 UTC = timezone.utc
 LOG = logging.getLogger("laith")
 
 def entry_window(now):
     local = now.astimezone(LOCAL)
-    minutes = local.hour * 60 + local.minute
-    return local.weekday() < 5 and 4 * 60 + 30 <= minutes < 23 * 60 + 50
+    return local.weekday() < 5
 
 def daily_risk_blocked(store, now, limit=3.0):
     today=now.astimezone(LOCAL).date(); total=0.0
@@ -36,7 +35,7 @@ def daily_risk_blocked(store, now, limit=3.0):
     return total <= -limit
 
 class App:
-    def __init__(self,store,market,telegram,news,cooldown=60):
+    def __init__(self,store,market,telegram,news,cooldown=240):
         self.store,self.market,self.telegram,self.news=store,market,telegram,news; self.cooldown=cooldown
 
     def monitor_reversal(self,watch,decision,epoch,is_early=False):
@@ -103,35 +102,22 @@ class App:
             LOG.warning("laith_v4quick_unavailable reason=%s", str(exc))
 
     def periodic_reports(self,decision,bars,now,blocked=None):
-        epoch=now.timestamp(); slot=int(epoch//900); current=self.store.get("current_report")
+        """Only follow an active official trade; no standalone 15m entry reports."""
+        epoch=now.timestamp()
         if self.store.has_important_update(epoch):
             self.store.supersede_routine()
             return
         active=self.store.active()
-        if active:
-            self.store.supersede_routine(keep_signal=active['id'])
-            if active['status']=='pending': return
-            follow_id=active['id']+':follow:'+str(int(epoch//300))
-            if not self.store.db.execute("SELECT 1 FROM outbox WHERE id=?",(follow_id,)).fetchone():
-                self.store.enqueue(follow_id,'follow',trade_follow_message(active,decision,now),epoch,
-                                   signal_id=active['id'],expires=epoch+300)
-                LOG.info('trade_follow_prepared id=%s side=%s',follow_id,active['side'])
+        if not active:
             return
-        if current and current.get("watch") and bars and epoch <= current["ends_at"]+120:
-            watch,_=advance_trade(current["watch"],bars); current["watch"]=watch; self.store.set("current_report",current)
-        eligible=entry_window(now) and not self.store.get("paused",False)
-        report_id="report-"+str(slot)
-        if eligible and not self.store.db.execute("SELECT 1 FROM outbox WHERE id=?",(report_id,)).fetchone():
-            report=snapshot(decision,now,blocked)
-            if self.store.prepare_report(report,report_message(report,decision,current),epoch): LOG.info("report_prepared id=%s",report["id"])
+        self.store.supersede_routine(keep_signal=active['id'])
+        if active['status']=='pending':
             return
-        current=self.store.get("current_report")
-        if current and current["slot"]==slot:
-            five_slot=int(epoch//300)
-            follow_id=current["id"]+":follow:"+str(five_slot)
-            if five_slot > int(current["created"]//300) and not self.store.db.execute("SELECT 1 FROM outbox WHERE id=?",(follow_id,)).fetchone():
-                self.store.enqueue(follow_id,"follow",follow_message(current,decision,blocked),epoch,expires=epoch+300)
-                LOG.info("follow_prepared id=%s buy=%s sell=%s",follow_id,decision.get("buy"),decision.get("sell"))
+        follow_id=active['id']+':follow:'+str(int(epoch//300))
+        if not self.store.db.execute("SELECT 1 FROM outbox WHERE id=?",(follow_id,)).fetchone():
+            self.store.enqueue(follow_id,'follow',trade_follow_message(active,decision,now),epoch,
+                               signal_id=active['id'],expires=epoch+300)
+            LOG.info('trade_follow_prepared id=%s side=%s',follow_id,active['side'])
 
     def cycle(self,now,clock=None):
         clock=clock or DecisionClock(now); epoch=now.timestamp(); self.store.set("heartbeat",epoch); active=self.store.active()
@@ -222,7 +208,7 @@ class App:
             except DataError as exc:
                 reason=str(exc); self.store.set('last_error',reason)
                 LOG.warning('entry_blocked reason=%s',reason)
-        self.quick_v4_update(raw_decision,bars,now)
+        # v2.9: Quick/fast entry messages are disabled; official entries only.
         self.periodic_reports(raw_decision,bars,now,reason if reason not in (None,"already_evaluated") else None)
 
     def commands(self,now):
@@ -251,17 +237,16 @@ class App:
 
 def run(args):
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    store=Store(args.db); telegram=Telegram(args.telegram_token,args.telegram_chat); market=Market(args.twelve_key); news=NewsGuard(store); stop=start_worker(args.db,args.twelve_key)
+    store=Store(args.db); telegram=Telegram(args.telegram_token,args.telegram_chat); market=Market(args.twelve_key); news=NewsGuard(store)
     safety_stop=start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
     try:
         LOG.info("starting version=%s",VERSION)
-        store.enqueue('release:2.6.3:messages','release',
-                      '✅ <b>ترتيب رسائل بوت ليث صار مفعّل</b>\n\n'
-                      '🟢🔴 دخول واضح: سعر، وقف، هدفان.\n'
-                      '🔎 تحديث كل 5د مرتبط برسالة الإشارة الأصلية.\n'
-                      '🎯 الهدف و🚨 الطوارئ برسائل مميزة؛ تغني عن التحديث المكرر بنفس الفترة.\n\n'
-                      'عند عدم وجود إشارة، يستمر ملخص السوق كل 15د وتحديثه كل 5د.\n'
-                      'كل إشارة غير مضمونة؛ الترجيح الأولي موضّح بخطر مرتفع.',time.time(),expires=time.time()+3600)
+        store.enqueue('release:2.9.0:official-4h','release',
+                      '✅ <b>بوت ليث v2.9 — نظام الصفقات الرسمية</b>\n\n'
+                      'صفقة رسمية واحدة كحد أقصى كل 4 ساعات عند توفر بيانات سوق صالحة وعدم وجود صفقة رسمية مفتوحة.\n'
+                      'تم إيقاف رسائل Quick/fast وتقارير الدخول كل 15د.\n'
+                      'تبقى متابعة الصفقة الرسمية كل 5د والطوارئ والحماية فعّالة.\n'
+                      'الإشارات غير مضمونة ولا ينفّذ البوت أوامر عند الوسيط.',time.time(),expires=time.time()+3600)
         while True:
             now=datetime.now(UTC)
             try:
@@ -272,9 +257,9 @@ def run(args):
                 dispatch(store,telegram,market=market)
             except Exception: LOG.exception("cycle_failed")
             time.sleep(args.interval)
-    finally: safety_stop.set(); stop.set(); store.close()
+    finally: safety_stop.set(); store.close()
 
 def parser():
-    p=argparse.ArgumentParser(); p.add_argument('--db',default=os.getenv('DB_PATH','/data/laith.db')); p.add_argument('--telegram-token',default=os.getenv('TELEGRAM_BOT_TOKEN')); p.add_argument('--telegram-chat',default=os.getenv('TELEGRAM_CHAT_ID')); p.add_argument('--twelve-key',default=os.getenv('TWELVE_DATA_API_KEY')); p.add_argument('--interval',type=int,default=int(os.getenv('CHECK_INTERVAL_SECONDS','20'))); p.add_argument('--cooldown',type=int,default=int(os.getenv('SIGNAL_COOLDOWN_MINUTES','60'))); return p
+    p=argparse.ArgumentParser(); p.add_argument('--db',default=os.getenv('DB_PATH','/data/laith.db')); p.add_argument('--telegram-token',default=os.getenv('TELEGRAM_BOT_TOKEN')); p.add_argument('--telegram-chat',default=os.getenv('TELEGRAM_CHAT_ID')); p.add_argument('--twelve-key',default=os.getenv('TWELVE_DATA_API_KEY')); p.add_argument('--interval',type=int,default=int(os.getenv('CHECK_INTERVAL_SECONDS','20'))); p.add_argument('--cooldown',type=int,default=int(os.getenv('SIGNAL_COOLDOWN_MINUTES','240'))); return p
 
 if __name__=='__main__': run(parser().parse_args())
