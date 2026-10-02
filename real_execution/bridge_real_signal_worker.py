@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
+LIVE_HANDOFF_ENABLED = os.getenv("REAL_LIVE_HANDOFF_ENABLED", "false").strip().lower() == "true"
 BRIDGE_URL = os.getenv("REAL_BRIDGE_URL", "").strip().rstrip("/")
 PUBLISH_TOKEN = os.getenv("REAL_BRIDGE_PUBLISH_TOKEN", "").strip()
 VOLUME = float(os.getenv("REAL_VOLUME", "0") or 0)
@@ -25,6 +26,9 @@ ALLOWED_ORIGIN = os.getenv(
     "REAL_STATUS_ALLOWED_ORIGIN",
     "https://laith-app-production.up.railway.app",
 ).strip()
+
+from real_analysis_engine import compute_signal, normalize_rows, apply_main_structure
+from multi_timeframe_structure import analyze_structure
 
 
 def _json_request(url, method="GET", payload=None, headers=None, timeout=8):
@@ -52,6 +56,8 @@ def _json_request(url, method="GET", payload=None, headers=None, timeout=8):
 def config_reason():
     if not REAL_SIGNAL_ENABLED:
         return "real_signal_disabled"
+    if not LIVE_HANDOFF_ENABLED:
+        return "real_live_handoff_disabled"
     if not BRIDGE_URL or not PUBLISH_TOKEN:
         return "real_signal_auth_not_configured"
     if VOLUME <= 0:
@@ -73,11 +79,11 @@ def status_payload():
         "ok": True,
         "mode": "REAL",
         "enabled": REAL_SIGNAL_ENABLED,
+        "live_handoff_enabled": LIVE_HANDOFF_ENABLED,
         "volume_configured": VOLUME > 0,
         "hourly_cap_configured": MAX_PUBLISH_PER_HOUR > 0,
         "bridge_configured": bool(BRIDGE_URL and PUBLISH_TOKEN),
         "config_reason": config_reason(),
-        "live_handoff_enabled": False,
     }
 
 
@@ -131,6 +137,7 @@ def run_forever():
         flush=True,
     )
     publishes = deque()
+    last_bar = None
     while True:
         reason = config_reason()
         if reason:
@@ -148,11 +155,104 @@ def run_forever():
             )
             time.sleep(POLL_SECONDS)
             continue
+        if not health.get("client_state_fresh") or not health.get("market_fresh"):
+            print(
+                "real_signal_wait reason=real_mt5_data_stale "
+                f"state_fresh={health.get('client_state_fresh')} market_fresh={health.get('market_fresh')}",
+                flush=True,
+            )
+            time.sleep(POLL_SECONDS)
+            continue
 
-        # Intentionally no signal-to-order handoff yet. This is the last safety
-        # boundary before live execution and will be wired only after the REAL
-        # MT5 EA and user-selected financial limits are configured and verified.
-        print("real_signal_wait reason=live_handoff_not_enabled", flush=True)
+        now = time.time()
+        while publishes and now - publishes[0] >= 3600:
+            publishes.popleft()
+        if len(publishes) >= MAX_PUBLISH_PER_HOUR:
+            print("real_signal_wait reason=hourly_publish_cap", flush=True)
+            time.sleep(POLL_SECONDS)
+            continue
+
+        status, market = _json_request(f"{BRIDGE_URL}/market")
+        if status != 200 or not market.get("ok"):
+            print(f"real_signal_wait reason=market_http_{status}", flush=True)
+            time.sleep(POLL_SECONDS)
+            continue
+        feeds = {"5m": market.get("m5"), "15m": market.get("m15"), "1h": market.get("h1")}
+        if not all(isinstance(v, list) and len(v) >= 30 for v in feeds.values()):
+            print("real_signal_wait reason=market_rows_missing", flush=True)
+            time.sleep(POLL_SECONDS)
+            continue
+
+        signal = compute_signal(feeds["5m"])
+        mtf = analyze_structure(
+            normalize_rows(feeds["5m"]),
+            normalize_rows(feeds["15m"]),
+            normalize_rows(feeds["1h"]),
+        )
+        signal = apply_main_structure(signal, mtf)
+
+        if signal["bar"] == last_bar:
+            time.sleep(POLL_SECONDS)
+            continue
+        last_bar = signal["bar"]
+
+        if not signal.get("side"):
+            print(
+                f"real_signal_wait bar={signal['bar']} reason={signal.get('reason')} "
+                f"buy={signal.get('buy_score')}/7 sell={signal.get('sell_score')}/7",
+                flush=True,
+            )
+            time.sleep(POLL_SECONDS)
+            continue
+
+        spot = float(health.get("price") or 0)
+        risk = float(signal.get("risk_distance") or 0)
+        if spot <= 0 or risk <= 0:
+            print("real_signal_wait reason=invalid_spot_or_risk", flush=True)
+            time.sleep(POLL_SECONDS)
+            continue
+
+        side = signal["side"]
+        target_r = float(signal.get("target_r") or 1.0)
+        if side == "BUY":
+            sl, tp = spot - risk, spot + risk * target_r
+        else:
+            sl, tp = spot + risk, spot - risk * target_r
+        trade_mode = "MAIN" if str(signal.get("mode") or "").upper() == "MAIN" else "SNIPER"
+        selected = (signal.get("checks") or {}).get(side) or []
+        strength = sum(bool(x) for x in selected)
+        key = f"real:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:S{strength}"
+        payload = {
+            "mode": "REAL",
+            "trade_mode": trade_mode,
+            "key": key,
+            "symbol": "XAUUSD",
+            "side": side,
+            "volume": VOLUME,
+            "sl": round(sl, 2),
+            "tp": round(tp, 2),
+            "forced": False,
+            "checks": signal.get("checks") or {},
+        }
+        status, response = _json_request(
+            f"{BRIDGE_URL}/publish",
+            method="POST",
+            payload=payload,
+            headers={"X-Publish-Token": PUBLISH_TOKEN},
+        )
+        if status == 201 and response.get("ok"):
+            publishes.append(time.time())
+            print(
+                f"real_signal_published key={key} side={side} mode={trade_mode} "
+                f"score={strength}/7 risk_distance={risk:.2f}",
+                flush=True,
+            )
+        else:
+            print(
+                f"real_signal_publish_rejected status={status} "
+                f"reason={response.get('reason','unknown')}",
+                flush=True,
+            )
         time.sleep(POLL_SECONDS)
 
 
