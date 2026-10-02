@@ -55,6 +55,37 @@ class GigiGoldBrainStoryTests(unittest.TestCase):
         self.assertEqual(regime["type"], "TREND")
         self.assertEqual(regime["direction"], "UP")
 
+    def test_confidence_is_alignment_score_not_probability(self):
+        analysis = {
+            "conditions": {"passed": 6},
+            "storyAlignment": "SUPPORTS",
+            "marketRegime": {"type": "TREND", "direction": "UP"},
+            "bias": "BUY",
+        }
+        score = GigiGoldBrain._decision_score(
+            analysis, {"status": "SUPPORTS"}, {"blackout": False}
+        )
+        self.assertGreaterEqual(score, 80)
+        capped = GigiGoldBrain._decision_score(
+            analysis, {"status": "SUPPORTS"}, {"blackout": True}
+        )
+        self.assertLessEqual(capped, 40)
+
+    def test_scenario_includes_liquidity_and_invalidation(self):
+        analysis = {
+            "bias": "BUY",
+            "dailyStory": {"event": "INSIDE_PREVIOUS_RANGE"},
+            "liquidityMap": {
+                "nearestAbove": {"price": 110, "labels": ["PDH"]},
+                "nearestBelow": {"price": 100, "labels": ["TODAY_OPEN"]},
+            },
+            "invalidation": 98,
+        }
+        scenario = GigiGoldBrain._scenario(analysis, "ENTER")
+        self.assertEqual(scenario["primary"], "BUY_CONTINUATION")
+        self.assertEqual(scenario["invalidation"], 98)
+        self.assertEqual(scenario["nextLiquidityAbove"]["price"], 110)
+
     def test_previous_high_sweep_and_rejection(self):
         start = datetime(2026, 10, 1, 21, 0, tzinfo=UTC)
         bars = []
