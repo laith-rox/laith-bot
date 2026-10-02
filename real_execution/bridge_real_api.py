@@ -248,8 +248,22 @@ class Handler(BaseHTTPRequestHandler):
                 _clean()
                 for item in _items.values():
                     if item.get("ack") is None:
-                        return _json(self, 200, {"ok": True, "command": _wire_command(item), "key": item["key"]})
-            return _json(self, 200, {"ok": True, "command": None})
+                        body = _wire_command(item).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/plain")
+                        self.send_header("Cache-Control", "no-store")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+            body = b"NONE"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         return _json(self, 404, {"ok": False, "reason": "not_found"})
 
     def do_POST(self):
