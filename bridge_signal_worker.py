@@ -110,7 +110,7 @@ def normalize_rows(values):
     return rows[:-1]
 
 
-MAX_CLOSED_BAR_AGE_SECONDS = {"5m": 15 * 60, "15m": 40 * 60, "1h": 150 * 60}
+MAX_CLOSED_BAR_AGE_SECONDS = {"5m": 15 * 60, "15m": 40 * 60, "h4": 9 * 60 * 60}
 
 
 def validate_market_feed_freshness(feeds, now_ts=None):
@@ -316,15 +316,15 @@ def compute_signal(values):
                         1.10 if scout_score <= 4 else 1.20,
                         "night_3of7_fast" if scout_score == 3 else ("night_4of7_micro" if scout_score == 4 else "night_5of7_scout"))
 
-    # Structure-based invalidation stop. SELL stops belong above the recent
-    # resistance zone; BUY stops belong below recent support. If the structural
-    # stop needs more room than the existing mode cap, reject the setup instead
-    # of widening risk. This preserves the existing DEMO risk ceiling.
+    # Structure-based invalidation stop. For sniper-class trades, a valid
+    # setup is not cancelled only because the older swing is too far away.
+    # Instead cap the stop by the user-approved strength ladder; the EA still
+    # verifies the exact USD loss with OrderCalcProfit before DEMO execution.
     strength = max(buy_score, sell_score)
-    if d.mode == "CORRECTION_SCALP":
-        risk_cap = 1.00 if strength <= 4 else 1.30
-    elif d.mode in ("SNIPER", "NIGHT_SNIPER"):
-        risk_cap = 1.10 if strength <= 3 else (1.35 if strength <= 4 else 1.60)
+    sniper_mode = d.mode in ("SNIPER", "NIGHT_SNIPER", "REJECTION_SCALP", "CORRECTION_SCALP")
+    sniper_cap = 2.00 if strength <= 4 else (3.00 if strength == 5 else (5.00 if strength == 6 else 7.00))
+    if sniper_mode:
+        risk_cap = sniper_cap
     else:
         risk_cap = 2.00 if strength <= 4 else (2.60 if strength <= 5 else 3.20)
 
@@ -341,11 +341,13 @@ def compute_signal(values):
     if d.mode == "REBOUND" and side == "BUY":
         structural_risk = max(structural_risk, close - last["low"] + max(0.20, 0.10 * atr))
 
-    if side and (structural_risk <= 0 or structural_risk > risk_cap):
-        # Medium setup rescue: when the candle/indicator layer agrees with the
-        # original signal, use the latest candle as the scalp invalidation
-        # instead of rejecting a good entry because an older swing is too far.
-        # The existing risk cap is never widened.
+    if side and sniper_mode and structural_risk > 0:
+        risk_distance = max(0.80, min(structural_risk, risk_cap))
+        if structural_risk > risk_cap:
+            guard_reason = None
+            d = type(d)(d.mode, side, d.confidence, d.risk_mult, 0.0, d.target_r, "sniper_strength_stop_cap")
+    elif side and (structural_risk <= 0 or structural_risk > risk_cap):
+        # Non-sniper paths preserve the stricter structural-stop behavior.
         tscore = tech["bull_score"] if side=="BUY" else tech["bear_score"]
         oscore = tech["bear_score"] if side=="BUY" else tech["bull_score"]
         local_stop = (last["low"]-structure_pad) if side=="BUY" else (last["high"]+structure_pad)
@@ -364,10 +366,9 @@ def compute_signal(values):
     else:
         risk_distance = max(0.80, structural_risk) if side else 0.0
     if night_sniper and side and d.mode != "REBOUND":
-        # Night trades are short-lived scalps. Keep the tighter stop requested:
-        # 1.50 for opportunistic 5/7 scouts, up to 2.00 for stronger setups.
+        # Use the same strength ladder through the entire sniper window.
         strength = max(buy_score, sell_score)
-        cap = 1.00 if strength == 3 else (1.20 if strength == 4 else (1.50 if strength == 5 else 2.00))
+        cap = 2.00 if strength <= 4 else (3.00 if strength == 5 else (5.00 if strength == 6 else 7.00))
         risk_distance = min(risk_distance, cap)
         d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
@@ -501,17 +502,15 @@ def fetch_multitimeframe_values():
     try:
         status,payload=_json_request(f"{BRIDGE_URL}/market",timeout=6)
         if status==200 and payload.get("ok") is True:
-            feeds={"5m":payload.get("m5"),"15m":payload.get("m15"),"1h":payload.get("h1")}
-            if all(isinstance(v,list) and len(v)>=30 for v in feeds.values()):
+            feeds={"5m":payload.get("m5"),"15m":payload.get("m15"),"h4":payload.get("h4")}
+            if (isinstance(feeds["5m"],list) and len(feeds["5m"])>=30
+                    and isinstance(feeds["15m"],list) and len(feeds["15m"])>=35
+                    and isinstance(feeds["h4"],list) and len(feeds["h4"])>=30):
                 return feeds
     except Exception as exc:
         print(f"broker_market_feed_fallback reason={type(exc).__name__}:{exc}",flush=True)
-    # Directional proxy fallback only if broker relay is temporarily unavailable.
-    return {
-        "5m": fetch_market_values_tf("5m",("5d","1mo")),
-        "15m": fetch_market_values_tf("15m",("5d","1mo")),
-        "1h": fetch_market_values_tf("1h",("1mo","3mo")),
-    }
+    # Official structure must use broker-native H4. Do not synthesize H4 from H1.
+    raise RuntimeError("broker_h4_direct_required")
 
 
 def apply_main_structure(signal, mtf):
@@ -525,6 +524,13 @@ def apply_main_structure(signal, mtf):
         m5_ok=(raw_side=="BUY" and mtf.get("m5_confirm_buy")) or (raw_side=="SELL" and mtf.get("m5_confirm_sell"))
         aligned=(raw_side=="BUY" and h4!="DOWN") or (raw_side=="SELL" and h4!="UP")
         tech=out.get("technical") or {}
+        m15_open=float(mtf.get("m15_last_open") or 0)
+        m15_close=float(mtf.get("m15_last_close") or 0)
+        m15_prev=float(mtf.get("m15_prev_close") or 0)
+        m15_buy=(m15_close>m15_open and m15_close>=m15_prev)
+        m15_sell=(m15_close<m15_open and m15_close<=m15_prev)
+        m15_supports=(raw_side=="BUY" and m15_buy) or (raw_side=="SELL" and m15_sell)
+        m15_against=(raw_side=="BUY" and m15_sell) or (raw_side=="SELL" and m15_buy)
         # If the older structure gate erased the side, rebuild a medium scalp
         # only from a strong 6/7 M5 signal + M5 confirmation + technical consensus.
         # It uses the latest candle invalidation and keeps the existing 1.60 cap.
@@ -547,7 +553,7 @@ def apply_main_structure(signal, mtf):
         # Medium continuation: the strict M15 breakout model is for MAIN entries,
         # but it must not erase a clean 5m setup that agrees with H4/M5.
         # Execute it as the existing SNIPER risk class, not as MAIN.
-        if raw_side in ("BUY","SELL") and score >= 5 and m5_ok and aligned:
+        if raw_side in ("BUY","SELL") and score >= 5 and m5_ok and aligned and (score>=6 or not m15_against):
             out["mode"]="SNIPER"
             out["confidence"]=6 if score==5 else 7
             out["reason"]="mtf_medium_continuation"
@@ -562,6 +568,14 @@ def apply_main_structure(signal, mtf):
             out["reason"]="mtf_countertrend_medium"
             return out
         if raw_side and str(out.get("mode") or "").upper() != "MAIN":
+            if score <= 4 and not m15_supports:
+                out["side"]=None
+                out["reason"]="m15_confirmation_required_for_weak_sniper"
+                return out
+            if score == 5 and m15_against:
+                out["side"]=None
+                out["reason"]="m15_against_medium_sniper"
+                return out
             out["mode"]="SNIPER"
             return out
         out["side"]=None
@@ -600,6 +614,53 @@ def apply_main_structure(signal, mtf):
     return out
 
 
+def signal_strength(signal):
+    side=signal.get("side")
+    selected=(signal.get("checks") or {}).get(side)
+    if isinstance(selected,list):
+        return sum(bool(x) for x in selected)
+    return int(signal.get("score") or max(int(signal.get("buy_score") or 0), int(signal.get("sell_score") or 0)))
+
+
+def sniper_budget_usd(signal):
+    mode=str(signal.get("mode") or "").upper()
+    if mode not in ("SNIPER","NIGHT_SNIPER","REJECTION_SCALP","CORRECTION_SCALP"):
+        return None
+    strength=signal_strength(signal)
+    if strength<=4:
+        return 2.0
+    if strength==5:
+        return 3.0
+    if strength==6:
+        return 5.0
+    return 7.0
+
+
+def sniper_chase_block_reason(signal,last_side,last_score,last_bar):
+    side=signal.get("side")
+    mode=str(signal.get("mode") or "").upper()
+    if side not in ("BUY","SELL") or mode not in ("SNIPER","NIGHT_SNIPER","REJECTION_SCALP","CORRECTION_SCALP"):
+        return None
+    if side!=last_side or not last_bar:
+        return None
+    try:
+        current=datetime.fromisoformat(str(signal.get("bar")).replace("Z","+00:00"))
+        previous=datetime.fromisoformat(str(last_bar).replace("Z","+00:00"))
+        seconds=(current-previous).total_seconds()
+    except Exception:
+        return "same_direction_sniper_chase"
+    if seconds<=0 or seconds>5*60+30:
+        return None
+    strength=signal_strength(signal)
+    mtf=signal.get("mtf") or {}
+    fresh_break=bool(signal.get("held_breakout")) or (
+        side=="BUY" and bool(mtf.get("break_up"))) or (
+        side=="SELL" and bool(mtf.get("break_down")))
+    if strength>int(last_score or 0) or fresh_break:
+        return None
+    return "same_direction_sniper_chase"
+
+
 def same_entry_copies(signal, health):
     """Start with one ticket; a later closed candle can add another entry."""
     risk=max(0.01,float(signal.get("risk_distance") or 0))
@@ -607,8 +668,9 @@ def same_entry_copies(signal, health):
     strength=sum(bool(x) for x in selected) if isinstance(selected,list) else int(signal.get("score") or 0)
     budget_field="strong_risk_budget_usd" if strength>=6 and health.get("strong_risk_budget_usd") is not None else "effective_risk_budget_usd"
     full=float(health.get(budget_field) or 0)
-    # The EA enforces the DEMO loss gate; avoid halving its budget twice.
-    budget=full
+    tier=sniper_budget_usd(signal)
+    # Keep the worker at or below the sniper tier; the EA enforces exact USD loss.
+    budget=min(full,tier) if tier is not None and full>0 else (tier if tier is not None else full)
     used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
     available=max(0.0,budget-used)
     return 1 if available+0.01>=risk else 0
@@ -835,7 +897,6 @@ def execution_block_reason(health):
         return "pending_command_limit"
     return None
 
-
 def run_forever():
     validate_config()
     print(
@@ -845,6 +906,9 @@ def run_forever():
         flush=True,
     )
     last_bar = None
+    last_sniper_side = None
+    last_sniper_score = 0
+    last_sniper_bar = None
     publishes = deque()
 
     while True:
@@ -876,7 +940,7 @@ def run_forever():
                     continue
                 raise
             signal = compute_signal(feeds["5m"])
-            mtf = analyze_structure(normalize_rows(feeds["5m"]), normalize_rows(feeds["15m"]), normalize_rows(feeds["1h"]))
+            mtf = analyze_structure(normalize_rows(feeds["5m"]), normalize_rows(feeds["15m"]), normalize_rows(feeds["h4"]))
             signal = apply_main_structure(signal, mtf)
             signal = recover_m15_continuation(signal, health)
             signal = recover_strong_structural_entry(signal, health)
@@ -900,6 +964,13 @@ def run_forever():
                 time.sleep(POLL_SECONDS)
                 continue
 
+            chase_reason=sniper_chase_block_reason(
+                signal,last_sniper_side,last_sniper_score,last_sniper_bar)
+            if chase_reason:
+                print(f"bridge_signal_skip reason={chase_reason} side={signal.get('side')} score={signal_strength(signal)}", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+
             mt5_spot = float(health.get("price") or 0) if health.get("client_state_fresh") else 0.0
             copies = same_entry_copies(signal, health)
             if copies <= 0:
@@ -914,6 +985,10 @@ def run_forever():
                 if status == 201 and response.get("ok") is True:
                     if MAX_PUBLISH_PER_HOUR > 0:
                         publishes.append(time.time())
+                    if str(signal.get("mode") or "").upper() != "MAIN":
+                        last_sniper_side=signal.get("side")
+                        last_sniper_score=signal_strength(signal)
+                        last_sniper_bar=signal.get("bar")
                     print(
                         f"bridge_signal_published key={key} side={signal['side']} "
                         f"mode={signal.get('mode')} confidence={signal.get('confidence')} copies={copies} "
