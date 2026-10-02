@@ -286,7 +286,7 @@ class Handler(BaseHTTPRequestHandler):
                 event["status"] = "approved"
                 event["decided_ts"] = time.time()
                 event["lease_until"] = 0
-                self._json(200, {"ok": True, "message": "✅ تمت الموافقة. سيتم إرسال الأمر للـ MT5 الآن."})
+                self._json(200, {"ok": True, "message": "✅ تم تسجيل الموافقة. الصفقة جاهزة لموصل التنفيذ على MT5."})
             except Exception as exc:
                 self._json(500, {"ok": False, "error": type(exc).__name__})
             return
