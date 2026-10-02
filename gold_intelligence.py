@@ -153,7 +153,7 @@ class GoldIntelligence:
 
     def macro(self, gold_bars):
         now_mono = time.monotonic()
-        if self._macro_cache["value"] is not None and now_mono - self._macro_cache["at"] < 300:
+        if self._macro_cache["value"] is not None and now_mono - self._macro_cache["at"] < 900:
             return self._macro_cache["value"]
 
         result = {
