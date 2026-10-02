@@ -15,5 +15,5 @@ jobs:
         with:
           python-version: "3.13"
       - run: python -m pip install -r requirements.txt
-      - run: python -m py_compile gigi_gold_brain.py gold_intelligence.py live_api.py
-      - run: python -m unittest -v test_gigi_gold_brain.py
+      - run: python -m py_compile gigi_gold_brain.py gold_intelligence.py live_api.py market.py
+      - run: python -m unittest -v test_gigi_gold_brain.py test_market_resilience.py
