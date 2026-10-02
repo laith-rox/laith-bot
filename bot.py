@@ -17,7 +17,7 @@ from transport import Telegram, dispatch
 from timing import DecisionClock, decision_metadata
 from safety_monitor import start_safety_worker
 
-VERSION = "3.0.1"
+VERSION = "3.0.2"
 UTC = timezone.utc
 NEW_YORK = ZoneInfo("America/New_York")
 LOG = logging.getLogger("laith")
@@ -123,7 +123,6 @@ class App:
         except DataError as exc:
             decision={"side":"WAIT","reason":str(exc)}
         raw_decision=dict(decision); original_side=decision["side"]; active=self.store.active()
-        self.us_hourly_recommendation(raw_decision, now)
         official_slot = int(now.astimezone(LOCAL).timestamp() // (4 * 3600))
         if self.store.get("paused",False): reason="paused"
         elif active: reason="active_signal"
@@ -176,10 +175,13 @@ class App:
                     raise DataError('market_quote_stale')
                 if epoch >= trade['entry_expires']:
                     raise DataError('market_quote_stale')
-                self.store.prepare_entry(trade,entry(trade,decision),epoch)
-                self.store.set("official_4h_slot", official_slot)
-                LOG.info('entry_quote_verified id=%s price=%.2f source_age=%.1f',
-                         trade['id'],trade['entry'],epoch-quote['time'])
+                prepared=self.store.prepare_entry(trade,entry(trade,decision),epoch)
+                if prepared:
+                    self.store.set("official_4h_slot", official_slot)
+                    LOG.info('official_4h_entry_prepared slot=%s id=%s price=%.2f source_age=%.1f',
+                             official_slot,trade['id'],trade['entry'],epoch-quote['time'])
+                else:
+                    LOG.info('official_4h_entry_not_prepared slot=%s reason=store_rejected',official_slot)
             except DataError as exc:
                 reason=str(exc); self.store.set('last_error',reason)
                 LOG.warning('entry_blocked reason=%s',reason)
@@ -215,11 +217,10 @@ def run(args):
     safety_stop=start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
     try:
         LOG.info("starting version=%s",VERSION)
-        store.enqueue('release:3.0.1:official-4h-us-hourly','release',
-                      '✅ <b>بوت ليث v3.0.1 — رسمي + توصيات نيويورك</b>\n\n'
-                      'صفقة رسمية واحدة كحد أقصى في كل دورة 4 ساعات، عند تحقق شروط الدخول وبيانات سوق حديثة.\n'
-                      'لا رسائل Quick/fast ولا تحديثات دورية كل 5 دقائق.\n'
-                      'بعد افتتاح نيويورك 09:30 وحتى 16:00 يرسل توصية سوق كل ساعة (BUY/SELL/WAIT).\n'
+        store.enqueue('release:3.0.2:official-4h-only','release',
+                      '✅ <b>بوت ليث v3.0.2 — صفقة رسمية كل 4 ساعات</b>\n\n'
+                      'صفقة رسمية واحدة كحد أقصى في كل دورة 4 ساعات، عند توفر بيانات سوق حديثة وعدم وجود صفقة رسمية مفتوحة.\n'
+                      'لا Quick/fast، لا تقارير دخول كل 15د، ولا توصيات نيويورك كل ساعة.\n'
                       'الطوارئ والحماية الحدثية تبقى فعّالة للصفقة الرسمية.\n'
                       'الإشارات غير مضمونة ولا ينفّذ البوت أوامر عند الوسيط.',time.time(),expires=time.time()+3600)
         while True:
