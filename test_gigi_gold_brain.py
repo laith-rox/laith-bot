@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import unittest
 
 from gigi_gold_brain import GigiGoldBrain
+from live_api import _yahoo_payload_to_bars
 from market import Bar
 
 UTC = timezone.utc
@@ -104,6 +105,35 @@ class GigiGoldBrainStoryTests(unittest.TestCase):
         self.assertTrue(story["sweptPreviousHigh"])
         self.assertEqual(story["event"], "HIGH_SWEEP_REJECTION")
         self.assertEqual(story["directionalHint"], "SELL")
+
+    def test_yahoo_fallback_is_basis_adjusted_to_spot(self):
+        start = datetime(2026, 9, 28, 0, 0, tzinfo=UTC)
+        count = 1205
+        stamps = [int((start + timedelta(minutes=5*i)).timestamp()) for i in range(count)]
+        closes = [1000 + i * 0.1 for i in range(count)]
+        opens = [v - 0.05 for v in closes]
+        highs = [v + 0.25 for v in closes]
+        lows = [v - 0.25 for v in closes]
+        payload = {
+            "chart": {
+                "result": [{
+                    "timestamp": stamps,
+                    "indicators": {"quote": [{
+                        "open": opens,
+                        "high": highs,
+                        "low": lows,
+                        "close": closes,
+                    }]},
+                }]
+            }
+        }
+        now = start + timedelta(minutes=5*count + 1)
+        spot = 2100.0
+        bars = _yahoo_payload_to_bars(payload, spot, now)
+        self.assertGreaterEqual(len(bars), 1200)
+        self.assertAlmostEqual(bars[-1].close, spot, places=6)
+        self.assertGreater(bars[-1].high, bars[-1].close)
+        self.assertLess(bars[-1].low, bars[-1].close)
 
 
 if __name__ == "__main__":
