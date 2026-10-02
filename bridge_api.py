@@ -23,7 +23,7 @@ HMAC_SECRET = os.getenv("BRIDGE_HMAC_SECRET", "")
 CONFIG_ENABLED = os.getenv("BRIDGE_ENABLED", "false").strip().lower() == "true"
 MAX_AGE_SECONDS = 30
 DELIVERY_LEASE_SECONDS = 5
-MAX_PENDING = 1
+MAX_PENDING = 4
 FIXED_VOLUME = 0.01
 STATE_FRESH_SECONDS = 10
 
@@ -55,6 +55,12 @@ def _command_text(item: dict) -> str:
         return "|".join([
             "DEMO", item["key"], str(item["ts"]), item["symbol"],
             item["side"], item["volume"], item["sl"], item["tp"],
+        ])
+    ticket = str(item.get("ticket", "")).strip()
+    if ticket:
+        return "|".join([
+            "DEMO", "ACTION", item["key"], str(item["ts"]), item["symbol"],
+            action, ticket, item.get("sl", "0.00000"), item.get("tp", "0.00000"),
         ])
     return "|".join([
         "DEMO", "ACTION", item["key"], str(item["ts"]), item["symbol"],
@@ -101,6 +107,24 @@ def _state_age(now: float | None = None) -> float | None:
         return None
 
 
+def _ticket_trade_mode(ticket: str) -> str:
+    if not ticket:
+        return ""
+    for item in reversed(list(_items.values())):
+        ack = item.get("ack") or {}
+        if str(item.get("action", "OPEN")).upper() != "OPEN":
+            continue
+        if ack.get("ok") is True and str(ack.get("ticket") or "") == ticket:
+            return str(item.get("trade_mode") or "").upper()
+    return ""
+
+
+def _owned_position_trade_mode() -> str:
+    if not _client_state or not _client_state.get("position_owned"):
+        return ""
+    return _ticket_trade_mode(str(_client_state.get("ticket") or ""))
+
+
 def _state_is_fresh(now: float | None = None) -> bool:
     age = _state_age(now)
     return age is not None and age <= STATE_FRESH_SECONDS
@@ -111,6 +135,39 @@ def _poll_age(now: float | None = None) -> float | None:
         return None
     now = time.time() if now is None else now
     return max(0.0, now - _client_last_poll)
+
+
+def _market_countertrend(side: str) -> bool:
+    """Block a DEMO entry only when both M5 and M15 show a clear opposite move."""
+    market = globals().get("_market_state") or {}
+    try:
+        age = time.time() - float(market.get("received_at", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    if age > 20:
+        return False
+
+    def direction(name: str) -> int:
+        rows = [r for r in (market.get(name) or []) if isinstance(r, dict) and r.get("datetime")]
+        rows = sorted(rows, key=lambda r: str(r.get("datetime", "")).replace(".", "-"))
+        if len(rows) < 4:
+            return 0
+        rows = rows[-4:]
+        try:
+            closes = [float(r["close"]) for r in rows]
+        except (KeyError, TypeError, ValueError):
+            return 0
+        ups = sum(closes[i] > closes[i - 1] for i in range(1, len(closes)))
+        downs = sum(closes[i] < closes[i - 1] for i in range(1, len(closes)))
+        if closes[-1] > closes[0] and ups >= 2:
+            return 1
+        if closes[-1] < closes[0] and downs >= 2:
+            return -1
+        return 0
+
+    m5 = direction("m5")
+    m15 = direction("m15")
+    return (side == "SELL" and m5 == 1 and m15 == 1) or (side == "BUY" and m5 == -1 and m15 == -1)
 
 
 def _validate_publish(data: dict) -> tuple[bool, str]:
@@ -142,11 +199,36 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
         return False, "volume_must_be_0_01"
     if sl <= 0 or tp <= 0:
         return False, "sl_tp_required"
+    # Every sniper tier carries its verified seven-condition count.
+    strength_match = re.search(r":S([34567])$", key)
+    strength = int(strength_match.group(1)) if strength_match else 0
+    if strength_match:
+        checks = data.get("checks", {})
+        selected = checks.get(side) if isinstance(checks, dict) else None
+        if not isinstance(selected, list) or len(selected) != 7 or sum(bool(x) for x in selected) != strength:
+            return False, "signal_strength_mismatch"
+    # Weak/medium sniper entries may not fight both M5 and M15. Only verified
+    # 6/7 or 7/7 sniper signals may take the smaller countertrend scalp.
+    if _market_countertrend(side):
+        if trade_mode == "MAIN" or strength < 6:
+            return False, "countertrend_market_block"
+    analysis = data.get("analysis")
+    if trade_mode == "MAIN" and isinstance(analysis, dict) and analysis:
+        required = ("h4_bias", "m15_structure", "m5_confirmation", "invalidation")
+        if any(not analysis.get(k) for k in required):
+            return False, "main_analysis_required"
+        bias = str(analysis.get("h4_bias", "")).upper()
+        if bias not in ("UP", "DOWN"):
+            return False, "main_h4_bias_required"
+        if (side == "BUY" and bias != "UP") or (side == "SELL" and bias != "DOWN"):
+            return False, "main_bias_mismatch"
+        return True, "approved"
     checks = data.get("checks", {})
     selected = checks.get(side) if isinstance(checks, dict) else None
     if not isinstance(selected, list) or len(selected) != 7:
         return False, "seven_checks_required"
-    if sum(bool(x) for x in selected) < 5:
+    minimum = 3 if trade_mode == "SNIPER" else 5
+    if sum(bool(x) for x in selected) < minimum:
         return False, "fast_conditions_not_met"
     return True, "approved"
 
@@ -215,6 +297,90 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         q = parse_qs(parsed.query)
 
+        if path == "/market":
+            with _lock:
+                market = dict(_market_state or {})
+            age = time.time() - float(market.get("received_at", 0) or 0)
+            if not market or age > 20:
+                return self._json(503, {"ok": False, "reason": "market_state_stale", "age": round(age, 2)})
+            market["ok"] = True
+            market["age"] = round(age, 2)
+            return self._json(200, market)
+
+        if path == "/chatgpt-read":
+            # Sanitized, read-only DEMO snapshot. Never exposes execution tokens,
+            # ticket/magic identifiers, or any mutation capability.
+            now = time.time()
+            with _lock:
+                state = dict(_client_state or {})
+                market = dict(_market_state or {})
+                state_age = _state_age(now)
+                market_age = now - float(market.get("received_at", 0) or 0) if market else None
+
+                def last_bar(name):
+                    rows = market.get(name) or []
+                    if not rows:
+                        return None
+                    # Publishers may send newest-first or oldest-first. Never
+                    # infer freshness from array position; select the greatest
+                    # ISO-like MT5 datetime explicitly.
+                    valid = [row for row in rows if isinstance(row, dict) and row.get("datetime")]
+                    if not valid:
+                        return None
+                    row = max(valid, key=lambda item: str(item.get("datetime", "")).replace(".", "-"))
+                    return {
+                        "datetime": row.get("datetime"),
+                        "open": row.get("open"),
+                        "high": row.get("high"),
+                        "low": row.get("low"),
+                        "close": row.get("close"),
+                    }
+
+                positions = []
+                for p in (state.get("positions") or [])[:20]:
+                    positions.append({
+                        "owned": bool(p.get("owned")),
+                        "side": p.get("side"),
+                        "volume": p.get("volume"),
+                        "open_price": p.get("open_price"),
+                        "sl": p.get("sl"),
+                        "tp": p.get("tp"),
+                        "price": p.get("price"),
+                        "profit": p.get("profit"),
+                        "risk_usd": p.get("risk_usd"),
+                    })
+
+                payload = {
+                    "ok": bool(state) and bool(market),
+                    "mode": "DEMO",
+                    "symbol": "XAUUSD",
+                    "server_time": now,
+                    "state_fresh": state_age is not None and state_age <= STATE_FRESH_SECONDS,
+                    "state_age": round(state_age, 2) if state_age is not None else None,
+                    "market_fresh": market_age is not None and market_age <= 20,
+                    "market_age": round(market_age, 2) if market_age is not None else None,
+                    "enabled": bool(_runtime_enabled),
+                    "position_open": bool(state.get("position_open")),
+                    "position_owned": bool(state.get("position_owned")),
+                    "side": state.get("side"),
+                    "volume": state.get("volume"),
+                    "open_price": state.get("open_price"),
+                    "sl": state.get("sl"),
+                    "tp": state.get("tp"),
+                    "price": state.get("price"),
+                    "profit": state.get("profit"),
+                    "position_risk_usd": state.get("position_risk_usd"),
+                    "total_position_risk_usd": state.get("total_position_risk_usd"),
+                    "owned_position_count": state.get("owned_position_count", 0),
+                    "positions": positions,
+                    "latest": {
+                        "m5": last_bar("m5"),
+                        "m15": last_bar("m15"),
+                        "h4": last_bar("h4"),
+                    },
+                }
+            return self._json(200 if payload["ok"] else 503, payload)
+
         if path == "/health":
             with _lock:
                 _clean()
@@ -232,6 +398,7 @@ class Handler(BaseHTTPRequestHandler):
                     "client_poll_fresh": poll_age is not None and poll_age <= STATE_FRESH_SECONDS,
                     "client_last_poll_age": round(poll_age, 2) if poll_age is not None else None,
                     "position_open": bool((_client_state or {}).get("position_open")),
+                    "trade_mode": _owned_position_trade_mode(),
                     "position_owned": bool((_client_state or {}).get("position_owned")),
                     "ticket": (_client_state or {}).get("ticket"),
                     "side": (_client_state or {}).get("side"),
@@ -246,8 +413,15 @@ class Handler(BaseHTTPRequestHandler):
                     "realized_bridge_profit_usd": (_client_state or {}).get("realized_bridge_profit_usd"),
                     "profit_risk_budget_usd": (_client_state or {}).get("profit_risk_budget_usd"),
                     "effective_risk_budget_usd": (_client_state or {}).get("effective_risk_budget_usd"),
+                    "strong_risk_budget_usd": (_client_state or {}).get("strong_risk_budget_usd"),
                     "commissioning_used": (_client_state or {}).get("commissioning_used"),
                     "commissioning_remaining": (_client_state or {}).get("commissioning_remaining"),
+                    "positions": [
+                        {**p, "trade_mode": _ticket_trade_mode(str(p.get("ticket") or ""))}
+                        for p in ((_client_state or {}).get("positions") or [])
+                    ],
+                    "owned_position_count": (_client_state or {}).get("owned_position_count", 0),
+                    "total_position_risk_usd": (_client_state or {}).get("total_position_risk_usd", "0.00"),
                 }
             return self._json(200, payload)
 
@@ -306,11 +480,19 @@ class Handler(BaseHTTPRequestHandler):
             if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
                 return self._send(401, "UNAUTHORIZED")
             fields = {k: (v[0] if v else "") for k, v in q.items()}
-            text = "|".join([
-                "DEMO", "ACTION", fields.get("key", ""), fields.get("ts", ""),
-                fields.get("symbol", ""), fields.get("action", ""),
-                fields.get("sl", ""), fields.get("tp", ""),
-            ])
+            ticket = fields.get("ticket", "").strip()
+            if ticket:
+                text = "|".join([
+                    "DEMO", "ACTION", fields.get("key", ""), fields.get("ts", ""),
+                    fields.get("symbol", ""), fields.get("action", ""), ticket,
+                    fields.get("sl", ""), fields.get("tp", ""),
+                ])
+            else:
+                text = "|".join([
+                    "DEMO", "ACTION", fields.get("key", ""), fields.get("ts", ""),
+                    fields.get("symbol", ""), fields.get("action", ""),
+                    fields.get("sl", ""), fields.get("tp", ""),
+                ])
             sig = fields.get("sig", "")
             try:
                 ts = int(fields.get("ts", "0"))
@@ -335,7 +517,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, "NOT_FOUND")
 
     def do_POST(self):
-        global _runtime_enabled, _client_state
+        global _runtime_enabled, _client_state, _market_state
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -384,10 +566,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(400, {"ok": False, "reason": reason})
                 if not _state_is_fresh():
                     return self._json(409, {"ok": False, "reason": "client_state_stale"})
-                if not bool((_client_state or {}).get("position_open")):
-                    return self._json(409, {"ok": False, "reason": "no_open_position"})
-                if not bool((_client_state or {}).get("position_owned")):
-                    return self._json(409, {"ok": False, "reason": "position_not_owned_by_bridge"})
+                target_ticket = str(data.get("ticket", "")).strip()
+                positions = (_client_state or {}).get("positions", [])
+                if target_ticket:
+                    match = next((p for p in positions if str(p.get("ticket")) == target_ticket and bool(p.get("owned"))), None)
+                    if match is None:
+                        return self._json(409, {"ok": False, "reason": "target_ticket_not_owned"})
+                else:
+                    if not bool((_client_state or {}).get("position_open")):
+                        return self._json(409, {"ok": False, "reason": "no_open_position"})
+                    if not bool((_client_state or {}).get("position_owned")):
+                        return self._json(409, {"ok": False, "reason": "position_not_owned_by_bridge"})
                 key = str(data["key"])
                 if key in _items:
                     return self._json(409, {"ok": False, "reason": "duplicate_order", "key": key})
@@ -399,6 +588,7 @@ class Handler(BaseHTTPRequestHandler):
                     "key": key,
                     "ts": int(time.time()),
                     "symbol": "XAUUSD",
+                    "ticket": target_ticket,
                     "sl": f"{float(data.get('sl', 0)):.5f}",
                     "tp": f"{float(data.get('tp', 0)):.5f}",
                     "reason": str(data.get("reason", "")),
@@ -407,6 +597,37 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 _items[key] = item
                 return self._json(201, {"ok": True, "key": key, "mode": "DEMO", "action": action})
+
+        if path == "/market":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            data = self._read_json()
+            if str(data.get("mode", "")).upper() != "DEMO":
+                return self._json(400, {"ok": False, "reason": "demo_only"})
+            if "XAUUSD" not in str(data.get("symbol", "")).upper():
+                return self._json(400, {"ok": False, "reason": "gold_only"})
+            clean = {"mode": "DEMO", "symbol": str(data.get("symbol", ""))[:32], "received_at": time.time()}
+            for name, minimum, maximum in (("m5", 30, 260), ("m15", 35, 100), ("h4", 30, 100)):
+                rows = data.get(name)
+                if not isinstance(rows, list) or len(rows) < minimum:
+                    return self._json(400, {"ok": False, "reason": f"{name}_rows_required"})
+                safe = []
+                for row in rows[:maximum]:
+                    if not isinstance(row, dict):
+                        continue
+                    try:
+                        safe.append({"datetime": str(row.get("datetime", ""))[:32],
+                                     "open": f"{float(row['open']):.5f}", "high": f"{float(row['high']):.5f}",
+                                     "low": f"{float(row['low']):.5f}", "close": f"{float(row['close']):.5f}",
+                                     "tick_volume": str(int(float(row.get("tick_volume", 0) or 0)))})
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                if len(safe) < minimum:
+                    return self._json(400, {"ok": False, "reason": f"{name}_valid_rows_required"})
+                clean[name] = safe
+            with _lock:
+                _market_state = clean
+            return self._json(200, {"ok": True, "received": True})
 
         if path == "/state":
             if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
@@ -417,6 +638,24 @@ class Handler(BaseHTTPRequestHandler):
             symbol = str(data.get("symbol", "")).upper()
             if "XAUUSD" not in symbol:
                 return self._json(400, {"ok": False, "reason": "gold_only"})
+            raw_positions = data.get("positions", [])
+            positions = []
+            if isinstance(raw_positions, list):
+                for p in raw_positions[:20]:
+                    if not isinstance(p, dict):
+                        continue
+                    positions.append({
+                        "ticket": str(p.get("ticket", ""))[:40],
+                        "owned": bool(p.get("owned")),
+                        "side": str(p.get("side", ""))[:8],
+                        "volume": str(p.get("volume", ""))[:24],
+                        "open_price": str(p.get("open_price", ""))[:32],
+                        "sl": str(p.get("sl", ""))[:32],
+                        "tp": str(p.get("tp", ""))[:32],
+                        "price": str(p.get("price", ""))[:32],
+                        "profit": str(p.get("profit", ""))[:32],
+                        "risk_usd": str(p.get("risk_usd", ""))[:32],
+                    })
             clean_state = {
                 "mode": "DEMO",
                 "symbol": symbol[:32],
@@ -435,8 +674,12 @@ class Handler(BaseHTTPRequestHandler):
                 "realized_bridge_profit_usd": str(data.get("realized_bridge_profit_usd", ""))[:32],
                 "profit_risk_budget_usd": str(data.get("profit_risk_budget_usd", ""))[:32],
                 "effective_risk_budget_usd": str(data.get("effective_risk_budget_usd", ""))[:32],
+                "strong_risk_budget_usd": str(data.get("strong_risk_budget_usd", ""))[:32],
                 "commissioning_used": str(data.get("commissioning_used", ""))[:16],
                 "commissioning_remaining": str(data.get("commissioning_remaining", ""))[:16],
+                "positions": positions,
+                "owned_position_count": int(data.get("owned_position_count", len([p for p in positions if p.get("owned")])) or 0),
+                "total_position_risk_usd": str(data.get("total_position_risk_usd", "0.00"))[:32],
                 "received_at": time.time(),
             }
             with _lock:
