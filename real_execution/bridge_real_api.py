@@ -48,7 +48,13 @@ def _configured() -> bool:
 
 
 def _ready() -> bool:
-    return bool(REAL_ARMED and EXECUTION_ENABLED and _configured())
+    s_age = _state_age()
+    m_age = _market_age()
+    return bool(
+        REAL_ARMED and EXECUTION_ENABLED and _configured()
+        and s_age is not None and s_age <= STATE_FRESH_SECONDS
+        and m_age is not None and m_age <= MARKET_FRESH_SECONDS
+    )
 
 
 def _sign(text: str) -> str:
@@ -132,6 +138,12 @@ def _validate_publish(data: dict):
         if FIXED_VOLUME <= 0:
             return False, "real_volume_not_configured"
         return False, "real_auth_not_configured"
+    s_age = _state_age()
+    if s_age is None or s_age > STATE_FRESH_SECONDS:
+        return False, "real_state_stale"
+    m_age = _market_age()
+    if m_age is None or m_age > MARKET_FRESH_SECONDS:
+        return False, "real_market_stale"
     if str(data.get("mode", "")).upper() != "REAL":
         return False, "real_mode_required"
     key = str(data.get("key", ""))
