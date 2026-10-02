@@ -1,6 +1,7 @@
 """Laith Gold Signals v2: persistent monitoring and Telegram alerts only."""
 import argparse
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import logging
 import os
 import time
@@ -13,14 +14,12 @@ from messages import entry, transition, stats, status, LOCAL, emergency
 from news import NewsGuard
 from storage import Store
 from transport import Telegram, dispatch
-from fast_service import start_worker, fast_status
 from timing import DecisionClock, decision_metadata
 from safety_monitor import start_safety_worker
-from v4_quick_5m import analyze_quick_5m
-from v4_quick import build_quick
 
-VERSION = "2.9.0"
+VERSION = "3.0.0"
 UTC = timezone.utc
+NEW_YORK = ZoneInfo("America/New_York")
 LOG = logging.getLogger("laith")
 
 def entry_window(now):
@@ -54,70 +53,42 @@ class App:
         else:
             self.store.set("early_watch",updated); self.monitor_reversal(updated,decision,epoch,True)
 
-    def quick_v4_update(self, higher_decision, bars, now):
-        """User-visible 5m quick stream using the same decision layer as Laith V4."""
-        if not entry_window(now) or self.store.get("paused", False) or len(bars) < 22:
+    def periodic_reports(self,decision,bars,now,blocked=None):
+        """v3: no periodic 5-minute Telegram messages."""
+        return
+
+    def us_hourly_recommendation(self, decision, now):
+        """One market recommendation per hour during the regular New York session."""
+        ny = now.astimezone(NEW_YORK)
+        if ny.weekday() >= 5:
             return
-        slot = int(now.timestamp() // 300)
-        event_id = "laith-v4quick:" + str(slot)
+        minute = ny.hour * 60 + ny.minute
+        opened, closed = 9 * 60 + 30, 16 * 60
+        if not opened <= minute < closed:
+            return
+        slot = (minute - opened) // 60
+        event_id = f"us-hourly:{ny.date().isoformat()}:{slot}"
         if self.store.db.execute("SELECT 1 FROM outbox WHERE id=?", (event_id,)).fetchone():
             return
-        try:
-            require_fresh(bars, now, 180)
-            try:
-                quote = self.market.quote(lambda: now)
-                price = float(quote["price"])
-            except DataError as exc:
-                if str(exc) not in ("market_quote_stale", "market_quote_unavailable", "market_quote_invalid"):
-                    raise
-                price = float(bars[-1].close)
-            slot_start = datetime.fromtimestamp(slot * 300, UTC)
-            # Closed-bar feed cannot honestly supply the current unfinished candle open.
-            # Use the latest closed close as the opening reference, matching V4's guarded fallback semantics.
-            current = {"price": price, "candle_open": float(bars[-1].close),
-                       "candle_high": max(price, float(bars[-1].close)),
-                       "candle_low": min(price, float(bars[-1].close)),
-                       "candle_start_iso": slot_start.isoformat(),
-                       "candle_open_estimated": True}
-            qd = analyze_quick_5m(bars, current, higher_decision)
-            quick = build_quick(qd, now, quote_price=price) if qd.get("side") in ("BUY", "SELL") else None
-            if quick:
-                risk = quick.get("risk_level", "—")
-                marker_risk = "🔴" if risk == "مرتفعة" else "🟡" if risk == "متوسطة" else "🟢"
-                msg = ("⚡ <b>بوت ليث — صفقة سريعة 5د</b>\n"
-                       f"الاتجاه: <b>{quick['side']}</b> | القوة: <b>{quick['strength']}</b> ({quick['score']}/7)\n"
-                       f"💰 دخول: <b>{quick['entry']:.2f}</b>\n"
-                       f"🛑 وقف: <b>{quick['stop']:.2f}</b>\n"
-                       f"🎯 هدف: <b>{quick['target']:.2f}</b> | R:R 1:{quick['rr']:.2f}\n"
-                       f"{marker_risk} المخاطرة: <b>{risk}</b>\n"
-                       "⏱️ صلاحية 20د | Twelve Data؛ ليست صفقة مضمونة ولا تنفيذًا آليًا.")
-            else:
-                q = qd.get("quick5m") or {}
-                msg = ("⏸️ <b>بوت ليث — Quick 5د WAIT</b>\n"
-                       f"شراء <b>{q.get('buy', qd.get('buy', '—'))}/7</b> | بيع <b>{q.get('sell', qd.get('sell', '—'))}/7</b>\n"
-                       "لا اتجاه لحظي واضح؛ لا يتم اختراع صفقة.")
-            self.store.enqueue(event_id, "follow", msg, now.timestamp(), expires=now.timestamp()+300)
-            LOG.info("laith_v4quick_prepared slot=%s side=%s", slot, qd.get("side"))
-        except DataError as exc:
-            LOG.warning("laith_v4quick_unavailable reason=%s", str(exc))
-
-    def periodic_reports(self,decision,bars,now,blocked=None):
-        """Only follow an active official trade; no standalone 15m entry reports."""
-        epoch=now.timestamp()
-        if self.store.has_important_update(epoch):
-            self.store.supersede_routine()
-            return
-        active=self.store.active()
-        if not active:
-            return
-        self.store.supersede_routine(keep_signal=active['id'])
-        if active['status']=='pending':
-            return
-        follow_id=active['id']+':follow:'+str(int(epoch//300))
-        if not self.store.db.execute("SELECT 1 FROM outbox WHERE id=?",(follow_id,)).fetchone():
-            self.store.enqueue(follow_id,'follow',trade_follow_message(active,decision,now),epoch,
-                               signal_id=active['id'],expires=epoch+300)
-            LOG.info('trade_follow_prepared id=%s side=%s',follow_id,active['side'])
+        side = decision.get("side", "WAIT")
+        buy, sell = decision.get("buy", "—"), decision.get("sell", "—")
+        price = decision.get("price")
+        if side == "BUY":
+            view = "BUY — ترجيح شراء"
+        elif side == "SELL":
+            view = "SELL — ترجيح بيع"
+        else:
+            view = "WAIT — انتظار"
+        price_text = f"{float(price):.2f}" if isinstance(price, (int, float)) else "—"
+        msg = (
+            "🇺🇸 <b>توصية الساعة — جلسة نيويورك</b>\n"
+            f"الاتجاه: <b>{view}</b>\n"
+            f"السعر المرجعي: <b>{price_text}</b>\n"
+            f"شروط الشراء: <b>{buy}/7</b> | البيع: <b>{sell}/7</b>\n"
+            "هذه توصية سوق وليست صفقة رسمية جديدة؛ الصفقة الرسمية لها دورة مستقلة كل 4 ساعات."
+        )
+        self.store.enqueue(event_id, "report", msg, now.timestamp(), expires=now.timestamp()+3600)
+        LOG.info("us_hourly_recommendation_prepared slot=%s side=%s", slot, side)
 
     def cycle(self,now,clock=None):
         clock=clock or DecisionClock(now); epoch=now.timestamp(); self.store.set("heartbeat",epoch); active=self.store.active()
@@ -152,11 +123,14 @@ class App:
         except DataError as exc:
             decision={"side":"WAIT","reason":str(exc)}
         raw_decision=dict(decision); original_side=decision["side"]; active=self.store.active()
+        self.us_hourly_recommendation(raw_decision, now)
+        official_slot = int(now.astimezone(LOCAL).timestamp() // (4 * 3600))
         if self.store.get("paused",False): reason="paused"
         elif active: reason="active_signal"
         elif not entry_window(now): reason="outside_entry_window"
         elif not allowed_news: reason=news_reason
         elif daily_risk_blocked(self.store,now): reason="daily_risk_limit"
+        elif self.store.get("official_4h_slot") == official_slot: reason="official_4h_slot_used"
         elif epoch-self.store.get("last_signal_at",0)<self.cooldown*60: reason="cooldown"
         elif decision.get("bar") and self.store.get("evaluated_bar")==decision["bar"]: reason="already_evaluated"
         else: reason=None
@@ -203,6 +177,7 @@ class App:
                 if epoch >= trade['entry_expires']:
                     raise DataError('market_quote_stale')
                 self.store.prepare_entry(trade,entry(trade,decision),epoch)
+                self.store.set("official_4h_slot", official_slot)
                 LOG.info('entry_quote_verified id=%s price=%.2f source_age=%.1f',
                          trade['id'],trade['entry'],epoch-quote['time'])
             except DataError as exc:
@@ -228,7 +203,6 @@ class App:
                 if command in ("/start","/help"): text="🥇 بوت ليث لإشارات الذهب ومتابعتها.\n/status حالة البوت\n/pause إيقاف الدخول\n/resume استئناف الدخول"
                 elif command=="/status": text=status(self.store)
                 elif command=="/stats": text=stats(self.store)
-                elif command=="/fast": text=fast_status(self.store)
                 elif command=="/testalert": text="🚨 اختبار إنذار الطوارئ — بوت ليث"
                 elif command=="/pause": self.store.set("paused",True); text="⏸️ تم إيقاف إشارات الدخول الجديدة."
                 elif command=="/resume": self.store.set("paused",False); text="▶️ تم استئناف إشارات الدخول الجديدة."
@@ -241,11 +215,12 @@ def run(args):
     safety_stop=start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
     try:
         LOG.info("starting version=%s",VERSION)
-        store.enqueue('release:2.9.0:official-4h','release',
-                      '✅ <b>بوت ليث v2.9 — نظام الصفقات الرسمية</b>\n\n'
-                      'صفقة رسمية واحدة كحد أقصى كل 4 ساعات عند توفر بيانات سوق صالحة وعدم وجود صفقة رسمية مفتوحة.\n'
-                      'تم إيقاف رسائل Quick/fast وتقارير الدخول كل 15د.\n'
-                      'تبقى متابعة الصفقة الرسمية كل 5د والطوارئ والحماية فعّالة.\n'
+        store.enqueue('release:3.0.0:official-4h-us-hourly','release',
+                      '✅ <b>بوت ليث v3.0 — رسمي + توصيات نيويورك</b>\n\n'
+                      'صفقة رسمية واحدة كحد أقصى في كل دورة 4 ساعات، عند تحقق شروط الدخول وبيانات سوق حديثة.\n'
+                      'لا رسائل Quick/fast ولا تحديثات دورية كل 5 دقائق.\n'
+                      'بعد افتتاح نيويورك 09:30 وحتى 16:00 يرسل توصية سوق كل ساعة (BUY/SELL/WAIT).\n'
+                      'الطوارئ والحماية الحدثية تبقى فعّالة للصفقة الرسمية.\n'
                       'الإشارات غير مضمونة ولا ينفّذ البوت أوامر عند الوسيط.',time.time(),expires=time.time()+3600)
         while True:
             now=datetime.now(UTC)
