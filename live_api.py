@@ -13,7 +13,6 @@ market=Market(KEY)
 intelligence=GigiGoldBrain(KEY)
 tick={"price":None,"time":0.0,"source":None}
 tick_lock=threading.Lock()
-bars_cache={"at":0.0,"bars":[]}
 rest_quote_cache={"at":0.0,"quote":None}
 
 def set_tick(price,stamp,source):
@@ -49,14 +48,8 @@ def ws_worker():
             except Exception: pass
         time.sleep(5)
 
-def get_bars(now):
-    mono=time.monotonic()
-    if bars_cache["bars"] and mono-bars_cache["at"]<55:
-        return bars_cache["bars"]
-    bars=market.fetch(now)[-180:]
-    out=[{"t":int(b.start.timestamp()),"o":b.open,"h":b.high,"l":b.low,"c":b.close} for b in bars]
-    bars_cache.update(at=mono,bars=out)
-    return out
+def serialize_bars(bars):
+    return [{"t":int(b.start.timestamp()),"o":b.open,"h":b.high,"l":b.low,"c":b.close} for b in bars[-180:]]
 
 def get_quote(now):
     with tick_lock: q=dict(tick)
@@ -64,7 +57,7 @@ def get_quote(now):
         return q
     mono=time.monotonic()
     cached=rest_quote_cache["quote"]
-    if cached and mono-rest_quote_cache["at"]<25:
+    if cached and mono-rest_quote_cache["at"]<55:
         return cached
     rq=market.quote(lambda: now)
     q={"price":rq["price"],"time":rq["time"],"source":"Twelve Data REST"}
@@ -73,14 +66,56 @@ def get_quote(now):
 
 def snapshot():
     now=datetime.now(timezone.utc)
-    q=get_quote(now)
-    full_bars=market.fetch(now)
-    payload={"ok":True,"symbol":"XAU/USD","price":q["price"],"quoteTime":q["time"],
-      "source":q["source"],"bars":get_bars(now),"serverTime":int(now.timestamp()),"execution":False}
+    payload={
+        "ok":True,
+        "symbol":"XAU/USD",
+        "price":None,
+        "quoteTime":None,
+        "source":None,
+        "bars":[],
+        "serverTime":int(now.timestamp()),
+        "execution":False,
+        "analysisAvailable":False,
+    }
+
+    try:
+        q=get_quote(now)
+        payload.update(price=q["price"],quoteTime=q["time"],source=q["source"])
+    except DataError as exc:
+        payload["quoteError"]=str(exc)[:100]
+
+    try:
+        full_bars=market.fetch(now)
+    except DataError as exc:
+        payload["marketData"]={
+            **market.status(),
+            "available":False,
+            "error":str(exc)[:100],
+        }
+        payload["ok"]=payload["price"] is not None
+        return payload
+
+    state=market.status()
+    payload["bars"]=serialize_bars(full_bars)
+    payload["marketData"]={**state,"available":True}
+
     try:
         payload.update(intelligence.snapshot(full_bars,now))
+        payload["analysisAvailable"]=True
+        if state.get("barsStale"):
+            payload["analysis"]["entryReady"]=False
+            payload["analysis"]["side"]="WAIT"
+            payload["gigi"]["entryReady"]=False
+            payload["gigi"]["side"]="WAIT"
+            payload["gigi"]["decision"]="WAIT_DATA"
+            payload["gigi"]["reason"]="market_data_stale"
+            payload["gigi"]["confidenceScore"]=min(
+                int(payload["gigi"].get("confidenceScore",0)), 35
+            )
     except Exception as exc:
         payload["intelligenceError"]=str(exc)[:100]
+
+    payload["ok"]=bool(payload["price"] is not None or payload["bars"])
     return payload
 
 class H(BaseHTTPRequestHandler):
@@ -100,8 +135,6 @@ class H(BaseHTTPRequestHandler):
             self._headers(404); self.wfile.write(b'{"ok":false,"error":"not_found"}'); return
         try:
             self._headers(); self.wfile.write(json.dumps(snapshot(),separators=(",",":")).encode())
-        except DataError as e:
-            self._headers(503); self.wfile.write(json.dumps({"ok":False,"error":str(e),"execution":False}).encode())
         except Exception:
             self._headers(503); self.wfile.write(b'{"ok":false,"error":"feed_unavailable","execution":false}')
     def log_message(self,fmt,*args): print("%s - %s"%(self.address_string(),fmt%args),flush=True)
