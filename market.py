@@ -95,7 +95,10 @@ class Market:
         self.session=session or requests.Session()
         self._bars_cache=None
         self._bars_cache_at=0.0
-        self._bars_cache_ttl=55.0
+        self._bars_cache_ttl=285.0
+        self._bars_backoff_until=0.0
+        self._bars_stale=False
+        self._bars_last_error=None
     def quote(self, clock):
         try:
             response = self.session.get('https://api.twelvedata.com/exchange_rate',
@@ -106,22 +109,60 @@ class Market:
         except (requests.RequestException, ValueError):
             raise DataError('market_quote_unavailable') from None
         return parse_quote(payload, clock())
+    def status(self):
+        return {
+            "barsStale": bool(self._bars_stale),
+            "lastError": self._bars_last_error,
+            "backoffActive": time.monotonic() < self._bars_backoff_until,
+        }
+
+    def _stale_cache_or_raise(self, now, error):
+        self._bars_last_error = error
+        if self._bars_cache is not None:
+            require_fresh(self._bars_cache, now, max_age_seconds=900)
+            self._bars_stale = True
+            return self._bars_cache
+        raise DataError(error)
+
     def fetch(self,now):
-        # The main loop runs every ~20s, but a 5m candle cannot change that fast.
-        # Reuse validated bars briefly so one process does not burn provider credits.
+        # Five-minute candles only need one refresh near each new closed bar.
         mono=time.monotonic()
         if self._bars_cache is not None and mono-self._bars_cache_at < self._bars_cache_ttl:
             require_fresh(self._bars_cache,now)
+            self._bars_stale=False
             return self._bars_cache
+
+        if mono < self._bars_backoff_until:
+            return self._stale_cache_or_raise(now, "market_rate_limited")
+
         try:
             response=self.session.get("https://api.twelvedata.com/time_series",params={"symbol":"XAU/USD","interval":"5min","outputsize":2400,"timezone":"UTC","order":"ASC","apikey":self.key,"format":"JSON"},timeout=(5,25))
-        except requests.RequestException: raise DataError("market_connection_failed") from None
-        if response.status_code != 200: raise DataError(f"market_http_{response.status_code}")
-        try: payload=response.json()
-        except ValueError: raise DataError("market_response_not_json") from None
+        except requests.RequestException:
+            return self._stale_cache_or_raise(now, "market_connection_failed")
+
+        if response.status_code != 200:
+            if response.status_code == 429:
+                self._bars_backoff_until = mono + 90.0
+                return self._stale_cache_or_raise(now, "market_http_429")
+            return self._stale_cache_or_raise(now, f"market_http_{response.status_code}")
+
+        try:
+            payload=response.json()
+        except ValueError:
+            return self._stale_cache_or_raise(now, "market_response_not_json")
+
         if isinstance(payload,dict) and payload.get("status")=="error":
-            code=payload.get("code"); raise DataError("market_quota_reached" if code==429 else "market_provider_error")
-        bars=closed_only(parse_bars(payload,now),now); require_fresh(bars,now)
+            code=payload.get("code")
+            if code == 429:
+                self._bars_backoff_until = mono + 90.0
+                return self._stale_cache_or_raise(now, "market_quota_reached")
+            return self._stale_cache_or_raise(now, "market_provider_error")
+
+        bars=closed_only(parse_bars(payload,now),now)
+        require_fresh(bars,now)
         self._bars_cache=bars
         self._bars_cache_at=mono
+        self._bars_backoff_until=0.0
+        self._bars_stale=False
+        self._bars_last_error=None
         return bars
