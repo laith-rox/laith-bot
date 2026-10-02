@@ -1,4 +1,5 @@
 import unittest
+import datetime as dt
 from unittest.mock import patch
 import bridge_signal_worker as worker
 
@@ -108,6 +109,7 @@ class PublishLimitTests(unittest.TestCase):
                             ALLOW_STALE_MT5_STATE=False), \
              patch.object(worker, "bridge_health", return_value=health), \
              patch.object(worker, "fetch_multitimeframe_values", return_value={"5m":[],"15m":[],"1h":[]}), \
+             patch.object(worker, "validate_market_feed_freshness", return_value={"5m":0,"15m":0,"1h":0}), \
              patch.object(worker, "normalize_rows", return_value=[]), \
              patch.object(worker, "analyze_structure", return_value={"side":"BUY"}), \
              patch.object(worker, "apply_main_structure", side_effect=lambda s,m:s), \
@@ -323,6 +325,72 @@ class LegacyCompatibilityTests(unittest.TestCase):
             ]:
                 with self.subTest(changes=changes):
                     self.assertEqual(worker.execution_block_reason({**self.health, **changes}), reason)
+
+
+
+class MarketFreshnessTests(unittest.TestCase):
+    def _feed(self, minutes, active_time, count=40):
+        rows=[]
+        start=active_time-dt.timedelta(minutes=minutes*(count-1))
+        for i in range(count):
+            t=start+dt.timedelta(minutes=minutes*i)
+            rows.append({"datetime":t.strftime("%Y-%m-%d %H:%M:%S"),
+                         "open":"4100.0","high":"4101.0","low":"4099.0","close":"4100.5"})
+        return rows
+
+    def test_fresh_multitimeframe_feed_is_accepted(self):
+        now=dt.datetime(2026,10,2,18,50,tzinfo=dt.timezone.utc)
+        feeds={
+            "5m":self._feed(5, now.replace(tzinfo=None)),
+            "15m":self._feed(15, now.replace(minute=45,tzinfo=None)),
+            "1h":self._feed(60, now.replace(minute=0,tzinfo=None)),
+        }
+        ages=worker.validate_market_feed_freshness(feeds, now.timestamp())
+        self.assertLessEqual(ages["5m"], 15*60)
+        self.assertLessEqual(ages["15m"], 40*60)
+        self.assertLessEqual(ages["1h"], 150*60)
+
+    def test_day_old_m5_feed_is_rejected(self):
+        now=dt.datetime(2026,10,2,18,50,tzinfo=dt.timezone.utc)
+        feeds={
+            "5m":self._feed(5, dt.datetime(2026,10,1,18,50)),
+            "15m":self._feed(15, now.replace(minute=45,tzinfo=None)),
+            "1h":self._feed(60, now.replace(minute=0,tzinfo=None)),
+        }
+        with self.assertRaisesRegex(RuntimeError, "stale_market_data:5m"):
+            worker.validate_market_feed_freshness(feeds, now.timestamp())
+
+
+class RelaxedOfficialContinuationTests(unittest.TestCase):
+    def test_aligned_five_of_seven_can_be_main_without_strict_breakout(self):
+        signal={"side":None,"reason":"structure_stop_exceeds_risk_cap",
+                "reference_close":4119.0,"buy_score":1,"sell_score":5,
+                "checks":{"SELL":[True,True,False,True,True,True,False]},
+                "mtf":{"h4_bias":"DOWN","m5_confirm_sell":True,
+                       "m15_last_open":4122.0,"m15_last_close":4119.0,
+                       "m15_prev_close":4121.0,"m15_last_high":4120.0,
+                       "m15_prev_high":4121.0,"m15_atr":4.0,
+                       "break_down":False}}
+        health={"client_state_fresh":True,"effective_risk_budget_usd":"3.00",
+                "strong_risk_budget_usd":"15.00","total_position_risk_usd":"0.00"}
+        out=worker.recover_m15_continuation(signal,health)
+        self.assertEqual(out["side"],"SELL")
+        self.assertEqual(out["mode"],"MAIN")
+        self.assertEqual(out["reason"],"m15_aligned_official_continuation")
+        self.assertLessEqual(out["risk_distance"],3.0)
+
+    def test_five_of_seven_without_h4_alignment_stays_blocked(self):
+        signal={"side":None,"reason":"structure_stop_exceeds_risk_cap",
+                "reference_close":4119.0,"buy_score":1,"sell_score":5,
+                "checks":{"SELL":[True,True,False,True,True,True,False]},
+                "mtf":{"h4_bias":"UP","m5_confirm_sell":True,
+                       "m15_last_open":4122.0,"m15_last_close":4119.0,
+                       "m15_prev_close":4121.0,"m15_last_high":4120.0,
+                       "m15_prev_high":4121.0,"m15_atr":4.0,
+                       "break_down":False}}
+        health={"client_state_fresh":True,"effective_risk_budget_usd":"3.00",
+                "strong_risk_budget_usd":"15.00","total_position_risk_usd":"0.00"}
+        self.assertIsNone(worker.recover_m15_continuation(signal,health)["side"])
 
 
 if __name__ == "__main__":
