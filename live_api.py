@@ -5,12 +5,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 import websocket
 from market import Market, DataError
-from gold_intelligence import GoldIntelligence
+from gigi_gold_brain import GigiGoldBrain
 
 KEY=os.environ.get("TWELVE_DATA_API_KEY","")
 PORT=int(os.environ.get("PORT","8080"))
 market=Market(KEY)
-intelligence=GoldIntelligence(KEY)
+intelligence=GigiGoldBrain(KEY)
 tick={"price":None,"time":0.0,"source":None}
 tick_lock=threading.Lock()
 bars_cache={"at":0.0,"bars":[]}
