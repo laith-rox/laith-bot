@@ -42,7 +42,7 @@ header{position:sticky;top:0;z-index:5;background:rgba(7,17,31,.92);backdrop-fil
 </main><main id="trades" class="section"><div class="card"><div class="row"><h2>الصفقات</h2><span class="pill green">0 مفتوحة</span></div><div class="empty">بعد ربط MT5 التجريبي ستظهر الصفقات المفتوحة والربح/الخسارة والتأمين هنا.</div></div><div class="card"><h2>حماية الربح</h2><div class="control row"><div><b>Break-even</b><div class="muted">تأمين الدخول عند تحقق الشرط</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div><div class="control row"><div><b>Trailing Stop</b><div class="muted">تحريك الوقف مع الربح</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div></div></main>
 <main id="bot" class="section">
 <div class="card"><div class="row"><div><h2>بوت ليث</h2><div class="muted">المفتاح الرئيسي لجميع أنظمة التداول</div></div><button class="toggle on persist" data-key="bot-master" onclick="tog(this)"><i></i></button></div><div class="alert" style="margin-top:10px">🎛️ كل نظام يمكن تشغيله أو إيقافه بشكل مستقل، واختياراتك تُحفظ على هذا الجهاز.</div></div>
-<div class="card" id="realAutoCard"><div class="row"><div><h2>🔐 REAL AUTO</h2><div class="muted">مسار الحساب الحقيقي مستقل عن DEMO</div></div><span class="pill red" id="realAutoStatus">OFF • LOCKED</span></div><div class="alert" style="margin-top:10px">الحساب الحقيقي غير مفعّل الآن. لن تُفتح أي صفقة حقيقية حتى يكتمل ربط خدمة REAL والـEA وتحديد حدود المخاطرة من السيرفر.</div><div class="control row"><div><b>التداول التلقائي الحقيقي</b><div class="muted">التفعيل سيكون من Backend آمن، وليس من إعداد محفوظ على الهاتف.</div></div><button class="toggle" disabled aria-disabled="true" title="REAL AUTO غير مفعّل بعد" style="opacity:.55;cursor:not-allowed"><i></i></button></div><div class="control row"><div><b>قفل الطوارئ الحقيقي</b><div class="muted">الحالة الآمنة الافتراضية تمنع إرسال أي أمر REAL</div></div><span class="pill green" id="realEmergencyStatus">ARMED 🔒</span></div></div>
+<div class="card" id="realAutoCard"><div class="row"><div><h2>🔐 REAL AUTO</h2><div class="muted">مسار الحساب الحقيقي مستقل عن DEMO</div></div><span class="pill red" id="realAutoStatus">OFF • LOCKED</span></div><div class="alert" style="margin-top:10px">الحساب الحقيقي غير مفعّل الآن. لن تُفتح أي صفقة حقيقية حتى يكتمل ربط خدمة REAL والـEA وتحديد حدود المخاطرة من السيرفر.</div><div class="control row"><div><b>التداول التلقائي الحقيقي</b><div class="muted">التفعيل سيكون من Backend آمن، وليس من إعداد محفوظ على الهاتف.</div></div><button class="toggle" disabled aria-disabled="true" title="REAL AUTO غير مفعّل بعد" style="opacity:.55;cursor:not-allowed"><i></i></button></div><div class="control row"><div><b>قفل الطوارئ الحقيقي</b><div class="muted">الحالة الآمنة الافتراضية تمنع إرسال أي أمر REAL</div></div><span class="pill green" id="realEmergencyStatus">ARMED 🔒</span></div><div class="control row"><div><b>REAL Bridge</b><div class="muted">بوابة التنفيذ المنفصلة</div></div><span class="pill red" id="realBridgeStatus">CHECKING</span></div><div class="control row"><div><b>REAL Signal</b><div class="muted">محرك الإشارات للحساب الحقيقي</div></div><span class="pill red" id="realSignalStatus">CHECKING</span></div></div>
 <div class="card"><h2>التحكم بالتداول</h2><div class="control row"><div><b>تشغيل الصفقات</b><div class="muted">عند الإيقاف: يمنع فتح صفقات جديدة وتبقى حماية الصفقات المفتوحة شغالة</div></div><button class="toggle on persist" data-key="new-trades-enabled" onclick="tog(this)"><i></i></button></div><div class="control row"><div><b>إيقاف طارئ شامل</b><div class="muted">حاجز مستقل يمنع أي دخول جديد</div></div><button class="toggle persist" data-key="emergency-kill" onclick="tog(this)"><i></i></button></div></div><div class="card"><h2>أنظمة التداول</h2>
 <div class="control row"><div><b>🚨 نظام الطوارئ</b><div class="muted">رصد انعكاس / تصحيح / خطر على الصفقة</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div>
 <div class="control row"><div><b>🎯 نظام القناص</b><div class="muted">اقتناص الفرص السريعة عند تحقق شروطه</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div>
@@ -76,6 +76,8 @@ header{position:sticky;top:0;z-index:5;background:rgba(7,17,31,.92);backdrop-fil
 <nav><button class="active" onclick="showTab('home',this)"><span>⌂</span>الرئيسية</button><button onclick="showTab('analysis',this)"><span>📊</span>التحليل</button><button onclick="showTab('ai',this)"><span>🧠</span>AI</button><button onclick="showTab('trades',this)"><span>↗</span>الصفقات</button><button onclick="showTab('bot',this)"><span>🤖</span>البوت</button><button onclick="showTab('copier',this)"><span>⧉</span>الناسخ</button><button onclick="showTab('more',this)"><span>•••</span>المزيد</button></nav>
 <script>
 var REAL_CONTROL_STATUS_URL='https://laith-real-control-production.up.railway.app/status';
+var REAL_BRIDGE_STATUS_URL='https://laith-real-bridge-production.up.railway.app/status';
+var REAL_SIGNAL_STATUS_URL='https://laith-real-signal-production.up.railway.app/status';
 var chartOffset=0,chartZoom=1,currentTF='M15',liveBars=[],livePrice=null,liveQuoteTime=0,serverSignal=null,serverMacro=null,serverNews=null;
 function tfMinutes(t){return {M5:5,M15:15,H1:60,H4:240,D1:1440}[t]||15}
 function aggregateBars(src,mins){if(mins===5)return src.slice();var buckets={};src.forEach(function(q){var k=Math.floor(q.t/(mins*60))*mins*60,b=buckets[k];if(!b)buckets[k]={t:k,o:q.o,h:q.h,l:q.l,c:q.c};else{b.h=Math.max(b.h,q.h);b.l=Math.min(b.l,q.l);b.c=q.c}});return Object.keys(buckets).sort(function(a,b){return Number(a)-Number(b)}).map(function(k){return buckets[k]})}
@@ -145,7 +147,32 @@ async function loadRealControlStatus(){
   if(em){em.textContent='UNKNOWN';em.className='pill red'}
  }
 }
-loadControls();clock();initChart();loadRealControlStatus();window.addEventListener('resize',drawGold);setInterval(clock,30000);setInterval(loadRealControlStatus,10000);
+async function loadRealExecutionStatus(){
+ var bridge=document.getElementById('realBridgeStatus'),signal=document.getElementById('realSignalStatus');
+ try{
+  var rb=await fetch(REAL_BRIDGE_STATUS_URL,{cache:'no-store'});
+  if(!rb.ok)throw new Error('bridge '+rb.status);
+  var b=await rb.json();
+  if(bridge){
+   bridge.textContent=b.ready?'READY':'OFF • LOCKED';
+   bridge.className='pill '+(b.ready?'green':'red');
+  }
+ }catch(e){
+  if(bridge){bridge.textContent='STATUS OFFLINE';bridge.className='pill red'}
+ }
+ try{
+  var rs=await fetch(REAL_SIGNAL_STATUS_URL,{cache:'no-store'});
+  if(!rs.ok)throw new Error('signal '+rs.status);
+  var s=await rs.json();
+  if(signal){
+   signal.textContent=s.enabled&&s.live_handoff_enabled?'READY':'OFF • DISABLED';
+   signal.className='pill '+(s.enabled&&s.live_handoff_enabled?'green':'red');
+  }
+ }catch(e){
+  if(signal){signal.textContent='STATUS OFFLINE';signal.className='pill red'}
+ }
+}
+loadControls();clock();initChart();loadRealControlStatus();loadRealExecutionStatus();window.addEventListener('resize',drawGold);setInterval(clock,30000);setInterval(loadRealControlStatus,10000);setInterval(loadRealExecutionStatus,10000);
 </script>
 <!-- laith-app:auto-deploy -->
 </body></html>
