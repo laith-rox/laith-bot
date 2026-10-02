@@ -61,10 +61,17 @@ def reversal_snapshot(decision, trade):
             f"شروط الاتجاه المعاكس أصبحت أقوى: {opposite_score}/7 مقابل {own_score}/7"
         )
 
+    # A reversal alert must be supported by the opposite side actually leading.
+    # Other adverse context (official bias, failed break, correction) remains useful
+    # context, but must not label a stronger original trade as a reversal.
+    if opposite_score <= own_score:
+        return None
     if not reasons:
         return None
 
-    high = official_opposite or strong_adverse_correction or len(reasons) >= 2
+    high = opposite_score >= own_score + 2 and (
+        official_opposite or strong_adverse_correction or opposite_dominance or len(reasons) >= 2
+    )
     severity = "مرتفعة" if high else "متوسطة"
     return {
         "trade_id": trade.get("id"),
@@ -115,11 +122,23 @@ def emergency_message(snapshot):
     return "\n".join(lines)
 
 def _fingerprint(snapshot):
+    # Deduplicate the same reversal event even when raw 7-check scores fluctuate.
+    # Re-alert only when severity or the underlying reason categories materially change.
+    reason_categories = []
+    for reason in snapshot.get("reasons") or []:
+        if reason.startswith("شروط الاتجاه المعاكس أصبحت أقوى"):
+            reason_categories.append("opposite_dominance")
+        elif reason == "القرار الرسمي الحالي أصبح بالاتجاه المعاكس":
+            reason_categories.append("official_opposite")
+        elif reason == "ظهر كسر فاشل ضد استمرار الصفقة":
+            reason_categories.append("failed_break")
+        elif reason == "تصحيح قوي مُفعّل عكس اتجاه الصفقة":
+            reason_categories.append("strong_adverse_correction")
+        else:
+            reason_categories.append(str(reason))
     return json.dumps({
         "severity": snapshot.get("severity"),
-        "reasons": snapshot.get("reasons") or [],
-        "own": snapshot.get("own_score"),
-        "opp": snapshot.get("opposite_score"),
+        "reasons": sorted(set(reason_categories)),
     }, ensure_ascii=False, sort_keys=True)
 
 
