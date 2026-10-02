@@ -44,11 +44,25 @@ def _authorized(handler) -> bool:
     return hmac.compare_digest(supplied, OWNER_TOKEN)
 
 
+ALLOWED_ORIGIN = os.getenv(
+    "REAL_CONTROL_ALLOWED_ORIGIN",
+    "https://laith-app-production.up.railway.app",
+).strip()
+
+
+def _cors(handler):
+    origin = handler.headers.get("Origin", "")
+    if ALLOWED_ORIGIN and origin == ALLOWED_ORIGIN:
+        handler.send_header("Access-Control-Allow-Origin", ALLOWED_ORIGIN)
+        handler.send_header("Vary", "Origin")
+
+
 def _json(handler, status, payload):
     body = json.dumps(payload, separators=(",", ":")).encode()
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Cache-Control", "no-store")
+    _cors(handler)
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
@@ -59,6 +73,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         return
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        _cors(self)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Owner-Token")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.end_headers()
 
     def do_GET(self):
         path = urlparse(self.path).path
