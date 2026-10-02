@@ -506,6 +506,103 @@ class GigiGoldBrain(GoldIntelligence):
             "tp3": round(tp3, 2) if tp3 is not None else None,
         }
 
+    @staticmethod
+    def _decision_score(analysis, macro_alignment, news):
+        """Decision confidence score, not a statistical win probability."""
+        passed = analysis.get("conditions", {}).get("passed", 0)
+        score = passed / 7.0 * 70.0
+
+        story = analysis.get("storyAlignment")
+        if story == "SUPPORTS":
+            score += 10
+        elif story == "OPPOSES":
+            score -= 15
+
+        macro = macro_alignment.get("status")
+        if macro == "SUPPORTS":
+            score += 10
+        elif macro == "OPPOSES":
+            score -= 15
+
+        regime = analysis.get("marketRegime", {})
+        if regime.get("type") == "TREND":
+            expected = "UP" if analysis.get("bias") == "BUY" else "DOWN"
+            score += 5 if regime.get("direction") == expected else -5
+
+        if news.get("blackout"):
+            score = min(score, 40)
+
+        return max(0, min(100, int(round(score))))
+
+    @staticmethod
+    def _scenario(analysis, decision):
+        bias = analysis.get("bias", "WAIT")
+        daily = analysis.get("dailyStory", {})
+        liquidity = analysis.get("liquidityMap", {})
+        above = liquidity.get("nearestAbove")
+        below = liquidity.get("nearestBelow")
+
+        if decision == "ENTER":
+            primary = "BUY_CONTINUATION" if bias == "BUY" else "SELL_CONTINUATION"
+        elif decision == "WAIT_NEWS":
+            primary = "WAIT_FOR_NEWS_REACTION"
+        elif decision == "WAIT_MACRO":
+            primary = "WAIT_FOR_MACRO_ALIGNMENT"
+        elif decision == "WAIT_STORY":
+            primary = "WAIT_FOR_PRICE_ACTION_CONFIRMATION"
+        else:
+            primary = "WAIT_FOR_CONFIRMATION"
+
+        if daily.get("event") == "HIGH_SWEEP_REJECTION":
+            alternative = "SELL_REVERSAL"
+        elif daily.get("event") == "LOW_SWEEP_REJECTION":
+            alternative = "BUY_REVERSAL"
+        elif bias == "BUY":
+            alternative = "SELL_IF_INVALIDATED"
+        elif bias == "SELL":
+            alternative = "BUY_IF_INVALIDATED"
+        else:
+            alternative = "RANGE_BREAKOUT"
+
+        return {
+            "primary": primary,
+            "alternative": alternative,
+            "nextLiquidityAbove": above,
+            "nextLiquidityBelow": below,
+            "invalidation": analysis.get("invalidation"),
+        }
+
+    @staticmethod
+    def _arabic_narrative(analysis, macro_alignment, news, decision, score):
+        bias = analysis.get("bias", "WAIT")
+        side_ar = {"BUY": "شراء", "SELL": "بيع", "WAIT": "انتظار"}.get(bias, "انتظار")
+        h4 = analysis.get("trendH4")
+        h1 = analysis.get("trendH1")
+        m15 = analysis.get("trendM15")
+        regime = analysis.get("marketRegime", {}).get("type", "UNKNOWN")
+        daily = analysis.get("dailyStory", {})
+        candle = analysis.get("candleStory", {})
+        event = daily.get("event", "غير متاح")
+        pattern = candle.get("lastPattern", "غير متاح")
+        passed = analysis.get("conditions", {}).get("passed", 0)
+        macro = macro_alignment.get("status", "NEUTRAL")
+        news_risk = "مرتفع" if news.get("blackout") else "طبيعي"
+
+        reason_map = {
+            "ENTER": "الشروط الفنية وقصة السعر متوافقة للدخول",
+            "WAIT_NEWS": "خبر عالي التأثير قريب؛ الأفضل انتظار رد فعل السعر",
+            "WAIT_MACRO": "العوامل الخارجية تعارض الدخول الفني حاليًا",
+            "WAIT_STORY": "سلوك الشموع/اليوم يعارض الاتجاه المقترح",
+            "WAIT": "التأكيد غير كافٍ حتى الآن",
+        }
+        return (
+            f"الميل الحالي {side_ar}. H4={h4}، H1={h1}، M15={m15}. "
+            f"حالة السوق {regime}. آخر نمط شموع {pattern}، وسياق اليوم {event}. "
+            f"تحقق {passed}/7 من شروط جيجي؛ الماكرو {macro} وخطر الأخبار {news_risk}. "
+            f"{reason_map.get(decision, 'بانتظار تأكيد إضافي')}. "
+            f"درجة الثقة {score}/100 وهي درجة توافق وليست نسبة ربح مضمونة."
+        )
+
     def snapshot(self, gold_bars, now):
         analysis = self.technical_brain(gold_bars, now)
         macro = super().macro(gold_bars)
@@ -524,12 +621,22 @@ class GigiGoldBrain(GoldIntelligence):
             decision = "WAIT_STORY"
             reason = "candle_and_day_story_opposes_entry"
 
+        score = self._decision_score(analysis, alignment, news)
+        scenario = self._scenario(analysis, decision)
+        narrative = self._arabic_narrative(
+            analysis, alignment, news, decision, score
+        )
+
         gigi = {
             **analysis,
             "decision": decision,
             "macroAlignment": alignment,
             "newsRisk": "HIGH" if news.get("blackout") else "NORMAL",
             "reason": reason,
+            "confidenceScore": score,
+            "confidenceMeaning": "alignment_score_not_win_probability",
+            "scenario": scenario,
+            "narrativeAr": narrative,
         }
 
         return {
