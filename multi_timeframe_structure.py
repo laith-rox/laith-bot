@@ -44,12 +44,9 @@ def aggregate_h4(h1_rows):
     return [{k:v for k,v in b.items() if k!="n"} for _,b in sorted(buckets.items()) if b["n"] == 4]
 
 
-def analyze_structure(m5, m15, h1):
-    if len(m5) < 30 or len(m15) < 35 or len(h1) < 90:
+def analyze_structure(m5, m15, h4):
+    if len(m5) < 30 or len(m15) < 35 or len(h4) < 20:
         return {"side": None, "reason": "mtf_not_enough_rows"}
-    h4 = aggregate_h4(h1)
-    if len(h4) < 20:
-        return {"side": None, "reason": "h4_not_enough_rows"}
 
     h4c = [r["close"] for r in h4]
     e20, e50 = _ema(h4c,20), _ema(h4c,50)
