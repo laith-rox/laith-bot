@@ -17,7 +17,7 @@ from transport import Telegram, dispatch
 from timing import DecisionClock, decision_metadata
 from safety_monitor import start_safety_worker
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 UTC = timezone.utc
 NEW_YORK = ZoneInfo("America/New_York")
 LOG = logging.getLogger("laith")
@@ -215,8 +215,8 @@ def run(args):
     safety_stop=start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
     try:
         LOG.info("starting version=%s",VERSION)
-        store.enqueue('release:3.0.0:official-4h-us-hourly','release',
-                      '✅ <b>بوت ليث v3.0 — رسمي + توصيات نيويورك</b>\n\n'
+        store.enqueue('release:3.0.1:official-4h-us-hourly','release',
+                      '✅ <b>بوت ليث v3.0.1 — رسمي + توصيات نيويورك</b>\n\n'
                       'صفقة رسمية واحدة كحد أقصى في كل دورة 4 ساعات، عند تحقق شروط الدخول وبيانات سوق حديثة.\n'
                       'لا رسائل Quick/fast ولا تحديثات دورية كل 5 دقائق.\n'
                       'بعد افتتاح نيويورك 09:30 وحتى 16:00 يرسل توصية سوق كل ساعة (BUY/SELL/WAIT).\n'
