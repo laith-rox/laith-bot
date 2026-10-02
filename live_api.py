@@ -5,10 +5,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 import websocket
 from market import Market, DataError
+from gold_intelligence import GoldIntelligence
 
 KEY=os.environ.get("TWELVE_DATA_API_KEY","")
 PORT=int(os.environ.get("PORT","8080"))
 market=Market(KEY)
+intelligence=GoldIntelligence(KEY)
 tick={"price":None,"time":0.0,"source":None}
 tick_lock=threading.Lock()
 bars_cache={"at":0.0,"bars":[]}
@@ -72,8 +74,14 @@ def get_quote(now):
 def snapshot():
     now=datetime.now(timezone.utc)
     q=get_quote(now)
-    return {"ok":True,"symbol":"XAU/USD","price":q["price"],"quoteTime":q["time"],
+    full_bars=market.fetch(now)
+    payload={"ok":True,"symbol":"XAU/USD","price":q["price"],"quoteTime":q["time"],
       "source":q["source"],"bars":get_bars(now),"serverTime":int(now.timestamp()),"execution":False}
+    try:
+        payload.update(intelligence.snapshot(full_bars,now))
+    except Exception as exc:
+        payload["intelligenceError"]=str(exc)[:100]
+    return payload
 
 class H(BaseHTTPRequestHandler):
     def _headers(self,status=200):
