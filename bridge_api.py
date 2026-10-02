@@ -137,6 +137,39 @@ def _poll_age(now: float | None = None) -> float | None:
     return max(0.0, now - _client_last_poll)
 
 
+def _market_countertrend(side: str) -> bool:
+    """Block a DEMO entry only when both M5 and M15 show a clear opposite move."""
+    market = globals().get("_market_state") or {}
+    try:
+        age = time.time() - float(market.get("received_at", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    if age > 20:
+        return False
+
+    def direction(name: str) -> int:
+        rows = [r for r in (market.get(name) or []) if isinstance(r, dict) and r.get("datetime")]
+        rows = sorted(rows, key=lambda r: str(r.get("datetime", "")).replace(".", "-"))
+        if len(rows) < 4:
+            return 0
+        rows = rows[-4:]
+        try:
+            closes = [float(r["close"]) for r in rows]
+        except (KeyError, TypeError, ValueError):
+            return 0
+        ups = sum(closes[i] > closes[i - 1] for i in range(1, len(closes)))
+        downs = sum(closes[i] < closes[i - 1] for i in range(1, len(closes)))
+        if closes[-1] > closes[0] and ups >= 2:
+            return 1
+        if closes[-1] < closes[0] and downs >= 2:
+            return -1
+        return 0
+
+    m5 = direction("m5")
+    m15 = direction("m15")
+    return (side == "SELL" and m5 == 1 and m15 == 1) or (side == "BUY" and m5 == -1 and m15 == -1)
+
+
 def _validate_publish(data: dict) -> tuple[bool, str]:
     if not _runtime_enabled:
         return False, "kill_switch"
@@ -166,6 +199,8 @@ def _validate_publish(data: dict) -> tuple[bool, str]:
         return False, "volume_must_be_0_01"
     if sl <= 0 or tp <= 0:
         return False, "sl_tp_required"
+    if _market_countertrend(side):
+        return False, "countertrend_market_block"
     # A strong-risk command carries its verified seven-condition count in the
     # signed key. Never let an unverified S7 suffix raise the MT5 loss cap.
     strength_match = re.search(r":S([567])$", key)
