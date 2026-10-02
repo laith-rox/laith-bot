@@ -98,8 +98,15 @@ def monitor(store,bars,now):
         key='safety:'+trade['id']
         event,state=evaluate_warning(trade,bars,now,store.get(key))
         store._set(key,state)
-        store._set('safety_status',{'ok':True,'checked':now.timestamp(),
-                                  'source_time':bars[-1].end.timestamp()})
+        previous_status=store.get('safety_status',{})
+        status={'ok':True,'checked':now.timestamp(),
+                'source_time':bars[-1].end.timestamp(),
+                'signal_id':trade['id'],'failures':0}
+        # Keep the last outage alert across successful checks so a flapping
+        # provider cannot spam Telegram every few minutes.
+        if previous_status.get('signal_id')==trade['id'] and previous_status.get('last_unavailable_alert'):
+            status['last_unavailable_alert']=previous_status['last_unavailable_alert']
+        store._set('safety_status',status)
         if event:
             event_id=f"rapid:{trade['id']}:{event['episode']}:{event['kind']}"
             store._enqueue(event_id,'emergency',warning_message(trade,event),now.timestamp(),
@@ -123,17 +130,34 @@ def run(path,key,token,chat_id,stop):
                         monitor(store,bars,datetime.now(UTC))
                         LOG.info('safety_checked source=%s',bars[-1].end.isoformat())
                     except DataError as exc:
+                        now_ts=time.time()
+                        reason=str(exc)
                         previous=store.get('safety_status',{})
-                        store.set('safety_status',{'ok':False,'checked':time.time(),'reason':str(exc),
-                                                  'signal_id':trade['id']})
-                        if previous.get('ok',True) or previous.get('signal_id')!=trade['id']:
-                            event_id='rapid:'+trade['id']+':unavailable:'+str(int(time.time()))
+                        same_trade=previous.get('signal_id')==trade['id']
+                        consecutive=(previous.get('failures',0)+1
+                                     if same_trade and previous.get('ok') is False else 1)
+                        last_alert=previous.get('last_unavailable_alert',0) if same_trade else 0
+                        status={'ok':False,'checked':now_ts,'reason':reason,
+                                'signal_id':trade['id'],'failures':consecutive}
+                        if last_alert:
+                            status['last_unavailable_alert']=last_alert
+
+                        # Twelve Data can briefly lag a closed 1m candle around the
+                        # minute boundary. Do not turn a single stale read into an
+                        # emergency. Persistent stale data needs 3 consecutive misses.
+                        persistent = consecutive >= (3 if reason=='market_closed_candles_stale' else 1)
+                        cooldown_ok = not last_alert or now_ts-last_alert >= 3600
+                        if persistent and cooldown_ok:
+                            event_id='rapid:'+trade['id']+':unavailable:'+str(int(now_ts//3600))
                             store.enqueue(event_id,'emergency',
                                 '⚠️ تعذّر تحديث مراقبة الدقيقة\nالمرجع: <code>'+escape(trade['id'])+
                                 '</code>\nالبيانات متأخرة أو غير متاحة؛ لا تعتمد على الطوارئ وحدها لتنفيذ وقفك.',
-                                time.time(),signal_id=trade['id'],expires=time.time()+180)
-                        if str(exc)=='minute_quota_reached': next_fetch=time.time()+900
-                        LOG.warning('safety_unavailable reason=%s',str(exc))
+                                now_ts,signal_id=trade['id'],expires=now_ts+180)
+                            status['last_unavailable_alert']=now_ts
+                        store.set('safety_status',status)
+                        if reason=='minute_quota_reached': next_fetch=now_ts+900
+                        LOG.warning('safety_unavailable reason=%s consecutive=%s alert=%s',
+                                    reason,consecutive,persistent and cooldown_ok)
                 # Flush alerts independently, including five-minute structural warnings.
                 dispatch(store,telegram,only_kind='emergency',limit=3)
             except Exception as exc:
