@@ -42,7 +42,7 @@ header{position:sticky;top:0;z-index:5;background:rgba(7,17,31,.92);backdrop-fil
 </main><main id="trades" class="section"><div class="card"><div class="row"><h2>الصفقات</h2><span class="pill green">0 مفتوحة</span></div><div class="empty">بعد ربط MT5 التجريبي ستظهر الصفقات المفتوحة والربح/الخسارة والتأمين هنا.</div></div><div class="card"><h2>حماية الربح</h2><div class="control row"><div><b>Break-even</b><div class="muted">تأمين الدخول عند تحقق الشرط</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div><div class="control row"><div><b>Trailing Stop</b><div class="muted">تحريك الوقف مع الربح</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div></div></main>
 <main id="bot" class="section">
 <div class="card"><div class="row"><div><h2>بوت ليث</h2><div class="muted">المفتاح الرئيسي لجميع أنظمة التداول</div></div><button class="toggle on persist" data-key="bot-master" onclick="tog(this)"><i></i></button></div><div class="alert" style="margin-top:10px">🎛️ كل نظام يمكن تشغيله أو إيقافه بشكل مستقل، واختياراتك تُحفظ على هذا الجهاز.</div></div>
-<div class="card" id="realAutoCard"><div class="row"><div><h2>🔐 REAL AUTO</h2><div class="muted">مسار الحساب الحقيقي مستقل عن DEMO</div></div><span class="pill red" id="realAutoStatus">OFF • LOCKED</span></div><div class="alert" style="margin-top:10px">الحساب الحقيقي غير مفعّل الآن. لن تُفتح أي صفقة حقيقية حتى يكتمل ربط خدمة REAL والـEA وتحديد حدود المخاطرة من السيرفر.</div><div class="control row"><div><b>التداول التلقائي الحقيقي</b><div class="muted">التفعيل سيكون من Backend آمن، وليس من إعداد محفوظ على الهاتف.</div></div><button class="toggle" disabled aria-disabled="true" title="REAL AUTO غير مفعّل بعد" style="opacity:.55;cursor:not-allowed"><i></i></button></div><div class="control row"><div><b>قفل الطوارئ الحقيقي</b><div class="muted">الحالة الآمنة الافتراضية تمنع إرسال أي أمر REAL</div></div><span class="pill green" id="realEmergencyStatus">ARMED 🔒</span></div><div class="control row"><div><b>REAL Bridge</b><div class="muted">بوابة التنفيذ المنفصلة</div></div><span class="pill red" id="realBridgeStatus">CHECKING</span></div><div class="control row"><div><b>REAL Signal</b><div class="muted">محرك الإشارات للحساب الحقيقي</div></div><span class="pill red" id="realSignalStatus">CHECKING</span></div></div>
+<div class="card" id="realAutoCard"><div class="row"><div><h2>🔐 REAL AUTO</h2><div class="muted">مسار الحساب الحقيقي مستقل عن DEMO</div></div><span class="pill red" id="realAutoStatus">OFF • LOCKED</span></div><div class="alert" style="margin-top:10px">الحساب الحقيقي غير مفعّل الآن. لن تُفتح أي صفقة حقيقية حتى يكتمل ربط خدمة REAL والـEA وتحديد حدود المخاطرة من السيرفر.</div><div class="control row"><div><b>التداول التلقائي الحقيقي</b><div class="muted">التفعيل سيكون من Backend آمن، وليس من إعداد محفوظ على الهاتف.</div></div><button class="toggle" disabled aria-disabled="true" title="REAL AUTO غير مفعّل بعد" style="opacity:.55;cursor:not-allowed"><i></i></button></div><div class="control row"><div><b>قفل الطوارئ الحقيقي</b><div class="muted">الحالة الآمنة الافتراضية تمنع إرسال أي أمر REAL</div></div><span class="pill green" id="realEmergencyStatus">ARMED 🔒</span></div><div class="control row"><div><b>REAL Bridge</b><div class="muted">بوابة التنفيذ المنفصلة</div></div><span class="pill red" id="realBridgeStatus">CHECKING</span></div><div class="control row"><div><b>REAL Signal</b><div class="muted">محرك الإشارات للحساب الحقيقي</div></div><span class="pill red" id="realSignalStatus">CHECKING</span></div><div class="control row"><div><b>Analysis Preview</b><div class="muted">تحليل فقط بدون إرسال أوامر</div></div><span class="pill red" id="realPreviewStatus">OFF</span></div><div class="control row"><div><b>MT5 REAL</b><div class="muted">اتصال الحساب الحقيقي بالـBridge</div></div><span class="pill red" id="realMt5Status">NOT CONNECTED</span></div></div>
 <div class="card"><h2>التحكم بالتداول</h2><div class="control row"><div><b>تشغيل الصفقات</b><div class="muted">عند الإيقاف: يمنع فتح صفقات جديدة وتبقى حماية الصفقات المفتوحة شغالة</div></div><button class="toggle on persist" data-key="new-trades-enabled" onclick="tog(this)"><i></i></button></div><div class="control row"><div><b>إيقاف طارئ شامل</b><div class="muted">حاجز مستقل يمنع أي دخول جديد</div></div><button class="toggle persist" data-key="emergency-kill" onclick="tog(this)"><i></i></button></div></div><div class="card"><h2>أنظمة التداول</h2>
 <div class="control row"><div><b>🚨 نظام الطوارئ</b><div class="muted">رصد انعكاس / تصحيح / خطر على الصفقة</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div>
 <div class="control row"><div><b>🎯 نظام القناص</b><div class="muted">اقتناص الفرص السريعة عند تحقق شروطه</div></div><button class="toggle on persist" onclick="tog(this)"><i></i></button></div>
@@ -149,6 +149,7 @@ async function loadRealControlStatus(){
 }
 async function loadRealExecutionStatus(){
  var bridge=document.getElementById('realBridgeStatus'),signal=document.getElementById('realSignalStatus');
+ var preview=document.getElementById('realPreviewStatus'),mt5=document.getElementById('realMt5Status');
  try{
   var rb=await fetch(REAL_BRIDGE_STATUS_URL,{cache:'no-store'});
   if(!rb.ok)throw new Error('bridge '+rb.status);
@@ -157,8 +158,13 @@ async function loadRealExecutionStatus(){
    bridge.textContent=b.ready?'READY':'OFF • LOCKED';
    bridge.className='pill '+(b.ready?'green':'red');
   }
+  if(mt5){
+   mt5.textContent=b.client_state_fresh?'CONNECTED':'NOT CONNECTED';
+   mt5.className='pill '+(b.client_state_fresh?'green':'red');
+  }
  }catch(e){
   if(bridge){bridge.textContent='STATUS OFFLINE';bridge.className='pill red'}
+  if(mt5){mt5.textContent='UNKNOWN';mt5.className='pill red'}
  }
  try{
   var rs=await fetch(REAL_SIGNAL_STATUS_URL,{cache:'no-store'});
@@ -168,8 +174,13 @@ async function loadRealExecutionStatus(){
    signal.textContent=s.enabled&&s.live_handoff_enabled?'READY':'OFF • DISABLED';
    signal.className='pill '+(s.enabled&&s.live_handoff_enabled?'green':'red');
   }
+  if(preview){
+   preview.textContent=s.analysis_preview_enabled?'ON • ANALYSIS':'OFF';
+   preview.className='pill '+(s.analysis_preview_enabled?'blue':'red');
+  }
  }catch(e){
   if(signal){signal.textContent='STATUS OFFLINE';signal.className='pill red'}
+  if(preview){preview.textContent='UNKNOWN';preview.className='pill red'}
  }
 }
 loadControls();clock();initChart();loadRealControlStatus();loadRealExecutionStatus();window.addEventListener('resize',drawGold);setInterval(clock,30000);setInterval(loadRealControlStatus,10000);setInterval(loadRealExecutionStatus,10000);
