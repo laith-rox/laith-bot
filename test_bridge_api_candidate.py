@@ -6,7 +6,10 @@ os.environ.setdefault("BRIDGE_CLIENT_TOKEN","x")
 os.environ.setdefault("BRIDGE_PUBLISH_TOKEN","x")
 os.environ.setdefault("BRIDGE_HMAC_SECRET","x")
 os.environ.setdefault("BRIDGE_ENABLED","true")
-import bridge_api_current as api
+try:
+    import bridge_api as api
+except ModuleNotFoundError:
+    import bridge_api_current as api
 
 
 class SniperApiPolicyTests(unittest.TestCase):
