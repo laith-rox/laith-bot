@@ -1,0 +1,6 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY bridge_real_api.py test_bridge_real_api.py ./
+RUN python -m unittest -v test_bridge_real_api.py
+EXPOSE 8080
+CMD ["python","-u","bridge_real_api.py"]
