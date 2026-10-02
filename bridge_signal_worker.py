@@ -110,6 +110,29 @@ def normalize_rows(values):
     return rows[:-1]
 
 
+MAX_CLOSED_BAR_AGE_SECONDS = {"5m": 15 * 60, "15m": 40 * 60, "1h": 150 * 60}
+
+
+def validate_market_feed_freshness(feeds, now_ts=None):
+    """Reject stale broker candles before any signal logic can run."""
+    now_ts = time.time() if now_ts is None else float(now_ts)
+    ages = {}
+    for timeframe, max_age in MAX_CLOSED_BAR_AGE_SECONDS.items():
+        values = feeds.get(timeframe) if isinstance(feeds, dict) else None
+        rows = normalize_rows(values or [])
+        latest = rows[-1]["datetime"]
+        parsed = datetime.fromisoformat(str(latest).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        age = now_ts - parsed.timestamp()
+        if age < -120:
+            raise RuntimeError(f"market_clock_ahead:{timeframe}:age={age:.0f}s:last={latest}")
+        if age > max_age:
+            raise RuntimeError(f"stale_market_data:{timeframe}:age={age:.0f}s:last={latest}")
+        ages[timeframe] = age
+    return ages
+
+
 def compute_signal(values):
     rows = normalize_rows(values)
     tech = analyze_technical(rows)
@@ -636,10 +659,22 @@ def recover_m15_continuation(signal, health):
     if raw_risk<=0 or risk>min(15.0,budget-used):
         out["reason"]="m15_stop_exceeds_budget"
         return out
-    mode="MAIN" if mtf.get("break_up" if side=="BUY" else "break_down") else "SNIPER"
+    opposite=int(out.get("sell_score" if side=="BUY" else "buy_score") or 0)
+    checks=(out.get("checks") or {}).get(side) or []
+    primary=sum(bool(checks[i]) for i in (0,3,4)) if len(checks)>4 else 0
+    aligned=mtf.get("h4_bias")==("UP" if side=="BUY" else "DOWN")
+    m5=mtf.get("m5_confirm_buy" if side=="BUY" else "m5_confirm_sell")
+    a=float(mtf.get("m15_last_open") or 0)
+    c=float(mtf.get("m15_last_close") or 0)
+    previous=float(mtf.get("m15_prev_close") or 0)
+    m15=(c>a and c>previous) if side=="BUY" else (c<a and c<previous)
+    breakout=bool(mtf.get("break_up" if side=="BUY" else "break_down"))
+    official=(score>=5 and score-opposite>=3 and primary>=2 and aligned and m5 and m15)
+    mode="MAIN" if (breakout or official) else "SNIPER"
+    reason="m15_aligned_official_continuation" if (official and not breakout) else "m15_aligned_continuation"
     out.update(side=side,mode=mode,confidence=7 if score>=6 else 6,
                risk_distance=risk,target_r=1.5 if mode=="MAIN" else 1.15,
-               reason="m15_aligned_continuation")
+               reason=reason)
     if mode=="MAIN":
         out["analysis"]={"h4_bias":mtf.get("h4_bias"),
                          "m15_structure":"aligned_continuation",
@@ -832,6 +867,14 @@ def run_forever():
                 continue
 
             feeds = fetch_multitimeframe_values()
+            try:
+                validate_market_feed_freshness(feeds)
+            except RuntimeError as exc:
+                if str(exc).startswith(("stale_market_data:", "market_clock_ahead:")):
+                    print(f"bridge_signal_skip reason={exc}", flush=True)
+                    time.sleep(POLL_SECONDS)
+                    continue
+                raise
             signal = compute_signal(feeds["5m"])
             mtf = analyze_structure(normalize_rows(feeds["5m"]), normalize_rows(feeds["15m"]), normalize_rows(feeds["1h"]))
             signal = apply_main_structure(signal, mtf)
