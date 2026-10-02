@@ -216,6 +216,116 @@ class GigiGoldBrain(GoldIntelligence):
             "distanceFromTodayOpen": round(price - td["open"], 2),
         }
 
+    @classmethod
+    def _weekly_story(cls, bars, now):
+        """Current week versus the most recent completed trading week."""
+        groups = {}
+        for bar in bars:
+            d = cls._trading_day(bar.start)
+            iso = d.isocalendar()
+            key = (iso.year, iso.week)
+            groups.setdefault(key, []).append(bar)
+        for group in groups.values():
+            group.sort(key=lambda b: b.start)
+
+        current_day = cls._trading_day(now)
+        iso = current_day.isocalendar()
+        current_key = (iso.year, iso.week)
+        current = groups.get(current_key, [])
+        prior_keys = sorted(k for k in groups if k < current_key)
+        previous = groups[prior_keys[-1]] if prior_keys else []
+        cw, pw = cls._ohlc(current), cls._ohlc(previous)
+        if not cw or not pw:
+            return {"available": False}
+
+        price = current[-1].close
+        if price > pw["high"]:
+            event = "ABOVE_PREVIOUS_WEEK_HIGH"
+            hint = "BUY"
+        elif price < pw["low"]:
+            event = "BELOW_PREVIOUS_WEEK_LOW"
+            hint = "SELL"
+        elif cw["high"] > pw["high"] and price < pw["high"]:
+            event = "WEEK_HIGH_SWEEP_REJECTION"
+            hint = "SELL"
+        elif cw["low"] < pw["low"] and price > pw["low"]:
+            event = "WEEK_LOW_SWEEP_REJECTION"
+            hint = "BUY"
+        else:
+            event = "INSIDE_PREVIOUS_WEEK"
+            hint = "NEUTRAL"
+
+        return {
+            "available": True,
+            "current": {k: round(v, 2) for k, v in cw.items()},
+            "previous": {k: round(v, 2) for k, v in pw.items()},
+            "event": event,
+            "directionalHint": hint,
+        }
+
+    @staticmethod
+    def _market_regime(m15, h1):
+        if len(m15) < 30 or len(h1) < 30:
+            return {"type": "UNKNOWN", "compression": None}
+        c15 = [b.close for b in m15]
+        c1h = [b.close for b in h1]
+        e20_15 = ema(c15, 20)
+        e20_h1 = ema(c1h, 20)
+        slope15 = e20_15[-1] - e20_15[-5]
+        slope1h = e20_h1[-1] - e20_h1[-4]
+        ranges = [b.high - b.low for b in m15[-20:]]
+        recent = sum(ranges[-5:]) / 5
+        baseline = sum(ranges) / len(ranges)
+        compression = recent / baseline if baseline else 1.0
+
+        same = (slope15 > 0 and slope1h > 0) or (slope15 < 0 and slope1h < 0)
+        if same and abs(slope1h) > 0:
+            regime = "TREND"
+        elif compression < 0.70:
+            regime = "COMPRESSION"
+        else:
+            regime = "RANGE"
+        return {
+            "type": regime,
+            "direction": "UP" if slope1h > 0 else "DOWN" if slope1h < 0 else "FLAT",
+            "compression": round(compression, 3),
+        }
+
+    @staticmethod
+    def _liquidity_map(price, daily, weekly, sessions):
+        levels = []
+        if daily.get("available"):
+            pd = daily["previous"]
+            td = daily["today"]
+            levels += [
+                ("PDH", pd["high"]), ("PDL", pd["low"]),
+                ("TODAY_HIGH", td["high"]), ("TODAY_LOW", td["low"]),
+                ("TODAY_OPEN", td["open"]),
+            ]
+        if weekly.get("available"):
+            pw = weekly["previous"]
+            levels += [("PWH", pw["high"]), ("PWL", pw["low"])]
+        for name, row in sessions.get("ranges", {}).items():
+            levels += [(name + "_HIGH", row["high"]), (name + "_LOW", row["low"])]
+
+        # Deduplicate near-identical levels while retaining useful labels.
+        merged = []
+        for label, level in sorted(levels, key=lambda x: x[1]):
+            if merged and abs(level - merged[-1]["price"]) < 0.05:
+                merged[-1]["labels"].append(label)
+            else:
+                merged.append({"price": float(level), "labels": [label]})
+
+        above = [x for x in merged if x["price"] > price]
+        below = [x for x in merged if x["price"] < price]
+        nearest_above = min(above, key=lambda x: x["price"] - price) if above else None
+        nearest_below = min(below, key=lambda x: price - x["price"]) if below else None
+        return {
+            "nearestAbove": nearest_above,
+            "nearestBelow": nearest_below,
+            "all": merged[-20:],
+        }
+
     @staticmethod
     def _session_story(bars, now):
         hour = now.astimezone(UTC).hour
@@ -306,7 +416,12 @@ class GigiGoldBrain(GoldIntelligence):
 
         candle_story = self._candle_story(gold_bars)
         daily_story = self._daily_story(gold_bars, now)
+        weekly_story = self._weekly_story(gold_bars, now)
         session_story = self._session_story(gold_bars, now)
+        regime = self._market_regime(m15, h1)
+        liquidity = self._liquidity_map(
+            float(base["entry"]), daily_story, weekly_story, session_story
+        )
 
         bias = base.get("bias", "WAIT")
         expected = "UP" if bias == "BUY" else "DOWN"
@@ -380,7 +495,10 @@ class GigiGoldBrain(GoldIntelligence):
             "correction": correction,
             "candleStory": candle_story,
             "dailyStory": daily_story,
+            "weeklyStory": weekly_story,
             "sessionStory": session_story,
+            "marketRegime": regime,
+            "liquidityMap": liquidity,
             "storyAlignment": story_alignment,
             "entryZoneLow": round(float(base["entry"]) - zone_half, 2),
             "entryZoneHigh": round(float(base["entry"]) + zone_half, 2),
