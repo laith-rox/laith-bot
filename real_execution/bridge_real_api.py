@@ -214,6 +214,30 @@ class Handler(BaseHTTPRequestHandler):
                 payload.update({k: _market_state.get(k) for k in ("m5", "m15", "h1")})
                 payload["market_age"] = _market_age()
             return _json(self, 200, payload)
+        if path == "/verify":
+            if not _authorized(self, "X-Client-Token", CLIENT_TOKEN):
+                return _json(self, 401, {"ok": False, "reason": "client_auth_required"})
+            if not _ready():
+                return _json(self, 423, {"ok": False, "reason": "real_bridge_locked"})
+            from urllib.parse import parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            def one(name):
+                return (q.get(name) or [""])[0]
+            text = "|".join([
+                "REAL", one("key"), one("ts"), one("symbol"),
+                one("side"), one("volume"), one("sl"), one("tp"),
+            ])
+            supplied = one("sig")
+            if supplied and hmac.compare_digest(supplied, _sign(text)):
+                body = b"OK"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            return _json(self, 403, {"ok": False, "reason": "signature_invalid"})
         if path == "/next":
             if not _authorized(self, "X-Client-Token", CLIENT_TOKEN):
                 return _json(self, 401, {"ok": False, "reason": "client_auth_required"})
