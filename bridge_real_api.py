@@ -1,0 +1,751 @@
+"""HTTP transport for the isolated Laith MT5 REAL execution bridge.
+
+This is a separate REAL-money transport. It is DISARMED by default and cannot
+publish or manage a trade unless both BRIDGE_ENABLED=true and
+REAL_BRIDGE_ARMED=true are set on this service. The MT5 REAL EA adds an
+independent local arm switch and financial-risk gates.
+
+This service is intentionally REAL-only. It does not generate trading signals.
+Approved upstream signals may be published to /publish; the MT5 EA polls /next.
+Management actions for an already-open REAL position use /manage.
+"""
+from __future__ import annotations
+
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+import hashlib
+import hmac
+import json
+import os
+import re
+import threading
+import time
+
+PORT = int(os.getenv("PORT", "8080"))
+CLIENT_TOKEN = os.getenv("BRIDGE_CLIENT_TOKEN", "")
+PUBLISH_TOKEN = os.getenv("BRIDGE_PUBLISH_TOKEN", "")
+HMAC_SECRET = os.getenv("BRIDGE_HMAC_SECRET", "")
+CONFIG_ENABLED = os.getenv("BRIDGE_ENABLED", "false").strip().lower() == "true"
+REAL_ARMED = os.getenv("REAL_BRIDGE_ARMED", "false").strip().lower() == "true"
+MAX_AGE_SECONDS = 30
+DELIVERY_LEASE_SECONDS = 5
+MAX_PENDING = 4
+try:
+    FIXED_VOLUME = float(os.getenv("REAL_FIXED_VOLUME", "0") or 0)
+except ValueError:
+    FIXED_VOLUME = 0.0
+STATE_FRESH_SECONDS = 10
+
+if not CLIENT_TOKEN or not PUBLISH_TOKEN or not HMAC_SECRET:
+    raise RuntimeError("bridge_tokens_required")
+
+_lock = threading.Lock()
+_items: dict[str, dict] = {}
+_runtime_enabled = CONFIG_ENABLED and REAL_ARMED
+_client_state: dict | None = None
+_client_last_poll: float | None = None
+_key_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+_reason_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+
+
+def _truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _sign(text: str) -> str:
+    return hmac.new(HMAC_SECRET.encode(), text.encode(), hashlib.sha256).hexdigest()
+
+
+def _command_text(item: dict) -> str:
+    action = str(item.get("action", "OPEN")).upper()
+    if action == "OPEN":
+        return "|".join([
+            "REAL", item["key"], str(item["ts"]), item["symbol"],
+            item["side"], item["volume"], item["sl"], item["tp"],
+        ])
+    ticket = str(item.get("ticket", "")).strip()
+    if ticket:
+        return "|".join([
+            "REAL", "ACTION", item["key"], str(item["ts"]), item["symbol"],
+            action, ticket, item.get("sl", "0.00000"), item.get("tp", "0.00000"),
+        ])
+    return "|".join([
+        "REAL", "ACTION", item["key"], str(item["ts"]), item["symbol"],
+        action, item.get("sl", "0.00000"), item.get("tp", "0.00000"),
+    ])
+
+
+def _wire_command(item: dict) -> str:
+    text = _command_text(item)
+    prefix = "CMD|" if str(item.get("action", "OPEN")).upper() == "OPEN" else "ACT|"
+    return prefix + text + "|" + _sign(text)
+
+
+def _authorized(handler, token_name: str, expected: str) -> bool:
+    supplied = handler.headers.get(token_name, "")
+    return bool(expected) and hmac.compare_digest(supplied, expected)
+
+
+def _pending_count(now: float | None = None) -> int:
+    now = time.time() if now is None else now
+    count = 0
+    for item in _items.values():
+        if item.get("ack") is not None:
+            continue
+        if now - item["ts"] <= MAX_AGE_SECONDS:
+            count += 1
+    return count
+
+
+def _clean(now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    for item in _items.values():
+        if item.get("ack") is None and now - item["ts"] > MAX_AGE_SECONDS:
+            item["ack"] = {"ok": False, "reason": "expired", "at": now}
+
+
+def _state_age(now: float | None = None) -> float | None:
+    now = time.time() if now is None else now
+    if not _client_state:
+        return None
+    try:
+        return max(0.0, now - float(_client_state.get("received_at", 0)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _ticket_trade_mode(ticket: str) -> str:
+    if not ticket:
+        return ""
+    for item in reversed(list(_items.values())):
+        ack = item.get("ack") or {}
+        if str(item.get("action", "OPEN")).upper() != "OPEN":
+            continue
+        if ack.get("ok") is True and str(ack.get("ticket") or "") == ticket:
+            return str(item.get("trade_mode") or "").upper()
+    return ""
+
+
+def _owned_position_trade_mode() -> str:
+    if not _client_state or not _client_state.get("position_owned"):
+        return ""
+    return _ticket_trade_mode(str(_client_state.get("ticket") or ""))
+
+
+def _state_is_fresh(now: float | None = None) -> bool:
+    age = _state_age(now)
+    return age is not None and age <= STATE_FRESH_SECONDS
+
+
+def _poll_age(now: float | None = None) -> float | None:
+    if _client_last_poll is None:
+        return None
+    now = time.time() if now is None else now
+    return max(0.0, now - _client_last_poll)
+
+
+def _market_countertrend(side: str) -> bool:
+    """Block a REAL entry only when both M5 and M15 show a clear opposite move."""
+    market = globals().get("_market_state") or {}
+    try:
+        age = time.time() - float(market.get("received_at", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    if age > 20:
+        return False
+
+    def direction(name: str) -> int:
+        rows = [r for r in (market.get(name) or []) if isinstance(r, dict) and r.get("datetime")]
+        rows = sorted(rows, key=lambda r: str(r.get("datetime", "")).replace(".", "-"))
+        if len(rows) < 4:
+            return 0
+        rows = rows[-4:]
+        try:
+            closes = [float(r["close"]) for r in rows]
+        except (KeyError, TypeError, ValueError):
+            return 0
+        ups = sum(closes[i] > closes[i - 1] for i in range(1, len(closes)))
+        downs = sum(closes[i] < closes[i - 1] for i in range(1, len(closes)))
+        if closes[-1] > closes[0] and ups >= 2:
+            return 1
+        if closes[-1] < closes[0] and downs >= 2:
+            return -1
+        return 0
+
+    m5 = direction("m5")
+    m15 = direction("m15")
+    return (side == "SELL" and m5 == 1 and m15 == 1) or (side == "BUY" and m5 == -1 and m15 == -1)
+
+
+def _validate_publish(data: dict) -> tuple[bool, str]:
+    if not REAL_ARMED:
+        return False, "real_not_armed"
+    if FIXED_VOLUME <= 0:
+        return False, "real_volume_not_configured"
+    if not _runtime_enabled:
+        return False, "kill_switch"
+    if str(data.get("mode", "")).upper() != "REAL":
+        return False, "real_only"
+    key = str(data.get("key", ""))
+    if not _key_re.fullmatch(key):
+        return False, "invalid_key"
+    symbol = str(data.get("symbol", "XAUUSD")).upper()
+    if "XAUUSD" not in symbol:
+        return False, "gold_only"
+    side = str(data.get("side", "")).upper()
+    if side not in ("BUY", "SELL"):
+        return False, "invalid_side"
+    trade_mode = str(data.get("trade_mode", "")).upper()
+    if trade_mode not in ("MAIN", "SNIPER"):
+        return False, "invalid_trade_mode"
+    if _truthy(data.get("forced", True)):
+        return False, "forced_bias_blocked"
+    try:
+        volume = float(data.get("volume", 0))
+        sl = float(data.get("sl"))
+        tp = float(data.get("tp"))
+    except (TypeError, ValueError):
+        return False, "invalid_numbers"
+    if abs(volume - FIXED_VOLUME) > 1e-9:
+        return False, "volume_must_be_0_01"
+    if sl <= 0 or tp <= 0:
+        return False, "sl_tp_required"
+    # Every sniper tier carries its verified seven-condition count.
+    strength_match = re.search(r":S([34567])$", key)
+    strength = int(strength_match.group(1)) if strength_match else 0
+    if strength_match:
+        checks = data.get("checks", {})
+        selected = checks.get(side) if isinstance(checks, dict) else None
+        if not isinstance(selected, list) or len(selected) != 7 or sum(bool(x) for x in selected) != strength:
+            return False, "signal_strength_mismatch"
+    # Weak/medium sniper entries may not fight both M5 and M15. Only verified
+    # 6/7 or 7/7 sniper signals may take the smaller countertrend scalp.
+    if _market_countertrend(side):
+        if trade_mode == "MAIN" or strength < 6:
+            return False, "countertrend_market_block"
+    analysis = data.get("analysis")
+    if trade_mode == "MAIN" and isinstance(analysis, dict) and analysis:
+        required = ("h4_bias", "m15_structure", "m5_confirmation", "invalidation")
+        if any(not analysis.get(k) for k in required):
+            return False, "main_analysis_required"
+        bias = str(analysis.get("h4_bias", "")).upper()
+        if bias not in ("UP", "DOWN"):
+            return False, "main_h4_bias_required"
+        if (side == "BUY" and bias != "UP") or (side == "SELL" and bias != "DOWN"):
+            return False, "main_bias_mismatch"
+        return True, "approved"
+    checks = data.get("checks", {})
+    selected = checks.get(side) if isinstance(checks, dict) else None
+    if not isinstance(selected, list) or len(selected) != 7:
+        return False, "seven_checks_required"
+    minimum = 3 if trade_mode == "SNIPER" else 5
+    if sum(bool(x) for x in selected) < minimum:
+        return False, "fast_conditions_not_met"
+    return True, "approved"
+
+
+def _validate_manage(data: dict) -> tuple[bool, str]:
+    if not REAL_ARMED:
+        return False, "real_not_armed"
+    if not _runtime_enabled:
+        return False, "kill_switch"
+    if str(data.get("mode", "")).upper() != "REAL":
+        return False, "real_only"
+    key = str(data.get("key", ""))
+    if not _key_re.fullmatch(key):
+        return False, "invalid_key"
+    symbol = str(data.get("symbol", "XAUUSD")).upper()
+    if "XAUUSD" not in symbol:
+        return False, "gold_only"
+    action = str(data.get("action", "")).upper()
+    if action not in ("MODIFY", "CLOSE"):
+        return False, "invalid_action"
+    reason = str(data.get("reason", "")).strip()
+    if not _reason_re.fullmatch(reason):
+        return False, "reason_required"
+    if action == "MODIFY":
+        try:
+            sl = float(data.get("sl"))
+            tp = float(data.get("tp"))
+        except (TypeError, ValueError):
+            return False, "invalid_numbers"
+        if sl <= 0 or tp <= 0:
+            return False, "sl_tp_required"
+    return True, "approved"
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "LaithDemoBridge/1.1"
+
+    def log_message(self, fmt, *args):
+        print("bridge_http", self.address_string(), fmt % args, flush=True)
+
+    def _send(self, status: int, body: str, content_type: str = "text/plain; charset=utf-8"):
+        encoded = body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _json(self, status: int, payload: dict):
+        self._send(status, json.dumps(payload, separators=(",", ":")), "application/json; charset=utf-8")
+
+    def _read_json(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        raw = self.rfile.read(length) if length > 0 else b"{}"
+        try:
+            value = json.loads(raw.decode())
+        except Exception:
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def do_GET(self):
+        global _client_last_poll
+        parsed = urlparse(self.path)
+        path = parsed.path
+        q = parse_qs(parsed.query)
+
+        if path == "/market":
+            with _lock:
+                market = dict(_market_state or {})
+            age = time.time() - float(market.get("received_at", 0) or 0)
+            if not market or age > 20:
+                return self._json(503, {"ok": False, "reason": "market_state_stale", "age": round(age, 2)})
+            market["ok"] = True
+            market["age"] = round(age, 2)
+            return self._json(200, market)
+
+        if path == "/chatgpt-read":
+            # Sanitized, read-only REAL snapshot. Never exposes execution tokens,
+            # ticket/magic identifiers, or any mutation capability.
+            now = time.time()
+            with _lock:
+                state = dict(_client_state or {})
+                market = dict(_market_state or {})
+                state_age = _state_age(now)
+                market_age = now - float(market.get("received_at", 0) or 0) if market else None
+
+                def last_bar(name):
+                    rows = market.get(name) or []
+                    if not rows:
+                        return None
+                    # Publishers may send newest-first or oldest-first. Never
+                    # infer freshness from array position; select the greatest
+                    # ISO-like MT5 datetime explicitly.
+                    valid = [row for row in rows if isinstance(row, dict) and row.get("datetime")]
+                    if not valid:
+                        return None
+                    row = max(valid, key=lambda item: str(item.get("datetime", "")).replace(".", "-"))
+                    return {
+                        "datetime": row.get("datetime"),
+                        "open": row.get("open"),
+                        "high": row.get("high"),
+                        "low": row.get("low"),
+                        "close": row.get("close"),
+                    }
+
+                positions = []
+                for p in (state.get("positions") or [])[:20]:
+                    positions.append({
+                        "owned": bool(p.get("owned")),
+                        "side": p.get("side"),
+                        "volume": p.get("volume"),
+                        "open_price": p.get("open_price"),
+                        "sl": p.get("sl"),
+                        "tp": p.get("tp"),
+                        "price": p.get("price"),
+                        "profit": p.get("profit"),
+                        "risk_usd": p.get("risk_usd"),
+                    })
+
+                payload = {
+                    "ok": bool(state) and bool(market),
+                    "mode": "REAL",
+                    "symbol": "XAUUSD",
+                    "server_time": now,
+                    "state_fresh": state_age is not None and state_age <= STATE_FRESH_SECONDS,
+                    "state_age": round(state_age, 2) if state_age is not None else None,
+                    "market_fresh": market_age is not None and market_age <= 20,
+                    "market_age": round(market_age, 2) if market_age is not None else None,
+                    "enabled": bool(_runtime_enabled),
+                    "position_open": bool(state.get("position_open")),
+                    "position_owned": bool(state.get("position_owned")),
+                    "side": state.get("side"),
+                    "volume": state.get("volume"),
+                    "open_price": state.get("open_price"),
+                    "sl": state.get("sl"),
+                    "tp": state.get("tp"),
+                    "price": state.get("price"),
+                    "profit": state.get("profit"),
+                    "position_risk_usd": state.get("position_risk_usd"),
+                    "total_position_risk_usd": state.get("total_position_risk_usd"),
+                    "owned_position_count": state.get("owned_position_count", 0),
+                    "positions": positions,
+                    "latest": {
+                        "m5": last_bar("m5"),
+                        "m15": last_bar("m15"),
+                        "h4": last_bar("h4"),
+                    },
+                }
+            return self._json(200 if payload["ok"] else 503, payload)
+
+        if path == "/health":
+            with _lock:
+                _clean()
+                age = _state_age()
+                poll_age = _poll_age()
+                payload = {
+                    "ok": True,
+                    "mode": "REAL",
+                    "enabled": bool(_runtime_enabled),
+                    "armed": bool(REAL_ARMED),
+                    "pending": _pending_count(),
+                    "max_age_seconds": MAX_AGE_SECONDS,
+                    "fixed_volume": FIXED_VOLUME,
+                    "client_state_fresh": bool(_state_is_fresh()),
+                    "client_last_seen_age": round(age, 2) if age is not None else None,
+                    "client_poll_fresh": poll_age is not None and poll_age <= STATE_FRESH_SECONDS,
+                    "client_last_poll_age": round(poll_age, 2) if poll_age is not None else None,
+                    "position_open": bool((_client_state or {}).get("position_open")),
+                    "trade_mode": _owned_position_trade_mode(),
+                    "position_owned": bool((_client_state or {}).get("position_owned")),
+                    "ticket": (_client_state or {}).get("ticket"),
+                    "side": (_client_state or {}).get("side"),
+                    "volume": (_client_state or {}).get("volume"),
+                    "open_price": (_client_state or {}).get("open_price"),
+                    "sl": (_client_state or {}).get("sl"),
+                    "tp": (_client_state or {}).get("tp"),
+                    "price": (_client_state or {}).get("price"),
+                    "profit": (_client_state or {}).get("profit"),
+                    "magic": (_client_state or {}).get("magic"),
+                    "position_risk_usd": (_client_state or {}).get("position_risk_usd"),
+                    "realized_bridge_profit_usd": (_client_state or {}).get("realized_bridge_profit_usd"),
+                    "profit_risk_budget_usd": (_client_state or {}).get("profit_risk_budget_usd"),
+                    "effective_risk_budget_usd": (_client_state or {}).get("effective_risk_budget_usd"),
+                    "strong_risk_budget_usd": (_client_state or {}).get("strong_risk_budget_usd"),
+                    "commissioning_used": (_client_state or {}).get("commissioning_used"),
+                    "commissioning_remaining": (_client_state or {}).get("commissioning_remaining"),
+                    "positions": [
+                        {**p, "trade_mode": _ticket_trade_mode(str(p.get("ticket") or ""))}
+                        for p in ((_client_state or {}).get("positions") or [])
+                    ],
+                    "owned_position_count": (_client_state or {}).get("owned_position_count", 0),
+                    "total_position_risk_usd": (_client_state or {}).get("total_position_risk_usd", "0.00"),
+                }
+            return self._json(200, payload)
+
+        if path == "/next":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._send(401, "UNAUTHORIZED")
+            with _lock:
+                _client_last_poll = time.time()
+                _clean()
+                if not _runtime_enabled:
+                    return self._send(423, "KILL_SWITCH")
+                now = time.time()
+                for item in _items.values():
+                    if item.get("ack") is not None:
+                        continue
+                    if now - item["ts"] > MAX_AGE_SECONDS:
+                        continue
+                    delivered_at = item.get("delivered_at")
+                    if delivered_at is not None and now - delivered_at < DELIVERY_LEASE_SECONDS:
+                        continue
+                    item["delivered_at"] = now
+                    return self._send(200, _wire_command(item))
+            return self._send(200, "NONE")
+
+        if path == "/verify":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._send(401, "UNAUTHORIZED")
+            fields = {k: (v[0] if v else "") for k, v in q.items()}
+            text = "|".join([
+                "REAL", fields.get("key", ""), fields.get("ts", ""),
+                fields.get("symbol", ""), fields.get("side", ""),
+                fields.get("volume", ""), fields.get("sl", ""), fields.get("tp", ""),
+            ])
+            sig = fields.get("sig", "")
+            try:
+                ts = int(fields.get("ts", "0"))
+            except ValueError:
+                return self._send(400, "BAD_TIMESTAMP")
+            if abs(time.time() - ts) > MAX_AGE_SECONDS:
+                return self._send(409, "STALE")
+            if not hmac.compare_digest(_sign(text), sig):
+                return self._send(403, "BAD_SIGNATURE")
+            with _lock:
+                item = _items.get(fields.get("key", ""))
+                if item is None or item.get("ack") is not None:
+                    return self._send(404, "UNKNOWN_OR_ACKED")
+                if str(item.get("action", "OPEN")).upper() != "OPEN":
+                    return self._send(409, "WRONG_ACTION_TYPE")
+                if _command_text(item) != text:
+                    return self._send(409, "COMMAND_MISMATCH")
+                if not _runtime_enabled:
+                    return self._send(423, "KILL_SWITCH")
+            return self._send(200, "OK")
+
+        if path == "/verify-action":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._send(401, "UNAUTHORIZED")
+            fields = {k: (v[0] if v else "") for k, v in q.items()}
+            ticket = fields.get("ticket", "").strip()
+            if ticket:
+                text = "|".join([
+                    "REAL", "ACTION", fields.get("key", ""), fields.get("ts", ""),
+                    fields.get("symbol", ""), fields.get("action", ""), ticket,
+                    fields.get("sl", ""), fields.get("tp", ""),
+                ])
+            else:
+                text = "|".join([
+                    "REAL", "ACTION", fields.get("key", ""), fields.get("ts", ""),
+                    fields.get("symbol", ""), fields.get("action", ""),
+                    fields.get("sl", ""), fields.get("tp", ""),
+                ])
+            sig = fields.get("sig", "")
+            try:
+                ts = int(fields.get("ts", "0"))
+            except ValueError:
+                return self._send(400, "BAD_TIMESTAMP")
+            if abs(time.time() - ts) > MAX_AGE_SECONDS:
+                return self._send(409, "STALE")
+            if not hmac.compare_digest(_sign(text), sig):
+                return self._send(403, "BAD_SIGNATURE")
+            with _lock:
+                item = _items.get(fields.get("key", ""))
+                if item is None or item.get("ack") is not None:
+                    return self._send(404, "UNKNOWN_OR_ACKED")
+                if str(item.get("action", "OPEN")).upper() == "OPEN":
+                    return self._send(409, "WRONG_ACTION_TYPE")
+                if _command_text(item) != text:
+                    return self._send(409, "COMMAND_MISMATCH")
+                if not _runtime_enabled:
+                    return self._send(423, "KILL_SWITCH")
+            return self._send(200, "OK")
+
+        return self._send(404, "NOT_FOUND")
+
+    def do_POST(self):
+        global _runtime_enabled, _client_state, _market_state
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/publish":
+            if not _authorized(self, "X-Publish-Token", PUBLISH_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            data = self._read_json()
+            with _lock:
+                _clean()
+                ok, reason = _validate_publish(data)
+                if not ok:
+                    return self._json(400, {"ok": False, "reason": reason})
+                key = str(data["key"])
+                if key in _items:
+                    return self._json(409, {"ok": False, "reason": "duplicate_order", "key": key})
+                if _pending_count() >= MAX_PENDING:
+                    return self._json(409, {"ok": False, "reason": "position_or_command_limit"})
+                item = {
+                    "action": "OPEN",
+                    "key": key,
+                    "ts": int(time.time()),
+                    "symbol": "XAUUSD",
+                    "side": str(data["side"]).upper(),
+                    "trade_mode": str(data.get("trade_mode", "")).upper(),
+                    "volume": f"{FIXED_VOLUME:.2f}",
+                    "sl": f"{float(data['sl']):.5f}",
+                    "tp": f"{float(data['tp']):.5f}",
+                    "ack": None,
+                    "delivered_at": None,
+                }
+                _items[key] = item
+                print("bridge_order_published " + json.dumps({
+                    "key": key, "mode": "REAL", "side": item["side"], "trade_mode": item.get("trade_mode"),
+                    "volume": item["volume"], "sl": item["sl"], "tp": item["tp"],
+                }, separators=(",", ":")), flush=True)
+                return self._json(201, {"ok": True, "key": key, "mode": "REAL", "action": "OPEN"})
+
+        if path == "/manage":
+            if not _authorized(self, "X-Publish-Token", PUBLISH_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            data = self._read_json()
+            with _lock:
+                _clean()
+                ok, reason = _validate_manage(data)
+                if not ok:
+                    return self._json(400, {"ok": False, "reason": reason})
+                if not _state_is_fresh():
+                    return self._json(409, {"ok": False, "reason": "client_state_stale"})
+                target_ticket = str(data.get("ticket", "")).strip()
+                positions = (_client_state or {}).get("positions", [])
+                if target_ticket:
+                    match = next((p for p in positions if str(p.get("ticket")) == target_ticket and bool(p.get("owned"))), None)
+                    if match is None:
+                        return self._json(409, {"ok": False, "reason": "target_ticket_not_owned"})
+                else:
+                    if not bool((_client_state or {}).get("position_open")):
+                        return self._json(409, {"ok": False, "reason": "no_open_position"})
+                    if not bool((_client_state or {}).get("position_owned")):
+                        return self._json(409, {"ok": False, "reason": "position_not_owned_by_bridge"})
+                key = str(data["key"])
+                if key in _items:
+                    return self._json(409, {"ok": False, "reason": "duplicate_order", "key": key})
+                if _pending_count() >= MAX_PENDING:
+                    return self._json(409, {"ok": False, "reason": "position_or_command_limit"})
+                action = str(data["action"]).upper()
+                item = {
+                    "action": action,
+                    "key": key,
+                    "ts": int(time.time()),
+                    "symbol": "XAUUSD",
+                    "ticket": target_ticket,
+                    "sl": f"{float(data.get('sl', 0)):.5f}",
+                    "tp": f"{float(data.get('tp', 0)):.5f}",
+                    "reason": str(data.get("reason", "")),
+                    "ack": None,
+                    "delivered_at": None,
+                }
+                _items[key] = item
+                return self._json(201, {"ok": True, "key": key, "mode": "REAL", "action": action})
+
+        if path == "/market":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            data = self._read_json()
+            if str(data.get("mode", "")).upper() != "REAL":
+                return self._json(400, {"ok": False, "reason": "real_only"})
+            if "XAUUSD" not in str(data.get("symbol", "")).upper():
+                return self._json(400, {"ok": False, "reason": "gold_only"})
+            clean = {"mode": "REAL", "symbol": str(data.get("symbol", ""))[:32], "received_at": time.time()}
+            for name, minimum, maximum in (("m5", 30, 260), ("m15", 35, 100), ("h4", 30, 100)):
+                rows = data.get(name)
+                if not isinstance(rows, list) or len(rows) < minimum:
+                    return self._json(400, {"ok": False, "reason": f"{name}_rows_required"})
+                safe = []
+                for row in rows[:maximum]:
+                    if not isinstance(row, dict):
+                        continue
+                    try:
+                        safe.append({"datetime": str(row.get("datetime", ""))[:32],
+                                     "open": f"{float(row['open']):.5f}", "high": f"{float(row['high']):.5f}",
+                                     "low": f"{float(row['low']):.5f}", "close": f"{float(row['close']):.5f}",
+                                     "tick_volume": str(int(float(row.get("tick_volume", 0) or 0)))})
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                if len(safe) < minimum:
+                    return self._json(400, {"ok": False, "reason": f"{name}_valid_rows_required"})
+                clean[name] = safe
+            with _lock:
+                _market_state = clean
+            return self._json(200, {"ok": True, "received": True})
+
+        if path == "/state":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            data = self._read_json()
+            if str(data.get("mode", "")).upper() != "REAL":
+                return self._json(400, {"ok": False, "reason": "real_only"})
+            symbol = str(data.get("symbol", "")).upper()
+            if "XAUUSD" not in symbol:
+                return self._json(400, {"ok": False, "reason": "gold_only"})
+            raw_positions = data.get("positions", [])
+            positions = []
+            if isinstance(raw_positions, list):
+                for p in raw_positions[:20]:
+                    if not isinstance(p, dict):
+                        continue
+                    positions.append({
+                        "ticket": str(p.get("ticket", ""))[:40],
+                        "owned": bool(p.get("owned")),
+                        "side": str(p.get("side", ""))[:8],
+                        "volume": str(p.get("volume", ""))[:24],
+                        "open_price": str(p.get("open_price", ""))[:32],
+                        "sl": str(p.get("sl", ""))[:32],
+                        "tp": str(p.get("tp", ""))[:32],
+                        "price": str(p.get("price", ""))[:32],
+                        "profit": str(p.get("profit", ""))[:32],
+                        "risk_usd": str(p.get("risk_usd", ""))[:32],
+                    })
+            clean_state = {
+                "mode": "REAL",
+                "symbol": symbol[:32],
+                "position_open": bool(data.get("position_open")),
+                "position_owned": bool(data.get("position_owned")),
+                "ticket": str(data.get("ticket", ""))[:40],
+                "side": str(data.get("side", ""))[:8],
+                "volume": str(data.get("volume", ""))[:24],
+                "open_price": str(data.get("open_price", ""))[:32],
+                "sl": str(data.get("sl", ""))[:32],
+                "tp": str(data.get("tp", ""))[:32],
+                "price": str(data.get("price", ""))[:32],
+                "profit": str(data.get("profit", ""))[:32],
+                "magic": str(data.get("magic", ""))[:32],
+                "position_risk_usd": str(data.get("position_risk_usd", ""))[:32],
+                "realized_bridge_profit_usd": str(data.get("realized_bridge_profit_usd", ""))[:32],
+                "profit_risk_budget_usd": str(data.get("profit_risk_budget_usd", ""))[:32],
+                "effective_risk_budget_usd": str(data.get("effective_risk_budget_usd", ""))[:32],
+                "strong_risk_budget_usd": str(data.get("strong_risk_budget_usd", ""))[:32],
+                "commissioning_used": str(data.get("commissioning_used", ""))[:16],
+                "commissioning_remaining": str(data.get("commissioning_remaining", ""))[:16],
+                "positions": positions,
+                "owned_position_count": int(data.get("owned_position_count", len([p for p in positions if p.get("owned")])) or 0),
+                "total_position_risk_usd": str(data.get("total_position_risk_usd", "0.00"))[:32],
+                "received_at": time.time(),
+            }
+            with _lock:
+                _client_state = clean_state
+            return self._json(200, {"ok": True})
+
+        if path == "/ack":
+            if not _authorized(self, "X-Bridge-Token", CLIENT_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            data = self._read_json()
+            key = str(data.get("key", ""))
+            with _lock:
+                item = _items.get(key)
+                if item is None:
+                    return self._json(404, {"ok": False, "reason": "unknown_order"})
+                if item.get("ack") is not None:
+                    return self._json(409, {"ok": False, "reason": "already_acknowledged"})
+                item["ack"] = {
+                    "ok": bool(data.get("ok")),
+                    "reason": str(data.get("reason", ""))[:120],
+                    "ticket": str(data.get("ticket", ""))[:40],
+                    "at": time.time(),
+                }
+                print("bridge_order_ack " + json.dumps({
+                    "key": key, "mode": "REAL", "action": item.get("action", "OPEN"),
+                    "side": item.get("side"), **item["ack"],
+                }, separators=(",", ":")), flush=True)
+            return self._json(200, {"ok": True, "key": key})
+
+        if path == "/kill":
+            if not _authorized(self, "X-Publish-Token", PUBLISH_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            with _lock:
+                _runtime_enabled = False
+            return self._json(200, {"ok": True, "enabled": False, "mode": "REAL"})
+
+        if path == "/resume":
+            if not _authorized(self, "X-Publish-Token", PUBLISH_TOKEN):
+                return self._json(401, {"ok": False, "reason": "unauthorized"})
+            if not CONFIG_ENABLED:
+                return self._json(409, {"ok": False, "reason": "config_disabled"})
+            if not REAL_ARMED:
+                return self._json(409, {"ok": False, "reason": "real_not_armed"})
+            with _lock:
+                _runtime_enabled = True
+            return self._json(200, {"ok": True, "enabled": True, "mode": "REAL"})
+
+        return self._send(404, "NOT_FOUND")
+
+
+if __name__ == "__main__":
+    print(f"LAITH_BRIDGE_API_START mode=REAL config_enabled={CONFIG_ENABLED} armed={REAL_ARMED} runtime_enabled={_runtime_enabled} fixed_volume={FIXED_VOLUME:.2f} port={PORT}", flush=True)
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
