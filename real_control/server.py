@@ -117,4 +117,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    s = _status()
+    print(
+        "REAL_CONTROL_START "
+        f"locked={s['locked']} arming_allowed={s['arming_allowed']} "
+        f"armed={s['armed']} emergency_stop={s['emergency_stop']} "
+        f"execution_enabled={s['execution_enabled']} "
+        f"trade_endpoint_present={s['trade_endpoint_present']}",
+        flush=True,
+    )
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
