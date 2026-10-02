@@ -108,8 +108,8 @@ class PublishLimitTests(unittest.TestCase):
                             MAX_PUBLISH_PER_HOUR=cap,
                             ALLOW_STALE_MT5_STATE=False), \
              patch.object(worker, "bridge_health", return_value=health), \
-             patch.object(worker, "fetch_multitimeframe_values", return_value={"5m":[],"15m":[],"1h":[]}), \
-             patch.object(worker, "validate_market_feed_freshness", return_value={"5m":0,"15m":0,"1h":0}), \
+             patch.object(worker, "fetch_multitimeframe_values", return_value={"5m":[],"15m":[],"h4":[]}), \
+             patch.object(worker, "validate_market_feed_freshness", return_value={"5m":0,"15m":0,"h4":0}), \
              patch.object(worker, "normalize_rows", return_value=[]), \
              patch.object(worker, "analyze_structure", return_value={"side":"BUY"}), \
              patch.object(worker, "apply_main_structure", side_effect=lambda s,m:s), \
@@ -343,19 +343,19 @@ class MarketFreshnessTests(unittest.TestCase):
         feeds={
             "5m":self._feed(5, now.replace(tzinfo=None)),
             "15m":self._feed(15, now.replace(minute=45,tzinfo=None)),
-            "1h":self._feed(60, now.replace(minute=0,tzinfo=None)),
+            "h4":self._feed(240, now.replace(hour=16,minute=0,tzinfo=None)),
         }
         ages=worker.validate_market_feed_freshness(feeds, now.timestamp())
         self.assertLessEqual(ages["5m"], 15*60)
         self.assertLessEqual(ages["15m"], 40*60)
-        self.assertLessEqual(ages["1h"], 150*60)
+        self.assertLessEqual(ages["h4"], 9*60*60)
 
     def test_day_old_m5_feed_is_rejected(self):
         now=dt.datetime(2026,10,2,18,50,tzinfo=dt.timezone.utc)
         feeds={
             "5m":self._feed(5, dt.datetime(2026,10,1,18,50)),
             "15m":self._feed(15, now.replace(minute=45,tzinfo=None)),
-            "1h":self._feed(60, now.replace(minute=0,tzinfo=None)),
+            "h4":self._feed(240, now.replace(hour=16,minute=0,tzinfo=None)),
         }
         with self.assertRaisesRegex(RuntimeError, "stale_market_data:5m"):
             worker.validate_market_feed_freshness(feeds, now.timestamp())
@@ -391,6 +391,79 @@ class RelaxedOfficialContinuationTests(unittest.TestCase):
         health={"client_state_fresh":True,"effective_risk_budget_usd":"3.00",
                 "strong_risk_budget_usd":"15.00","total_position_risk_usd":"0.00"}
         self.assertIsNone(worker.recover_m15_continuation(signal,health)["side"])
+
+
+class SniperRiskLadderTests(unittest.TestCase):
+    def _signal(self, strength, risk=1.0):
+        checks=[True]*strength+[False]*(7-strength)
+        return {"side":"BUY","mode":"NIGHT_SNIPER","score":strength,
+                "checks":{"BUY":checks},"risk_distance":risk}
+
+    def test_sniper_budget_ladder(self):
+        expected={3:2.0,4:2.0,5:3.0,6:5.0,7:7.0}
+        for strength,budget in expected.items():
+            with self.subTest(strength=strength):
+                self.assertEqual(worker.sniper_budget_usd(self._signal(strength)),budget)
+
+    def test_worker_caps_strong_sniper_to_tier(self):
+        health={"effective_risk_budget_usd":"3.00","strong_risk_budget_usd":"15.00",
+                "total_position_risk_usd":"0.00"}
+        self.assertEqual(worker.same_entry_copies(self._signal(6,5.0),health),1)
+        self.assertEqual(worker.same_entry_copies(self._signal(6,5.1),health),0)
+        self.assertEqual(worker.same_entry_copies(self._signal(7,7.0),health),1)
+        self.assertEqual(worker.same_entry_copies(self._signal(7,7.1),health),0)
+
+
+class SniperChaseTests(unittest.TestCase):
+    def _signal(self, strength=5, side="BUY", bar="2026-10-02 19:35:00", held=False):
+        checks=[True]*strength+[False]*(7-strength)
+        return {"side":side,"mode":"NIGHT_SNIPER","score":strength,"bar":bar,
+                "checks":{side:checks},"held_breakout":held,"mtf":{}}
+
+    def test_same_direction_next_bar_needs_improvement_or_break(self):
+        s=self._signal(5,bar="2026-10-02 19:40:00")
+        self.assertEqual(worker.sniper_chase_block_reason(
+            s,"BUY",5,"2026-10-02 19:35:00"),"same_direction_sniper_chase")
+        self.assertIsNone(worker.sniper_chase_block_reason(
+            self._signal(6,bar="2026-10-02 19:40:00"),"BUY",5,"2026-10-02 19:35:00"))
+        self.assertIsNone(worker.sniper_chase_block_reason(
+            self._signal(5,bar="2026-10-02 19:40:00",held=True),"BUY",5,"2026-10-02 19:35:00"))
+
+    def test_opposite_side_is_not_chase_blocked(self):
+        self.assertIsNone(worker.sniper_chase_block_reason(
+            self._signal(5,side="SELL",bar="2026-10-02 19:40:00"),
+            "BUY",5,"2026-10-02 19:35:00"))
+
+
+class SniperM15FilterTests(unittest.TestCase):
+    def _mtf(self, direction):
+        if direction=="BUY":
+            o,c,p=4100.0,4102.0,4101.0
+        else:
+            o,c,p=4102.0,4100.0,4101.0
+        return {"side":None,"reason":"mtf_wait","h4_bias":"UP",
+                "m5_confirm_buy":True,"m5_confirm_sell":False,
+                "m15_last_open":o,"m15_last_close":c,"m15_prev_close":p}
+
+    def test_weak_sniper_requires_m15_support(self):
+        sig={"side":"BUY","mode":"NIGHT_SNIPER","score":4,"confidence":6,"reason":"x"}
+        good=worker.apply_main_structure(sig,self._mtf("BUY"))
+        bad=worker.apply_main_structure(sig,self._mtf("SELL"))
+        self.assertEqual(good["side"],"BUY")
+        self.assertIsNone(bad["side"])
+        self.assertEqual(bad["reason"],"m15_confirmation_required_for_weak_sniper")
+
+    def test_five_of_seven_cannot_fight_m15(self):
+        sig={"side":"BUY","mode":"SNIPER","score":5,"confidence":6,"reason":"x"}
+        bad=worker.apply_main_structure(sig,self._mtf("SELL"))
+        self.assertIsNone(bad["side"])
+        self.assertEqual(bad["reason"],"m15_against_medium_sniper")
+
+    def test_six_of_seven_can_take_short_countermove(self):
+        sig={"side":"BUY","mode":"SNIPER","score":6,"confidence":7,"reason":"x","target_r":1.25}
+        out=worker.apply_main_structure(sig,self._mtf("SELL"))
+        self.assertEqual(out["side"],"BUY")
+        self.assertEqual(out["mode"],"SNIPER")
 
 
 if __name__ == "__main__":
