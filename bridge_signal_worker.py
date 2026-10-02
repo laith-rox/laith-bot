@@ -209,26 +209,18 @@ def compute_signal(values):
     primary_buy = int(ema8[-1] > ema21[-1]) + int(momentum > 0) + int(rsi >= 52.0)
     primary_sell = int(ema8[-1] < ema21[-1]) + int(momentum < 0) + int(rsi <= 48.0)
     if side is None and guard_reason not in ("resistance_not_confirmed", "support_not_confirmed", "upper_wick_rejection", "lower_wick_rejection") and max(primary_buy, primary_sell) >= 2:
-        if primary_buy > primary_sell:
+        if primary_buy > primary_sell and not macro_down:
             side, primary_strength = "BUY", primary_buy
-        elif primary_sell > primary_buy:
+        elif primary_sell > primary_buy and not macro_up:
             side, primary_strength = "SELL", primary_sell
         else:
             side, primary_strength = None, 0
         if side:
             guard_reason = None
-            is_correction = (side == "BUY" and macro_down) or (side == "SELL" and macro_up)
             quick_conf = 5 if primary_strength == 2 else 7
-            # A confirmed correction is its own quick trade: follow the correction,
-            # take a smaller target and leave the main trend logic independent.
-            if is_correction:
-                d = type(d)("CORRECTION_SCALP", side, quick_conf, 0.35 if primary_strength == 2 else 0.45,
-                            0.0, 0.75 if primary_strength == 2 else 0.90,
-                            "correction_primary_2of3" if primary_strength == 2 else "correction_primary_3of3")
-            else:
-                d = type(d)("SNIPER", side, quick_conf, 0.40 if primary_strength == 2 else 0.55,
-                            0.0, 1.10 if primary_strength == 2 else 1.25,
-                            "fast_primary_2of3" if primary_strength == 2 else "fast_primary_3of3")
+            d = type(d)("SNIPER", side, quick_conf, 0.40 if primary_strength == 2 else 0.55,
+                        0.0, 1.10 if primary_strength == 2 else 1.25,
+                        "fast_primary_2of3" if primary_strength == 2 else "fast_primary_3of3")
 
     # DEMO rebound entry after an extended selloff. Require exhaustion plus
     # an actual bullish rejection candle; never reverse on RSI alone.
