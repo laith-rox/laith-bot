@@ -6,8 +6,10 @@ publishes REAL commands only to the isolated REAL bridge.
 from __future__ import annotations
 
 from collections import deque
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import threading
 import time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -18,6 +20,11 @@ PUBLISH_TOKEN = os.getenv("REAL_BRIDGE_PUBLISH_TOKEN", "").strip()
 VOLUME = float(os.getenv("REAL_VOLUME", "0") or 0)
 POLL_SECONDS = int(os.getenv("REAL_POLL_SECONDS", "30"))
 MAX_PUBLISH_PER_HOUR = int(os.getenv("REAL_MAX_PUBLISH_PER_HOUR", "0") or 0)
+STATUS_PORT = int(os.getenv("PORT", "8080"))
+ALLOWED_ORIGIN = os.getenv(
+    "REAL_STATUS_ALLOWED_ORIGIN",
+    "https://laith-app-production.up.railway.app",
+).strip()
 
 
 def _json_request(url, method="GET", payload=None, headers=None, timeout=8):
@@ -61,6 +68,61 @@ def bridge_health():
     return payload
 
 
+def status_payload():
+    return {
+        "ok": True,
+        "mode": "REAL",
+        "enabled": REAL_SIGNAL_ENABLED,
+        "volume_configured": VOLUME > 0,
+        "hourly_cap_configured": MAX_PUBLISH_PER_HOUR > 0,
+        "bridge_configured": bool(BRIDGE_URL and PUBLISH_TOKEN),
+        "config_reason": config_reason(),
+        "live_handoff_enabled": False,
+    }
+
+
+def _cors(handler):
+    origin = handler.headers.get("Origin", "")
+    if ALLOWED_ORIGIN and origin == ALLOWED_ORIGIN:
+        handler.send_header("Access-Control-Allow-Origin", ALLOWED_ORIGIN)
+        handler.send_header("Vary", "Origin")
+
+
+class StatusHandler(BaseHTTPRequestHandler):
+    server_version = "LaithRealSignalStatus/1.0"
+
+    def log_message(self, fmt, *args):
+        return
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        _cors(self)
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path not in ("/", "/health", "/status"):
+            self.send_response(404)
+            self.end_headers()
+            return
+        body = json.dumps(status_payload(), separators=(",", ":")).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        _cors(self)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def start_status_server():
+    server = ThreadingHTTPServer(("0.0.0.0", STATUS_PORT), StatusHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
 def run_forever():
     print(
         "REAL_SIGNAL_START "
@@ -95,4 +157,5 @@ def run_forever():
 
 
 if __name__ == "__main__":
+    start_status_server()
     run_forever()
