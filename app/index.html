@@ -76,9 +76,10 @@ header{position:sticky;top:0;z-index:5;background:rgba(7,17,31,.92);backdrop-fil
 <nav><button class="active" onclick="showTab('home',this)"><span>⌂</span>الرئيسية</button><button onclick="showTab('analysis',this)"><span>📊</span>التحليل</button><button onclick="showTab('ai',this)"><span>🧠</span>AI</button><button onclick="showTab('trades',this)"><span>↗</span>الصفقات</button><button onclick="showTab('bot',this)"><span>🤖</span>البوت</button><button onclick="showTab('copier',this)"><span>⧉</span>الناسخ</button><button onclick="showTab('more',this)"><span>•••</span>المزيد</button></nav>
 <script>
 var REAL_CONTROL_BASE='https://laith-real-control-production.up.railway.app';
+var REAL_BRIDGE_BASE='https://laith-real-bridge-production.up.railway.app';
 var REAL_SIGNAL_BASE='https://laith-real-signal-production.up.railway.app';
 var REAL_CONTROL_STATUS_URL=REAL_CONTROL_BASE+'/status';
-var REAL_BRIDGE_STATUS_URL='https://laith-real-bridge-production.up.railway.app/status';
+var REAL_BRIDGE_STATUS_URL=REAL_BRIDGE_BASE+'/status';
 var REAL_SIGNAL_STATUS_URL=REAL_SIGNAL_BASE+'/status';
 var chartOffset=0,chartZoom=1,currentTF='M15',liveBars=[],livePrice=null,liveQuoteTime=0,serverSignal=null,serverMacro=null,serverNews=null;
 function tfMinutes(t){return {M5:5,M15:15,H1:60,H4:240,D1:1440}[t]||15}
@@ -197,12 +198,15 @@ async function toggleRealPreview(btn){
  btn.disabled=false;
 }
 async function realEmergencyStop(){
- if(!confirm('تأكيد إيقاف طوارئ REAL؟ هذا يمنع أي تنفيذ حقيقي جديد.'))return;
+ if(!confirm('تأكيد إيقاف طوارئ REAL؟ هذا يمنع أي تنفيذ حقيقي جديد ويلغي أي أمر Pending.'))return;
  var btn=document.getElementById('realEmergencyButton');
  if(btn)btn.disabled=true;
  try{
-  var r=await fetch(REAL_CONTROL_BASE+'/emergency-stop',{method:'POST'});
-  if(!r.ok)throw new Error('stop '+r.status);
+  var results=await Promise.all([
+   fetch(REAL_CONTROL_BASE+'/emergency-stop',{method:'POST'}),
+   fetch(REAL_BRIDGE_BASE+'/emergency-stop',{method:'POST'})
+  ]);
+  if(!results[0].ok||!results[1].ok)throw new Error('safe stop failed');
   await loadRealControlStatus();
   await loadRealExecutionStatus();
   if(btn){btn.classList.add('on');btn.textContent='⛔ REAL متوقف طوارئ';}
