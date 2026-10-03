@@ -571,7 +571,12 @@ def fetch_multitimeframe_values():
     try:
         status,payload=_json_request(f"{BRIDGE_URL}/market",timeout=6)
         if status==200 and payload.get("ok") is True:
-            feeds={"5m":payload.get("m5"),"15m":payload.get("m15"),"h4":payload.get("h4")}
+            feeds={
+                "5m":payload.get("m5"),
+                "15m":payload.get("m15"),
+                "h4":payload.get("h4"),
+                "intermarket":payload.get("intermarket") or {},
+            }
             if (isinstance(feeds["5m"],list) and len(feeds["5m"])>=30
                     and isinstance(feeds["15m"],list) and len(feeds["15m"])>=35
                     and isinstance(feeds["h4"],list) and len(feeds["h4"])>=30):
