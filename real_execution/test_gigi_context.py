@@ -38,6 +38,18 @@ class GigiContextTests(unittest.TestCase):
         out=gigi_context.evaluate("WAIT",{}, {}, {"regime":"UNKNOWN"})
         self.assertEqual(out["note"],"alignment_score_not_probability")
 
+    def test_liquidity_sweep_can_support_buy(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"SELL_SIDE_SWEEP","pressure":"BULLISH"},
+        )
+        self.assertGreater(out["score"],0)
+        self.assertIn("liquidity_supports_buy",out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
