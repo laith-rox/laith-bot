@@ -7,11 +7,12 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro):
+def evaluate(side, regime, intermarket, macro, liquidity=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
     macro=macro or {}
+    liquidity=liquidity or {}
 
     score=0
     reasons=[]
@@ -54,6 +55,21 @@ def evaluate(side, regime, intermarket, macro):
             score+=1; reasons.append("intermarket_supports_sell")
         elif inter_bias=="BULLISH_GOLD":
             score-=1; reasons.append("intermarket_conflicts_sell")
+
+    liquidity_pressure=str(liquidity.get("pressure") or "NEUTRAL").upper()
+    liquidity_event=str(liquidity.get("event") or "UNKNOWN").upper()
+    if side=="BUY":
+        if liquidity_pressure=="BULLISH":
+            score+=1; reasons.append("liquidity_supports_buy")
+        elif liquidity_pressure=="BEARISH":
+            score-=1; reasons.append("liquidity_conflicts_buy")
+    elif side=="SELL":
+        if liquidity_pressure=="BEARISH":
+            score+=1; reasons.append("liquidity_supports_sell")
+        elif liquidity_pressure=="BULLISH":
+            score-=1; reasons.append("liquidity_conflicts_sell")
+    if liquidity_event in ("BUY_SIDE_SWEEP","SELL_SIDE_SWEEP","TWO_SIDED_SWEEP"):
+        reasons.append("liquidity_event:"+liquidity_event.lower())
 
     macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
     if macro_regime=="HIGH_IMPACT_WINDOW":
