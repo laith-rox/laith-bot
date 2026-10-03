@@ -22,8 +22,12 @@ class GigiIntermarketTests(unittest.TestCase):
         self.assertGreater(out["bull_evidence"],0)
 
     def test_negative_relation_rise_pressures_gold(self):
-        gold=series([120-i for i in range(20)])
-        oil=series([50+0.5*i for i in range(20)])
+        oil_values=[100,101,100,101,100,101,100,101,100,101,
+                    100,101,100,101,100,101,100,101,102,103,104]
+        gold_values=[100,99,100,99,100,99,100,99,100,99,
+                     100,99,100,99,100,99,100,99,98,97,96]
+        gold=series(gold_values)
+        oil=series(oil_values)
         out=gigi_intermarket.analyze(gold,{"WTI":oil})
         self.assertEqual(out["details"]["WTI"]["relation"],"NEGATIVE")
         self.assertGreater(out["bear_evidence"],0)
