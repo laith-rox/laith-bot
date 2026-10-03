@@ -6,7 +6,8 @@ import gigi_event_response
 
 def rows(event_time, closes):
     out=[]
-    t0=event_time-timedelta(minutes=15*20)
+    # Twenty pre-event M5 bars = 100 minutes, not 300 minutes.
+    t0=event_time-timedelta(minutes=5*20)
     prev=100.0
     for i,c in enumerate(closes):
         t=t0+timedelta(minutes=5*i)
