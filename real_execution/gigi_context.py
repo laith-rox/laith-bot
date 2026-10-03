@@ -248,6 +248,17 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     if target_implied_relation=="FAR_BEYOND_1D_PROXY":
         reasons.append("target_far_beyond_options_1d_proxy")
 
+    options_skew=str(options.get("skew") or "UNKNOWN").upper()
+    options_oi=str(options.get("oi_state") or "UNKNOWN").upper()
+    if options_skew=="DOWNSIDE_HEDGE_BID":
+        reasons.append("options_downside_hedge_bid")
+    elif options_skew=="UPSIDE_CALL_BID":
+        reasons.append("options_upside_call_bid")
+    if options_oi=="PUT_HEAVY":
+        reasons.append("options_put_oi_heavy")
+    elif options_oi=="CALL_HEAVY":
+        reasons.append("options_call_oi_heavy")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
