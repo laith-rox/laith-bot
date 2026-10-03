@@ -83,6 +83,9 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         uncertainty.append("macro_unknown")
 
     macro_bundle=str(macro.get("event_bundle_state") or "NONE").upper()
+    macro_horizon=str(macro.get("calendar_horizon") or "UNKNOWN").upper()
+    if macro_horizon=="EXHAUSTED":
+        uncertainty.append("macro_calendar_horizon_exhausted")
     if macro_bundle=="MULTI_HIGH_RELEASE":
         uncertainty.append("macro_multi_high_release_bundle")
     elif macro_bundle=="MULTI_RELEASE":
