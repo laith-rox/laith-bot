@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.error import HTTPError, URLError
 
 import real_analysis_engine as engine
+import gigi_regime
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -190,6 +191,7 @@ def preview_payload(signal):
         "rsi": round(float(signal.get("rsi") or 0), 1),
         "h4": (signal.get("mtf") or {}).get("h4_bias"),
         "native_h4_reopen_ready": bool(signal.get("native_h4_reopen_ready", True)),
+        "regime": signal.get("regime") or {},
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
         "updated_at": time.time(),
@@ -342,6 +344,11 @@ def run_forever():
             signal = engine.recover_m15_continuation(signal, health)
             signal = engine.recover_strong_structural_entry(signal, health)
             signal["native_h4_reopen_ready"] = engine.native_h4_reopen_ready(feeds["h4"])
+            signal["regime"] = gigi_regime.classify(
+                engine.normalize_rows(feeds["5m"]),
+                engine.normalize_rows(feeds["15m"]),
+                engine.normalize_rows(feeds["h4"]),
+            )
 
             if _preview_enabled:
                 _latest_preview = preview_payload(signal)
