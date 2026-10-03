@@ -152,8 +152,9 @@ class RealSignalMirrorTests(unittest.TestCase):
         self.assertEqual(worker.engine._rows_after_last_gap(rows, 5 * 60), 2)
 
     def test_native_h4_aggregation_is_forbidden(self):
+        import multi_timeframe_structure as mtf
         with self.assertRaisesRegex(RuntimeError, "native_mt5_h4_required"):
-            worker.engine.aggregate_h4([])
+            mtf.aggregate_h4([])
 
 
 
