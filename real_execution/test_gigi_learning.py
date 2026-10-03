@@ -118,6 +118,14 @@ class GigiLearningTests(unittest.TestCase):
         )
 
 
+    def test_context_score_buckets_are_coarse_not_probabilities(self):
+        self.assertEqual(gigi_learning.context_score_bucket(4), "POS_STRONG")
+        self.assertEqual(gigi_learning.context_score_bucket(1), "POS")
+        self.assertEqual(gigi_learning.context_score_bucket(0), "ZERO")
+        self.assertEqual(gigi_learning.context_score_bucket(-1), "NEG")
+        self.assertEqual(gigi_learning.context_score_bucket(-4), "NEG_STRONG")
+
+
 
 if __name__ == "__main__":
     unittest.main()
