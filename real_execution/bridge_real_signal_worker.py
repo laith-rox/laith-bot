@@ -34,6 +34,7 @@ ALLOWED_ORIGIN = os.getenv(
     "https://laith-app-production.up.railway.app",
 ).strip()
 
+_preview_enabled = REAL_ANALYSIS_PREVIEW_ENABLED
 _latest_preview = {
     "available": False,
     "reason": "preview_disabled",
@@ -76,7 +77,7 @@ def config_reason():
 
 
 def analysis_reason():
-    if not REAL_ANALYSIS_PREVIEW_ENABLED:
+    if not _preview_enabled:
         return "preview_disabled"
     if not BRIDGE_URL:
         return "preview_bridge_not_configured"
@@ -248,7 +249,7 @@ def status_payload():
     return {
         "ok": True,
         "mode": "REAL",
-        "analysis_preview_enabled": REAL_ANALYSIS_PREVIEW_ENABLED,
+        "analysis_preview_enabled": _preview_enabled,
         "enabled": REAL_SIGNAL_ENABLED,
         "volume_configured": VOLUME > 0,
         "hourly_cap_configured": MAX_PUBLISH_PER_HOUR > 0,
@@ -276,7 +277,7 @@ class StatusHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         _cors(self)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
@@ -286,6 +287,46 @@ class StatusHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         body = json.dumps(status_payload(), separators=(",", ":")).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        _cors(self)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        global _preview_enabled, _latest_preview
+        if self.path != "/preview":
+            self.send_response(404)
+            self.end_headers()
+            return
+        if not ALLOWED_ORIGIN or self.headers.get("Origin", "") != ALLOWED_ORIGIN:
+            body = b'{"ok":false,"reason":"trusted_app_origin_required"}'
+            self.send_response(403)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0") or 0)
+            data = json.loads(self.rfile.read(size).decode() or "{}")
+        except Exception:
+            data = {}
+        _preview_enabled = bool(data.get("enabled"))
+        if not _preview_enabled:
+            _latest_preview = {
+                "available": False,
+                "reason": "preview_disabled",
+                "updated_at": time.time(),
+            }
+        body = json.dumps({
+            "ok": True,
+            "analysis_preview_enabled": _preview_enabled,
+            "live_handoff_enabled": False,
+            "signal_enabled": False,
+        }, separators=(",", ":")).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
@@ -305,7 +346,7 @@ def run_forever():
     global _latest_preview
     print(
         "REAL_SIGNAL_START "
-        f"preview_enabled={REAL_ANALYSIS_PREVIEW_ENABLED} "
+        f"preview_enabled={_preview_enabled} "
         f"enabled={REAL_SIGNAL_ENABLED} volume_configured={VOLUME > 0} "
         f"hourly_cap_configured={MAX_PUBLISH_PER_HOUR > 0} "
         "live_handoff_enabled=False",
