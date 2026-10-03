@@ -17,6 +17,7 @@ class GigiQualityTests(unittest.TestCase):
             {"as_of":"2026-10-02"},
             {"regime":"CLEAR","calendar_error":None},
             now=NOW,
+            local_premium={"as_of":"2026-09-25"},
         )
         self.assertEqual(out["quality"],"HIGH")
         self.assertEqual(out["stale_sources"],[])
@@ -30,6 +31,7 @@ class GigiQualityTests(unittest.TestCase):
             {"as_of":"2026-10-02"},
             {"regime":"UNKNOWN","calendar_error":"calendar_unavailable"},
             now=NOW,
+            local_premium={},
         )
         self.assertEqual(out["quality"],"LOW")
         self.assertIn("cftc",out["stale_sources"])
@@ -44,6 +46,7 @@ class GigiQualityTests(unittest.TestCase):
             {"as_of":"2026-10-02"},
             {"regime":"CLEAR"},
             now=NOW,
+            local_premium={"as_of":"2026-09-25"},
         )
         self.assertLess(out["ages_days"]["gvz"],2)
         self.assertLess(out["ages_days"]["yields"],2)
@@ -57,9 +60,24 @@ class GigiQualityTests(unittest.TestCase):
             {"as_of":"2026-10-02"},
             {"regime":"HORIZON_EXHAUSTED","calendar_horizon":"EXHAUSTED","calendar_error":None},
             now=NOW,
+            local_premium={"as_of":"2026-09-25"},
         )
         self.assertIn("macro",out["missing_sources"])
         self.assertNotIn("macro",out["available_sources"])
+
+
+    def test_stale_local_premium_is_reported(self):
+        out=gigi_quality.assess(
+            {"report_date":"September 29, 2026"},
+            {"as_of":"2026-09-25"},
+            {"gvz_date":"10/02/2026"},
+            {"as_of":"2026-10-03 03:43:53"},
+            {"as_of":"2026-10-02"},
+            {"regime":"CLEAR"},
+            now=NOW,
+            local_premium={"as_of":"2026-08-01"},
+        )
+        self.assertIn("local_premium",out["stale_sources"])
 
 
 
