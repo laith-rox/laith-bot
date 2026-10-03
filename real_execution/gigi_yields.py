@@ -95,13 +95,13 @@ def parse(nominal_xml, real_xml, now=None):
     age_days = max(0, (now_dt.date() - latest_date.date()).days)
 
     real_1d = _change_bps(real, "TC_10YEAR", 1)
-    real_5d = _change_bps(real, "TC_10YEAR", min(5, len(real)-1))
+    real_5d = _change_bps(real, "TC_10YEAR", 5)
     two_1d = _change_bps(nominal, "BC_2YEAR", 1)
-    two_5d = _change_bps(nominal, "BC_2YEAR", min(5, len(nominal)-1))
+    two_5d = _change_bps(nominal, "BC_2YEAR", 5)
     ten_1d = _change_bps(nominal, "BC_10YEAR", 1)
 
     if real_5d is None:
-        real_regime = "UNKNOWN"
+        real_regime = "INSUFFICIENT_HISTORY"
     elif real_5d >= 10:
         real_regime = "RISING_REAL_YIELD"
     elif real_5d <= -10:
@@ -110,7 +110,7 @@ def parse(nominal_xml, real_xml, now=None):
         real_regime = "STABLE_REAL_YIELD"
 
     if two_5d is None:
-        policy_regime = "UNKNOWN"
+        policy_regime = "INSUFFICIENT_HISTORY"
     elif two_5d >= 10:
         policy_regime = "RISING_FRONT_END"
     elif two_5d <= -10:
@@ -126,6 +126,8 @@ def parse(nominal_xml, real_xml, now=None):
     return {
         "as_of": latest_date.date().isoformat(),
         "age_days": age_days,
+        "real_history_sessions": len([x for x in real if x.get("TC_10YEAR") is not None]),
+        "nominal_history_sessions": len([x for x in nominal if x.get("BC_2YEAR") is not None]),
         "nominal_2y": n.get("BC_2YEAR"),
         "nominal_10y": n.get("BC_10YEAR"),
         "real_10y": r.get("TC_10YEAR"),
