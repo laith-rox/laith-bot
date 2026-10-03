@@ -112,6 +112,9 @@ def normalize_rows(values):
 
 MAX_CLOSED_BAR_AGE_SECONDS = {"5m": 15 * 60, "15m": 40 * 60, "h4": 9 * 60 * 60}
 REOPEN_MIN_CLOSED_BARS = {"5m": 3, "15m": 1, "h4": 1}
+# H4 must be broker-native and the latest H4 candle used by analysis must be closed.
+# We never synthesize H4 from smaller candles in REAL mode.
+REQUIRE_NATIVE_H4 = True
 EXPECTED_BAR_SECONDS = {"5m": 5 * 60, "15m": 15 * 60, "h4": 4 * 60 * 60}
 
 
@@ -531,8 +534,8 @@ def fetch_market_values_tf(interval, ranges):
 
 
 def fetch_multitimeframe_values():
-    # Primary source: the exact JustMarkets MT5 DEMO candles relayed by the EA.
-    # This keeps support/resistance aligned with the chart that actually executes.
+    # REAL source of truth: exact JustMarkets MT5 candles relayed by the bridge.
+    # H4 is broker-native; aggregation from H1/M15/M5 is forbidden.
     try:
         status,payload=_json_request(f"{BRIDGE_URL}/market",timeout=6)
         if status==200 and payload.get("ok") is True:
@@ -542,9 +545,9 @@ def fetch_multitimeframe_values():
                     and isinstance(feeds["h4"],list) and len(feeds["h4"])>=30):
                 return feeds
     except Exception as exc:
-        print(f"broker_market_feed_fallback reason={type(exc).__name__}:{exc}",flush=True)
-    # Official structure must use broker-native H4. Do not synthesize H4 from H1.
-    raise RuntimeError("broker_h4_direct_required")
+        print(f"broker_market_feed_unavailable reason={type(exc).__name__}:{exc}",flush=True)
+    # Fail closed: REAL never falls back to synthetic or cached H4 for entries.
+    raise RuntimeError("broker_native_h4_required")
 
 
 def adaptive_main_target_r(side, reference, risk_distance, mtf, confidence=0):
