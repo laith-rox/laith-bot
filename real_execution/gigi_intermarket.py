@@ -7,6 +7,21 @@ from __future__ import annotations
 
 import math
 
+FAMILY_MAP = {
+    "WTI": "ENERGY",
+    "BRENT": "ENERGY",
+    "EURUSD": "USD_FX",
+    "USDJPY": "USD_FX",
+    "US500": "EQUITIES",
+    "US100": "EQUITIES",
+    "XAGUSD": "METALS",
+}
+
+
+def _family(name):
+    return FAMILY_MAP.get(str(name or "").upper(), "OTHER:" + str(name or "").upper())
+
+
 
 def _closes(rows):
     out=[]
@@ -51,8 +66,7 @@ def analyze(gold_m15, intermarket):
     gold=_closes(gold_m15)
     gold_ret=_returns(gold)
     details={}
-    bull=0.0
-    bear=0.0
+    family_votes={}
 
     for name,rows in (intermarket or {}).items():
         vals=_closes(rows)
@@ -61,11 +75,10 @@ def analyze(gold_m15, intermarket):
         impulse=_impulse(vals,3)
         strength=min(1.0,abs(corr))
         aligned_effect=corr*impulse
+        contribution=0.0
         if abs(corr)>=0.30 and abs(impulse)>1e-8:
-            if aligned_effect>0:
-                bull += strength
-            elif aligned_effect<0:
-                bear += strength
+            contribution=strength if aligned_effect>0 else (-strength if aligned_effect<0 else 0.0)
+            family_votes.setdefault(_family(name),[]).append(contribution)
         details[name]={
             "correlation": round(float(corr),3),
             "impulse_3bar_pct": round(float(impulse*100.0),3),
@@ -74,7 +87,26 @@ def analyze(gold_m15, intermarket):
                 "NEGATIVE" if corr<=-0.30 else
                 "WEAK"
             ),
+            "family": _family(name),
+            "signed_contribution": round(float(contribution),3),
         }
+
+    # Related markets are one evidence family. WTI+Brent or US500+US100 must
+    # not count as two independent confirmations. Conflicting members within
+    # the same family average toward zero.
+    family_details={}
+    bull=0.0
+    bear=0.0
+    for family,votes in family_votes.items():
+        family_vote=max(-1.0,min(1.0,sum(votes)/len(votes))) if votes else 0.0
+        family_details[family]={
+            "vote": round(float(family_vote),3),
+            "members": len(votes),
+        }
+        if family_vote>0:
+            bull+=family_vote
+        elif family_vote<0:
+            bear+=abs(family_vote)
 
     net=bull-bear
     if net>=0.75:
@@ -88,6 +120,8 @@ def analyze(gold_m15, intermarket):
         "bias": bias,
         "bull_evidence": round(bull,3),
         "bear_evidence": round(bear,3),
+        "net_family_evidence": round(net,3),
+        "family_details": family_details,
         "details": details,
-        "method": "rolling_correlation_dynamic",
+        "method": "rolling_correlation_family_deduplicated",
     }
