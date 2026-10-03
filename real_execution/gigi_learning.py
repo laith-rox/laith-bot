@@ -30,6 +30,8 @@ DIMENSIONS = (
     "options_gamma_context",
     "real_yield_regime",
     "policy_regime",
+    "stop_geometry",
+    "stop_noise_exposure",
     "thesis_state",
     "session",
     "strength",
