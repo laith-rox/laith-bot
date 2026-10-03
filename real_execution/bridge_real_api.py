@@ -44,7 +44,11 @@ _items: dict[str, dict] = {}
 _client_state: dict | None = None
 _market_state: dict | None = None
 _client_last_poll: float | None = None
-_emergency_stop = not (REAL_ARMED and EXECUTION_ENABLED)
+# Restart latch: a REAL bridge process always starts in fail-closed emergency
+# state. A crash/redeploy can therefore never silently forget a prior stop.
+# This candidate intentionally contains no network endpoint that clears it.
+_restart_latched = True
+_emergency_stop = True
 _key_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 
@@ -212,6 +216,7 @@ def _status():
         "armed": REAL_ARMED,
         "execution_enabled": EXECUTION_ENABLED,
         "emergency_stop": bool(_emergency_stop),
+        "restart_latched": bool(_restart_latched),
         "configured": _configured(),
         "auth_configured": bool(CLIENT_TOKEN and PUBLISH_TOKEN and HMAC_SECRET),
         "client_auth_configured": bool(CLIENT_TOKEN),
