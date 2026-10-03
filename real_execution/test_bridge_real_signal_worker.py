@@ -159,12 +159,18 @@ class RealSignalMirrorTests(unittest.TestCase):
 
     def test_session_windows_are_fail_closed(self):
         # Bar timestamps are UTC; Palestine is UTC+3 in this strategy clock.
-        main_ok = {"mode": "MAIN", "bar": "2026-10-03T01:30:00Z"}
-        main_late = {"mode": "MAIN", "bar": "2026-10-03T04:00:00Z"}
-        sniper_ok = {"mode": "SNIPER", "bar": "2026-10-03T16:00:00Z"}
+        prep_only = {"mode": "MAIN", "bar": "2026-10-03T01:30:00Z"}      # 04:30 Palestine
+        london_ok = {"mode": "MAIN", "bar": "2026-10-03T07:00:00Z"}      # 10:00 Palestine
+        us_ok = {"mode": "MAIN", "bar": "2026-10-03T12:20:00Z"}          # 15:20 Palestine
+        main_closed = {"mode": "MAIN", "bar": "2026-10-03T10:00:00Z"}    # 13:00 Palestine
+        sniper_ok = {"mode": "SNIPER", "bar": "2026-10-03T16:00:00Z"}    # 19:00 Palestine
         sniper_closed = {"mode": "SNIPER", "bar": "2026-10-03T10:00:00Z"}
-        self.assertIsNone(worker.session_block_reason(main_ok))
-        self.assertEqual(worker.session_block_reason(main_late), "main_session_closed")
+        self.assertEqual(worker.session_block_reason(prep_only), "main_session_closed")
+        self.assertIsNone(worker.session_block_reason(london_ok))
+        self.assertEqual(worker.main_session_name(worker.signal_local_minute(london_ok)), "LONDON_MAIN")
+        self.assertIsNone(worker.session_block_reason(us_ok))
+        self.assertEqual(worker.main_session_name(worker.signal_local_minute(us_ok)), "US_MAIN")
+        self.assertEqual(worker.session_block_reason(main_closed), "main_session_closed")
         self.assertIsNone(worker.session_block_reason(sniper_ok))
         self.assertEqual(worker.session_block_reason(sniper_closed), "sniper_session_closed")
 
