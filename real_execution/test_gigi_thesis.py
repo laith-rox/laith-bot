@@ -106,6 +106,35 @@ class GigiThesisTests(unittest.TestCase):
         self.assertNotIn("same_direction_exposure_high",out["conflicts"])
 
 
+    def test_flipping_intermarket_relationship_is_uncertainty(self):
+        out=gigi_thesis.audit(
+            {"side":"BUY","risk_distance":3.0},
+            {"h4_bias":"UP"},
+            {"bias":"NEUTRAL","relationship_state":"FLIPPING_PRESENT"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+        )
+        self.assertIn("intermarket_relationship_flipping",out["uncertainty"])
+        self.assertNotIn("intermarket_relationship_flipping",out["conflicts"])
+
+    def test_options_convexity_is_uncertainty_not_direction(self):
+        out=gigi_thesis.audit(
+            {"side":"SELL","risk_distance":3.0},
+            {"h4_bias":"DOWN"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+            options={
+                "skew":"BALANCED",
+                "oi_state":"CALL_HEAVY",
+                "gross_gamma_oi_context":"MODERATE_NEAR_SPOT_CONVEXITY",
+            },
+        )
+        self.assertIn("options_call_oi_heavy",out["uncertainty"])
+        self.assertIn("options_near_spot_convexity_moderate",out["uncertainty"])
+        self.assertNotIn("options_call_oi_heavy",out["conflicts"])
+
+
 
 if __name__=="__main__":
     unittest.main()
