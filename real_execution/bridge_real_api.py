@@ -110,6 +110,10 @@ def _validate_market_payload(data: dict, now=None):
     feeds = {k: data.get(k) for k in ("m5", "m15", "h4")}
     if not all(isinstance(v, list) and len(v) >= 30 for v in feeds.values()):
         return False, "market_rows_required"
+    if str(data.get("h4_source") or "") != "MT5_NATIVE_TIMEFRAME_H4":
+        return False, "native_h4_required"
+    if str(data.get("source_clock") or "") != "UTC_EPOCH":
+        return False, "utc_source_clock_required"
     source_age = _market_source_age(data, now)
     if source_age is None:
         return False, "market_source_timestamp_required"
@@ -429,6 +433,8 @@ class Handler(BaseHTTPRequestHandler):
                 "m15": data.get("m15"),
                 "h1": data.get("h1"),
                 "h4": data.get("h4"),
+                "h4_source": data.get("h4_source"),
+                "source_clock": data.get("source_clock"),
                 "source_timestamp": data.get("source_timestamp"),
                 "received_at": time.time(),
             }
