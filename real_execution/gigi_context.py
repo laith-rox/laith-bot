@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -21,6 +21,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     yields=yields or {}
     event_response=event_response or {}
     session_profile=session_profile or {}
+    benchmark=benchmark or {}
 
     score=0
     reasons=[]
@@ -228,6 +229,13 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif session_range_event=="ACCEPTED_BELOW":
         reasons.append("session_range_acceptance_below")
 
+    benchmark_phase=str(benchmark.get("phase") or "UNKNOWN").upper()
+    nearest_benchmark=str(benchmark.get("nearest_auction") or "UNKNOWN").upper()
+    if benchmark_phase=="PRE_AUCTION":
+        reasons.append("lbma_benchmark_pre_auction")
+    elif benchmark_phase=="AUCTION_OR_IMMEDIATE_POST":
+        reasons.append("lbma_benchmark_auction_window")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -260,6 +268,8 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "session_vwap_relation": session_vwap,
         "session_extension": session_extension,
         "session_range_event": session_range_event,
+        "benchmark_phase": benchmark_phase,
+        "nearest_benchmark": nearest_benchmark,
         "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
