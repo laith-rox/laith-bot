@@ -8,7 +8,7 @@ from __future__ import annotations
 
 def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
           positioning=None, etf=None, crowding=None, options=None, yields=None,
-          quality=None, execution_quality=None):
+          quality=None, execution_quality=None, exposure=None):
     signal=signal or {}
     regime=regime or {}
     intermarket=intermarket or {}
@@ -21,6 +21,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     yields=yields or {}
     quality=quality or {}
     execution_quality=execution_quality or {}
+    exposure=exposure or {}
 
     side=str(signal.get("side") or "WAIT").upper()
     support=[]
@@ -88,6 +89,17 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         uncertainty.append("broker_tick_stale")
     elif execution_state=="BLOCKED_TERMINAL":
         uncertainty.append("terminal_autotrading_off")
+
+    stacking_state=str(exposure.get("stacking_state") or "CLEAR").upper()
+    book_state=str(exposure.get("book_state") or "FLAT").upper()
+    if stacking_state=="HIGH_CONCENTRATION":
+        uncertainty.append("same_direction_exposure_high")
+    elif stacking_state=="CONCENTRATED":
+        uncertainty.append("same_direction_exposure_concentrated")
+    elif stacking_state=="LAYERED":
+        uncertainty.append("same_direction_exposure_layered")
+    if book_state=="TWO_SIDED":
+        uncertainty.append("two_sided_position_book")
 
     quality_state=str(quality.get("quality") or "UNKNOWN").upper()
     if quality_state=="LOW":
