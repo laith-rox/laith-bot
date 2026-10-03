@@ -41,8 +41,10 @@ def _returns(values):
     return out
 
 
-def _corr(a,b):
+def _corr(a,b,window=None):
     n=min(len(a),len(b))
+    if window is not None:
+        n=min(n,int(window))
     if n<8:
         return 0.0
     a=a[-n:]; b=b[-n:]
@@ -71,20 +73,42 @@ def analyze(gold_m15, intermarket):
     for name,rows in (intermarket or {}).items():
         vals=_closes(rows)
         rets=_returns(vals)
-        corr=_corr(gold_ret,rets)
+        corr_short=_corr(gold_ret,rets,24)
+        corr_long=_corr(gold_ret,rets,64)
         impulse=_impulse(vals,3)
-        strength=min(1.0,abs(corr))
-        aligned_effect=corr*impulse
+
+        if corr_short>=0.25 and corr_long>=0.25:
+            stability="STABLE_POSITIVE"
+        elif corr_short<=-0.25 and corr_long<=-0.25:
+            stability="STABLE_NEGATIVE"
+        elif abs(corr_short)>=0.25 and abs(corr_long)>=0.25 and corr_short*corr_long<0:
+            stability="FLIPPING"
+        elif abs(corr_short)>=0.35 and abs(corr_long)<0.20:
+            stability="SHORT_ONLY"
+        else:
+            stability="WEAK"
+
+        # Only stable relationships vote. A fresh short-window correlation
+        # spike is recorded, but cannot masquerade as durable cross-market
+        # confirmation.
+        stable_corr=0.0
+        if stability in ("STABLE_POSITIVE","STABLE_NEGATIVE"):
+            stable_corr=(corr_short+corr_long)/2.0
+        strength=min(1.0,abs(stable_corr))
+        aligned_effect=stable_corr*impulse
         contribution=0.0
-        if abs(corr)>=0.30 and abs(impulse)>1e-8:
+        if abs(stable_corr)>=0.30 and abs(impulse)>1e-8:
             contribution=strength if aligned_effect>0 else (-strength if aligned_effect<0 else 0.0)
             family_votes.setdefault(_family(name),[]).append(contribution)
         details[name]={
-            "correlation": round(float(corr),3),
+            "correlation": round(float(corr_short),3),
+            "correlation_short": round(float(corr_short),3),
+            "correlation_long": round(float(corr_long),3),
+            "relationship_stability": stability,
             "impulse_3bar_pct": round(float(impulse*100.0),3),
             "relation": (
-                "POSITIVE" if corr>=0.30 else
-                "NEGATIVE" if corr<=-0.30 else
+                "POSITIVE" if stable_corr>=0.30 else
+                "NEGATIVE" if stable_corr<=-0.30 else
                 "WEAK"
             ),
             "family": _family(name),
@@ -116,12 +140,23 @@ def analyze(gold_m15, intermarket):
     else:
         bias="NEUTRAL"
 
+    states=[str(v.get("relationship_stability") or "WEAK") for v in details.values()]
+    if any(s=="FLIPPING" for s in states):
+        relationship_state="FLIPPING_PRESENT"
+    elif any(s.startswith("STABLE_") for s in states):
+        relationship_state="STABLE_PRESENT"
+    elif any(s=="SHORT_ONLY" for s in states):
+        relationship_state="SHORT_ONLY_PRESENT"
+    else:
+        relationship_state="WEAK"
+
     return {
         "bias": bias,
         "bull_evidence": round(bull,3),
         "bear_evidence": round(bear,3),
         "net_family_evidence": round(net,3),
+        "relationship_state": relationship_state,
         "family_details": family_details,
         "details": details,
-        "method": "rolling_correlation_family_deduplicated",
+        "method": "dual_window_correlation_family_deduplicated",
     }
