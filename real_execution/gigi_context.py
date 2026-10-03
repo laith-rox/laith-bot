@@ -76,20 +76,20 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         reasons.append("liquidity_event:"+liquidity_event.lower())
 
     position_regime=str(positioning.get("regime") or "UNKNOWN").upper()
-    crowding=str(positioning.get("crowding") or "UNKNOWN").upper()
+    positioning_crowding=str(positioning.get("crowding") or "UNKNOWN").upper()
     if side=="BUY":
         if position_regime in ("LONG_BIASED_ADDING","SHORT_BIASED_COVERING"):
             score+=1; reasons.append("positioning_supports_buy")
         elif position_regime=="SHORT_BIASED_ADDING":
             score-=1; reasons.append("positioning_conflicts_buy")
-        if crowding=="ELEVATED_LONG":
+        if positioning_crowding=="ELEVATED_LONG":
             score-=1; reasons.append("long_crowding_caution")
     elif side=="SELL":
         if position_regime in ("SHORT_BIASED_ADDING","LONG_BIASED_DELEVERAGING"):
             score+=1; reasons.append("positioning_supports_sell")
         elif position_regime=="LONG_BIASED_ADDING":
             score-=1; reasons.append("positioning_conflicts_sell")
-        if crowding=="ELEVATED_SHORT":
+        if positioning_crowding=="ELEVATED_SHORT":
             score-=1; reasons.append("short_crowding_caution")
 
     macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
