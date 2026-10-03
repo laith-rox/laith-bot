@@ -270,3 +270,29 @@ Research conclusion:
   clean forward observations.
 - Any learned weight must survive chronological out-of-sample validation before
   it can even be suggested as a shadow weight.
+
+
+## Session structure added
+
+- London and New York session anchors are DST-aware, not fixed UTC offsets.
+- Gigi now tracks a broker-native M5 tick-volume-weighted VWAP proxy from:
+  - London 08:00 local;
+  - New York 08:20 local.
+- Tick volume is explicitly treated as a broker activity proxy, not centralized
+  exchange volume.
+- Overnight range, London opening range and New York opening range are tracked
+  for acceptance versus failed-break behaviour.
+- A failed break above/below a session range is context only; it cannot choose
+  BUY/SELL by itself.
+- Distance from session VWAP is normalized by ATR so an identical dollar
+  distance is not treated the same in quiet and explosive regimes.
+
+## Macro-event learning added
+
+- High/medium USD events are now grouped by class so their behaviour is learned
+  separately: CPI, PCE, PPI, LABOR_NFP, FOMC_FED, LABOR_OTHER, ISM,
+  RETAIL_SALES, GDP, PMI, SENTIMENT and OTHER.
+- PRE_EVENT, SHOCK_0_5M and DIGESTION_5_15M remain separate dimensions.
+- This allows future shadow validation to answer questions such as whether a
+  first NFP spike behaves differently from CPI or FOMC in this broker feed,
+  instead of assuming all red-folder news is the same.
