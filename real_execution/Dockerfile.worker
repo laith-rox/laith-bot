@@ -2,6 +2,6 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY bridge_real_signal_worker.py test_bridge_real_signal_worker.py technical_confirmation.py ./
 COPY real_analysis_engine.py adaptive_sniper_engine.py multi_timeframe_structure.py technical_confirmation.py ./
-RUN python -m unittest -v test_bridge_real_signal_worker.py
+RUN python -m unittest -v test_bridge_real_signal_worker.py test_gigi_profit_protection.py
 EXPOSE 8080
 CMD ["python","-u","bridge_real_signal_worker.py"]
