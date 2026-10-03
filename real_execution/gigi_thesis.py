@@ -7,7 +7,8 @@ from __future__ import annotations
 
 
 def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
-          positioning=None, etf=None, crowding=None, options=None, yields=None, quality=None):
+          positioning=None, etf=None, crowding=None, options=None, yields=None,
+          quality=None, execution_quality=None):
     signal=signal or {}
     regime=regime or {}
     intermarket=intermarket or {}
@@ -19,6 +20,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     options=options or {}
     yields=yields or {}
     quality=quality or {}
+    execution_quality=execution_quality or {}
 
     side=str(signal.get("side") or "WAIT").upper()
     support=[]
@@ -78,6 +80,14 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         uncertainty.append("options_downside_hedging")
     elif skew=="UPSIDE_CALL_BID":
         uncertainty.append("options_upside_call_demand")
+
+    execution_state=str(execution_quality.get("quality") or "UNKNOWN").upper()
+    if execution_state in ("WIDE","EXTREME"):
+        uncertainty.append("broker_spread_"+execution_state.lower())
+    elif execution_state=="STALE_TICK":
+        uncertainty.append("broker_tick_stale")
+    elif execution_state=="BLOCKED_TERMINAL":
+        uncertainty.append("terminal_autotrading_off")
 
     quality_state=str(quality.get("quality") or "UNKNOWN").upper()
     if quality_state=="LOW":
