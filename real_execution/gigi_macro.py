@@ -93,17 +93,34 @@ def context(at_timestamp=None, events=None, error=None):
         if delta >= 0:
             future.append(dict(event, seconds_to_event=round(delta, 1)))
 
+    phase = "NORMAL"
     if near_high:
         regime = "HIGH_IMPACT_WINDOW"
+        delta = float(near_high[0]["seconds_to_event"])
+        if 0 < delta <= PRE_EVENT_SECONDS:
+            phase = "PRE_HIGH_EVENT"
+        elif -5 * 60 <= delta <= 0:
+            phase = "HIGH_EVENT_SHOCK_0_5M"
+        else:
+            phase = "HIGH_EVENT_DIGESTION_5_15M"
     elif near_medium:
         regime = "MEDIUM_IMPACT_WINDOW"
+        delta = float(near_medium[0]["seconds_to_event"])
+        if delta > 0:
+            phase = "PRE_MEDIUM_EVENT"
+        elif delta >= -5 * 60:
+            phase = "MEDIUM_EVENT_SHOCK_0_5M"
+        else:
+            phase = "MEDIUM_EVENT_DIGESTION_5_15M"
     elif error and not events:
         regime = "UNKNOWN"
+        phase = "UNKNOWN"
     else:
         regime = "CLEAR"
 
     return {
         "regime": regime,
+        "phase": phase,
         "near_high": near_high[:5],
         "near_medium": near_medium[:5],
         "next_events": future[:5],
