@@ -6,6 +6,8 @@ opportunity-cost layer, never an intraday entry trigger.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import csv
+import io
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -17,6 +19,7 @@ except Exception:
 
 NOMINAL_URL = "https://home.treasury.gov/sites/default/files/interest-rates/yield.xml"
 REAL_URL = "https://home.treasury.gov/sites/default/files/interest-rates/real_yield.xml"
+CSV_BASE = "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv"
 CACHE_SECONDS = 30 * 60
 _cache = {"fetched_at": 0.0, "value": None}
 
@@ -75,6 +78,43 @@ def parse_records(xml_text, date_tag, field_tags):
     return records
 
 
+def _year_csv_url(year, data_type):
+    return (
+        f"{CSV_BASE}/{int(year)}/all?_format=csv"
+        f"&field_tdr_date_value={int(year)}&type={data_type}"
+    )
+
+
+def _csv_records(text, real=False):
+    rows=[]
+    for row in csv.DictReader(io.StringIO(str(text))):
+        raw_date=(row.get("Date") or row.get("DATE") or "").strip()
+        if not raw_date:
+            continue
+        try:
+            dt=datetime.strptime(raw_date,"%m/%d/%Y").replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if real:
+            ten=_to_float(row.get("10 YR") or row.get("10 Yr") or row.get("10 yr"))
+            rows.append({"date":dt,"TC_10YEAR":ten})
+        else:
+            two=_to_float(row.get("2 Yr") or row.get("2 YR") or row.get("2 yr"))
+            ten=_to_float(row.get("10 Yr") or row.get("10 YR") or row.get("10 yr"))
+            rows.append({"date":dt,"BC_2YEAR":two,"BC_10YEAR":ten})
+    rows=[r for r in rows if (r.get("TC_10YEAR") is not None if real else (r.get("BC_2YEAR") is not None or r.get("BC_10YEAR") is not None))]
+    rows.sort(key=lambda x:x["date"])
+    return rows
+
+
+def parse_csv(nominal_csv, real_csv, now=None):
+    nominal=_csv_records(nominal_csv,real=False)
+    real=_csv_records(real_csv,real=True)
+    if len(nominal) < 2 or len(real) < 2:
+        raise ValueError("treasury_history_too_short")
+    return _context_from_records(nominal,real,now=now)
+
+
 def _change_bps(records, field, periods):
     good = [r for r in records if r.get(field) is not None]
     if len(good) <= periods:
@@ -87,7 +127,10 @@ def parse(nominal_xml, real_xml, now=None):
     real = parse_records(real_xml, "TIPS_CURVE_DATE", {"TC_10YEAR"})
     if len(nominal) < 2 or len(real) < 2:
         raise ValueError("treasury_history_too_short")
+    return _context_from_records(nominal, real, now=now)
 
+
+def _context_from_records(nominal, real, now=None):
     n = nominal[-1]
     r = real[-1]
     latest_date = min(n["date"], r["date"])
@@ -167,22 +210,32 @@ def fetch(now=None, session=None):
     now=time.time() if now is None else float(now)
     if _cache["value"] is not None and now-float(_cache["fetched_at"] or 0) <= CACHE_SECONDS:
         return dict(_cache["value"])
+    year=datetime.fromtimestamp(now,timezone.utc).year
     try:
-        nominal=_get_text(NOMINAL_URL,session=session)
-        real=_get_text(REAL_URL,session=session)
-        value=parse(nominal,real,now=now)
+        nominal_csv=_get_text(_year_csv_url(year,"daily_treasury_yield_curve"),session=session)
+        real_csv=_get_text(_year_csv_url(year,"daily_treasury_real_yield_curve"),session=session)
+        value=parse_csv(nominal_csv,real_csv,now=now)
+        value["source"]="US_TREASURY_OFFICIAL_YEAR_CSV"
         value["error"]=None
         _cache.update({"fetched_at":now,"value":value})
         return dict(value)
-    except Exception as exc:
-        if _cache["value"] is not None:
-            value=dict(_cache["value"])
-            value["error"]="refresh_failed"
-            return value
-        return {
-            "real_yield_regime":"UNKNOWN",
-            "policy_regime":"UNKNOWN",
-            "error":type(exc).__name__,
-            "source":"US_TREASURY_OFFICIAL_XML",
-            "directional_signal":False,
-        }
+    except Exception:
+        try:
+            nominal=_get_text(NOMINAL_URL,session=session)
+            real=_get_text(REAL_URL,session=session)
+            value=parse(nominal,real,now=now)
+            value["error"]=None
+            _cache.update({"fetched_at":now,"value":value})
+            return dict(value)
+        except Exception as exc:
+            if _cache["value"] is not None:
+                value=dict(_cache["value"])
+                value["error"]="refresh_failed"
+                return value
+            return {
+                "real_yield_regime":"UNKNOWN",
+                "policy_regime":"UNKNOWN",
+                "error":type(exc).__name__,
+                "source":"US_TREASURY_OFFICIAL",
+                "directional_signal":False,
+            }
