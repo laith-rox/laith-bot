@@ -12,6 +12,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 from urllib.error import HTTPError, URLError
 
 import real_analysis_engine as engine
@@ -88,6 +89,34 @@ def bridge_health():
     raise RuntimeError(f"bridge_health_unavailable:{last_error}")
 
 
+PALESTINE_OFFSET = timedelta(hours=3)
+MAIN_START_MINUTE = 4 * 60 + 30
+MAIN_END_MINUTE = 7 * 60
+SNIPER_START_MINUTE = 19 * 60
+SNIPER_END_MINUTE = 4 * 60 + 30
+
+
+def signal_local_minute(signal):
+    """Resolve the closed broker candle into Palestine local clock time."""
+    raw = str(signal.get("bar") or "")
+    if not raw:
+        raise RuntimeError("signal_bar_missing")
+    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local = dt.astimezone(timezone.utc) + PALESTINE_OFFSET
+    return local.hour * 60 + local.minute
+
+
+def session_block_reason(signal):
+    """Fail closed when a signal mode is outside its approved session."""
+    mode = "MAIN" if str(signal.get("mode") or "").upper() == "MAIN" else "SNIPER"
+    minute = signal_local_minute(signal)
+    if mode == "MAIN":
+        return None if MAIN_START_MINUTE <= minute < MAIN_END_MINUTE else "main_session_closed"
+    return None if (minute >= SNIPER_START_MINUTE or minute < SNIPER_END_MINUTE) else "sniper_session_closed"
+
+
 def execution_block_reason(health):
     if health.get("mode") != "REAL":
         return "bridge_not_real"
@@ -104,6 +133,9 @@ def execution_block_reason(health):
 
 
 def publish_signal(signal, spot_override=None, copy_index=1):
+    session_reason = session_block_reason(signal)
+    if session_reason:
+        raise RuntimeError(session_reason)
     side = signal["side"]
     spot = float(spot_override or 0)
     if spot <= 0:
@@ -348,6 +380,16 @@ def run_forever():
                     f"sell={signal['sell_score']}/7 close={signal['reference_close']:.2f} "
                     f"rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
                     f"h4={signal.get('mtf',{}).get('h4_bias')}",
+                    flush=True,
+                )
+                time.sleep(POLL_SECONDS)
+                continue
+
+            session_reason = session_block_reason(signal)
+            if session_reason:
+                print(
+                    f"real_signal_skip reason={session_reason} "
+                    f"mode={signal.get('mode')} bar={signal.get('bar')}",
                     flush=True,
                 )
                 time.sleep(POLL_SECONDS)
