@@ -7,7 +7,9 @@ cannot dominate the interpretation unnoticed.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import time
+import urllib.request
 
 try:
     import requests
@@ -99,23 +101,33 @@ def parse(flows_payload, holdings_payload):
     }
 
 
+def _get_json(url, headers, session=None):
+    if session is not None:
+        r = session.get(url, timeout=10, headers=headers)
+        r.raise_for_status()
+        return r.json()
+    if requests is not None:
+        r = requests.get(url, timeout=10, headers=headers)
+        r.raise_for_status()
+        return r.json()
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as res:
+        return json.loads(res.read().decode("utf-8"))
+
+
 def fetch(now=None, session=None):
     now = time.time() if now is None else float(now)
     if _cache["value"] is not None and now - float(_cache["fetched_at"] or 0) <= CACHE_SECONDS:
         return dict(_cache["value"])
-    if requests is None and session is None:
-        return {"regime": "UNKNOWN", "error": "requests_unavailable", "source": "WORLD_GOLD_COUNCIL_GOLDHUB_PUBLIC_API"}
-    session = session or requests
     headers = {
         "User-Agent": "Laith-Gigi-ETF/1.0",
         "Referer": "https://www.gold.org/goldhub/data/gold-etfs-holdings-and-flows",
         "Accept": "application/json",
     }
     try:
-        f = session.get(FLOWS_URL, timeout=10, headers=headers)
-        h = session.get(HOLDINGS_URL, timeout=10, headers=headers)
-        f.raise_for_status(); h.raise_for_status()
-        value = parse(f.json(), h.json())
+        flows = _get_json(FLOWS_URL, headers, session=session)
+        holdings = _get_json(HOLDINGS_URL, headers, session=session)
+        value = parse(flows, holdings)
         value["error"] = None
         _cache.update({"fetched_at": now, "value": value})
         return dict(value)
