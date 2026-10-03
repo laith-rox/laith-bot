@@ -43,6 +43,26 @@ class GigiReadinessTests(unittest.TestCase):
         self.assertEqual(out["state"],"SHADOW_BLOCKED")
         self.assertIn("no_directional_setup",out["blockers"])
 
+    def test_negative_historical_prior_is_review_warning(self):
+        args=self.base()
+        args["price_prior"]={"status":"STABLE_NEGATIVE"}
+        out=gigi_readiness.audit(**args)
+        self.assertEqual(out["state"],"SHADOW_REVIEW")
+        self.assertIn("historical_price_prior_negative",out["warnings"])
+
+    def test_ambitious_target_and_lbma_window_raise_caution(self):
+        args=self.base()
+        args["target_geometry"]={
+            "state":"AMBITION_HIGH",
+            "implied_move_relation":"FAR_BEYOND_1D_PROXY",
+        }
+        args["benchmark"]={"phase":"AUCTION_OR_IMMEDIATE_POST"}
+        out=gigi_readiness.audit(**args)
+        self.assertEqual(out["state"],"SHADOW_CAUTION")
+        self.assertIn("target_ambition_high",out["warnings"])
+        self.assertIn("lbma_benchmark_window",out["warnings"])
+
+
 
 if __name__=="__main__":
     unittest.main()
