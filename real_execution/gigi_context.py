@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -20,6 +20,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     options=options or {}
     yields=yields or {}
     event_response=event_response or {}
+    session_profile=session_profile or {}
 
     score=0
     reasons=[]
@@ -202,6 +203,26 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif event_state=="MUTED_RESPONSE":
         reasons.append("event_response_muted")
 
+    session_vwap=str(session_profile.get("vwap_relation") or "UNKNOWN").upper()
+    session_extension=str(session_profile.get("extension_state") or "UNKNOWN").upper()
+    session_range_event=str(session_profile.get("range_event") or "UNKNOWN").upper()
+    if session_vwap=="ABOVE_ACCEPTANCE":
+        reasons.append("session_vwap_above_acceptance")
+    elif session_vwap=="BELOW_ACCEPTANCE":
+        reasons.append("session_vwap_below_acceptance")
+    elif session_vwap=="CROSSING":
+        reasons.append("session_vwap_crossing")
+    if session_extension=="EXTENDED":
+        reasons.append("session_vwap_extension")
+    if session_range_event=="FAILED_BREAK_ABOVE":
+        reasons.append("session_failed_break_above")
+    elif session_range_event=="FAILED_BREAK_BELOW":
+        reasons.append("session_failed_break_below")
+    elif session_range_event=="ACCEPTED_ABOVE":
+        reasons.append("session_range_acceptance_above")
+    elif session_range_event=="ACCEPTED_BELOW":
+        reasons.append("session_range_acceptance_below")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -230,6 +251,9 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "options_gamma_context": options_gamma,
         "event_response_state": event_state,
         "event_impulse": event_impulse,
+        "session_vwap_relation": session_vwap,
+        "session_extension": session_extension,
+        "session_range_event": session_range_event,
         "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
