@@ -18,6 +18,10 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         bridge.REAL_ARMED = False
         bridge.EXECUTION_ENABLED = False
         bridge.FIXED_VOLUME = 0.0
+        bridge._client_state = None
+        bridge._market_state = None
+        bridge._client_last_poll = None
+        bridge._emergency_stop = True
 
     def test_status_is_not_ready_by_default(self):
         s = bridge._status()
@@ -139,6 +143,33 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         self.assertTrue(bridge._restart_latched)
         self.assertTrue(bridge._emergency_stop)
         self.assertTrue(bridge._status()["restart_latched"])
+
+
+    def test_fresh_state_with_autotrading_off_is_not_ready(self):
+        now = 2_000_000_000
+        bridge._client_state = {
+            "received_at": now - 1,
+            "terminal_trade_allowed": False,
+        }
+        blockers = bridge._readiness_blockers(now=now)
+        self.assertIn("terminal_autotrading_off", blockers)
+
+    def test_status_exposes_terminal_and_spread_metadata(self):
+        now = 2_000_000_000
+        bridge._client_state = {
+            "received_at": now - 1,
+            "terminal_trade_allowed": False,
+            "account_trade_allowed": True,
+            "account_trade_expert": True,
+            "bid": 4200.10,
+            "ask": 4200.45,
+            "spread_usd": 0.35,
+            "tick_age_seconds": 1.2,
+        }
+        s = bridge._status()
+        self.assertFalse(s["terminal_trade_allowed"])
+        self.assertAlmostEqual(s["spread_usd"], 0.35)
+        self.assertTrue(s["account_trade_allowed"])
 
 
 
