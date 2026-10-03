@@ -29,6 +29,7 @@ FIXED_VOLUME = float(os.getenv("REAL_FIXED_VOLUME", "0") or 0)
 MAX_AGE_SECONDS = 30
 STATE_FRESH_SECONDS = 10
 MARKET_FRESH_SECONDS = 20
+MARKET_SOURCE_FRESH_SECONDS = 900
 MAX_PENDING = 2
 ALLOWED_ORIGIN = os.getenv(
     "REAL_STATUS_ALLOWED_ORIGIN",
@@ -87,6 +88,32 @@ def _market_age(now=None):
         return None
 
 
+def _market_source_age(payload=None, now=None):
+    payload = _market_state if payload is None else payload
+    if not payload:
+        return None
+    now = time.time() if now is None else now
+    try:
+        ts = float(payload.get("source_timestamp", 0))
+        if ts <= 0:
+            return None
+        return max(0.0, now - ts)
+    except (TypeError, ValueError):
+        return None
+
+
+def _validate_market_payload(data: dict, now=None):
+    feeds = {k: data.get(k) for k in ("m5", "m15", "h1")}
+    if not all(isinstance(v, list) and len(v) >= 30 for v in feeds.values()):
+        return False, "market_rows_required"
+    source_age = _market_source_age(data, now)
+    if source_age is None:
+        return False, "market_source_timestamp_required"
+    if source_age > MARKET_SOURCE_FRESH_SECONDS:
+        return False, "market_source_stale"
+    return True, "approved"
+
+
 def _pending_count(now=None):
     now = time.time() if now is None else now
     count = 0
@@ -109,6 +136,7 @@ def _status():
     now = time.time()
     s_age = _state_age(now)
     m_age = _market_age(now)
+    source_age = _market_source_age(_market_state, now)
     state = _client_state or {}
     return {
         "ok": True,
@@ -121,8 +149,12 @@ def _status():
         "fixed_volume_configured": FIXED_VOLUME > 0,
         "client_state_fresh": s_age is not None and s_age <= STATE_FRESH_SECONDS,
         "client_state_age": s_age,
-        "market_fresh": m_age is not None and m_age <= MARKET_FRESH_SECONDS,
+        "market_fresh": (
+            m_age is not None and m_age <= MARKET_FRESH_SECONDS
+            and source_age is not None and source_age <= MARKET_SOURCE_FRESH_SECONDS
+        ),
         "market_age": m_age,
+        "market_source_age": source_age,
         "pending": _pending_count(now),
         "price": state.get("price", 0),
         "position_open": bool(state.get("position_open")),
@@ -331,10 +363,16 @@ class Handler(BaseHTTPRequestHandler):
             return _json(self, 200, {"ok": True})
 
         if path == "/market":
-            feeds = {k: data.get(k) for k in ("m5", "m15", "h1")}
-            if not all(isinstance(v, list) and len(v) >= 30 for v in feeds.values()):
-                return _json(self, 400, {"ok": False, "reason": "market_rows_required"})
-            _market_state = {**feeds, "received_at": time.time()}
+            ok, reason = _validate_market_payload(data)
+            if not ok:
+                return _json(self, 409 if reason == "market_source_stale" else 400, {"ok": False, "reason": reason})
+            _market_state = {
+                "m5": data.get("m5"),
+                "m15": data.get("m15"),
+                "h1": data.get("h1"),
+                "source_timestamp": data.get("source_timestamp"),
+                "received_at": time.time(),
+            }
             return _json(self, 200, {"ok": True})
 
         if path == "/publish":
