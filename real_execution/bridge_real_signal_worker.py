@@ -136,6 +136,8 @@ def publish_signal(signal, spot_override=None, copy_index=1):
     session_reason = session_block_reason(signal)
     if session_reason:
         raise RuntimeError(session_reason)
+    if str(signal.get("mode") or "").upper() == "MAIN" and not bool(signal.get("native_h4_reopen_ready", True)):
+        raise RuntimeError("main_native_h4_reopen_warmup")
     side = signal["side"]
     spot = float(spot_override or 0)
     if spot <= 0:
@@ -187,6 +189,7 @@ def preview_payload(signal):
         "risk_distance": signal.get("risk_distance"),
         "rsi": round(float(signal.get("rsi") or 0), 1),
         "h4": (signal.get("mtf") or {}).get("h4_bias"),
+        "native_h4_reopen_ready": bool(signal.get("native_h4_reopen_ready", True)),
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
         "updated_at": time.time(),
@@ -338,6 +341,7 @@ def run_forever():
             signal = engine.apply_main_structure(signal, mtf)
             signal = engine.recover_m15_continuation(signal, health)
             signal = engine.recover_strong_structural_entry(signal, health)
+            signal["native_h4_reopen_ready"] = engine.native_h4_reopen_ready(feeds["h4"])
 
             if _preview_enabled:
                 _latest_preview = preview_payload(signal)
@@ -380,6 +384,15 @@ def run_forever():
                     f"sell={signal['sell_score']}/7 close={signal['reference_close']:.2f} "
                     f"rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
                     f"h4={signal.get('mtf',{}).get('h4_bias')}",
+                    flush=True,
+                )
+                time.sleep(POLL_SECONDS)
+                continue
+
+            if str(signal.get("mode") or "").upper() == "MAIN" and not signal.get("native_h4_reopen_ready"):
+                print(
+                    f"real_signal_skip reason=main_native_h4_reopen_warmup "
+                    f"bar={signal.get('bar')}",
                     flush=True,
                 )
                 time.sleep(POLL_SECONDS)
