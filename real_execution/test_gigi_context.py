@@ -243,6 +243,24 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_options_backwardation_is_context_only(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED","term_structure":"BACKWARDATION"},
+        )
+        self.assertEqual(out["options_term_structure"],"BACKWARDATION")
+        self.assertIn("options_near_term_vol_premium",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
