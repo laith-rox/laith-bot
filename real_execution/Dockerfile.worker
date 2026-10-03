@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY bridge_real_signal_worker.py test_bridge_real_signal_worker.py test_gigi_profit_protection.py test_gigi_regime.py test_gigi_intermarket.py test_gigi_macro.py test_gigi_context.py test_gigi_learning.py test_gigi_liquidity.py test_gigi_positioning.py ./
-COPY real_analysis_engine.py adaptive_sniper_engine.py multi_timeframe_structure.py technical_confirmation.py gigi_profit_protection.py gigi_regime.py gigi_intermarket.py gigi_macro.py gigi_context.py gigi_learning.py gigi_liquidity.py gigi_positioning.py ./
-RUN python -m unittest -v test_bridge_real_signal_worker.py test_gigi_profit_protection.py test_gigi_regime.py test_gigi_intermarket.py test_gigi_macro.py test_gigi_context.py test_gigi_learning.py test_gigi_liquidity.py test_gigi_positioning.py
+COPY bridge_real_signal_worker.py test_bridge_real_signal_worker.py test_gigi_profit_protection.py test_gigi_regime.py test_gigi_intermarket.py test_gigi_macro.py test_gigi_context.py test_gigi_learning.py test_gigi_liquidity.py test_gigi_positioning.py test_gigi_volatility.py ./
+COPY real_analysis_engine.py adaptive_sniper_engine.py multi_timeframe_structure.py technical_confirmation.py gigi_profit_protection.py gigi_regime.py gigi_intermarket.py gigi_macro.py gigi_context.py gigi_learning.py gigi_liquidity.py gigi_positioning.py gigi_volatility.py ./
+RUN python -m unittest -v test_bridge_real_signal_worker.py test_gigi_profit_protection.py test_gigi_regime.py test_gigi_intermarket.py test_gigi_macro.py test_gigi_context.py test_gigi_learning.py test_gigi_liquidity.py test_gigi_positioning.py test_gigi_volatility.py
 EXPOSE 8080
 CMD ["python","-u","bridge_real_signal_worker.py"]
