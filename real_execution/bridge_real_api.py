@@ -57,15 +57,10 @@ def _configured() -> bool:
 
 
 def _ready() -> bool:
-    s_age = _state_age()
-    m_age = _market_age()
-    p_age = _client_poll_age()
-    return bool(
-        REAL_ARMED and EXECUTION_ENABLED and _configured() and not _emergency_stop
-        and s_age is not None and s_age <= STATE_FRESH_SECONDS
-        and m_age is not None and m_age <= MARKET_FRESH_SECONDS
-        and p_age is not None and p_age <= 10
-    )
+    # One readiness definition only. This keeps /status, /verify and /next
+    # aligned with the same fail-closed blockers, including terminal AutoTrading
+    # and broker/source/tick freshness.
+    return len(_readiness_blockers()) == 0
 
 
 def _sign(text: str) -> str:
