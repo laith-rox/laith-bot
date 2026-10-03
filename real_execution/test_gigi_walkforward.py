@@ -39,6 +39,27 @@ class GigiWalkForwardTests(unittest.TestCase):
         self.assertGreater(out["train_spread_adjusted"]["n"],0)
         self.assertGreater(out["holdout_spread_adjusted"]["n"],0)
 
+    def test_multi_window_stability_requires_all_windows_adequate(self):
+        rows=[
+            {"n":50,"mean_r":-0.2},
+            {"n":45,"mean_r":-0.1},
+            {"n":10,"mean_r":0.8},
+        ]
+        out=gigi_walkforward.multi_window_stability(rows,min_per_window=20,required_windows=3)
+        self.assertEqual(out["status"],"INSUFFICIENT_PER_WINDOW")
+        self.assertFalse(out["qualified"])
+
+    def test_multi_window_stable_negative_needs_three_negative_windows(self):
+        rows=[
+            {"n":50,"mean_r":-0.2},
+            {"n":45,"mean_r":-0.1},
+            {"n":40,"mean_r":-0.3},
+        ]
+        out=gigi_walkforward.multi_window_stability(rows,min_per_window=20,required_windows=3)
+        self.assertEqual(out["status"],"STABLE_NEGATIVE")
+        self.assertTrue(out["qualified"])
+
+
 
 if __name__=="__main__":
     unittest.main()
