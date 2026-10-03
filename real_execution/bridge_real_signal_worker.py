@@ -1,37 +1,37 @@
-"""REAL analysis/signal service scaffold.
+"""REAL signal worker mirrored from the currently deployed DEMO engine.
 
-Fail-closed defaults:
-- analysis preview disabled
-- REAL signal disabled
-- volume and hourly cap unset
-- live handoff permanently disabled in this build
-The service may calculate a read-only candidate after preview is explicitly
-enabled, but it cannot publish an order in this build.
+The decision engine lives in real_analysis_engine.py and is kept byte-for-byte
+aligned with the deployed DEMO bridge_signal_worker.py. This wrapper changes
+only transport/configuration from DEMO to REAL and remains fail-closed.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import threading
 import time
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
-from technical_confirmation import analyze as analyze_technical
+import real_analysis_engine as engine
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
+REAL_LIVE_HANDOFF_ENABLED = os.getenv("REAL_LIVE_HANDOFF_ENABLED", "false").strip().lower() == "true"
 BRIDGE_URL = os.getenv("REAL_BRIDGE_URL", "").strip().rstrip("/")
 PUBLISH_TOKEN = os.getenv("REAL_BRIDGE_PUBLISH_TOKEN", "").strip()
 VOLUME = float(os.getenv("REAL_VOLUME", "0") or 0)
-POLL_SECONDS = int(os.getenv("REAL_POLL_SECONDS", "30"))
+POLL_SECONDS = int(os.getenv("REAL_POLL_SECONDS", "30") or 30)
 MAX_PUBLISH_PER_HOUR = int(os.getenv("REAL_MAX_PUBLISH_PER_HOUR", "0") or 0)
 STATUS_PORT = int(os.getenv("PORT", "8080"))
 ALLOWED_ORIGIN = os.getenv(
     "REAL_STATUS_ALLOWED_ORIGIN",
     "https://laith-app-production.up.railway.app",
+).strip()
+MIRRORED_DEMO_RELEASE = os.getenv(
+    "REAL_MIRRORED_DEMO_RELEASE",
+    "073aca3a062933999f0bc0cf82654b1e9b4fe720",
 ).strip()
 
 _preview_enabled = REAL_ANALYSIS_PREVIEW_ENABLED
@@ -41,38 +41,27 @@ _latest_preview = {
     "updated_at": 0.0,
 }
 
-
-def _json_request(url, method="GET", payload=None, headers=None, timeout=8):
-    data = None
-    hs = {"Accept": "application/json"}
-    if headers:
-        hs.update(headers)
-    if payload is not None:
-        data = json.dumps(payload, separators=(",", ":")).encode()
-        hs["Content-Type"] = "application/json"
-    req = Request(url, data=data, method=method, headers=hs)
-    try:
-        with urlopen(req, timeout=timeout) as res:
-            raw = res.read().decode()
-            return res.status, json.loads(raw) if raw else {}
-    except HTTPError as exc:
-        raw = exc.read().decode() if exc.fp else ""
-        try:
-            body = json.loads(raw) if raw else {}
-        except Exception:
-            body = {"detail": raw[:200]}
-        return exc.code, body
+# Point the exact DEMO decision module at the REAL transport.
+engine.BRIDGE_URL = BRIDGE_URL
+engine.BRIDGE_PUBLISH_TOKEN = PUBLISH_TOKEN
+engine.POLL_SECONDS = POLL_SECONDS
+engine.MAX_PUBLISH_PER_HOUR = MAX_PUBLISH_PER_HOUR
+engine.ALLOW_STALE_MT5_STATE = False
+engine.VOLUME = VOLUME
+engine.WORKER_VERSION = "real-mirror-" + MIRRORED_DEMO_RELEASE[:12]
 
 
 def config_reason():
     if not REAL_SIGNAL_ENABLED:
         return "real_signal_disabled"
+    if not REAL_LIVE_HANDOFF_ENABLED:
+        return "real_live_handoff_disabled"
     if not BRIDGE_URL or not PUBLISH_TOKEN:
         return "real_signal_auth_not_configured"
-    if VOLUME <= 0:
-        return "real_signal_volume_not_configured"
-    if MAX_PUBLISH_PER_HOUR <= 0:
-        return "real_signal_hourly_cap_not_configured"
+    if abs(VOLUME - 0.01) > 1e-9:
+        return "real_volume_must_match_demo_0_01"
+    if MAX_PUBLISH_PER_HOUR != 6:
+        return "real_hourly_cap_must_match_demo_6"
     return None
 
 
@@ -84,165 +73,92 @@ def analysis_reason():
     return None
 
 
-def _parse_dt(value):
-    return datetime.fromisoformat(str(value).replace(".", "-", 2).replace("Z", "+00:00"))
+def bridge_health():
+    last_error = None
+    for attempt in range(3):
+        try:
+            status, payload = engine._json_request(f"{BRIDGE_URL}/health")
+            if status == 200:
+                return payload
+            last_error = RuntimeError(f"bridge_health_http_{status}")
+        except (HTTPError, URLError, TimeoutError) as exc:
+            last_error = exc
+        if attempt < 2:
+            time.sleep(2)
+    raise RuntimeError(f"bridge_health_unavailable:{last_error}")
 
 
-def normalize_rows(values):
-    if not isinstance(values, list) or len(values) < 30:
-        raise ValueError("not_enough_market_rows")
-    rows = []
-    for item in values:
-        if not isinstance(item, dict) or not item.get("datetime"):
-            continue
-        rows.append({
-            "datetime": str(item["datetime"]).replace(".", "-", 2),
-            "open": float(item["open"]),
-            "high": float(item["high"]),
-            "low": float(item["low"]),
-            "close": float(item["close"]),
-            "tick_volume": float(item.get("tick_volume") or 0),
-        })
-    if len(rows) < 30:
-        raise ValueError("not_enough_market_rows")
-    rows.sort(key=lambda row: _parse_dt(row["datetime"]))
-    # MT5 relay includes the active candle as the newest item.
-    return rows[:-1]
+def execution_block_reason(health):
+    if health.get("mode") != "REAL":
+        return "bridge_not_real"
+    if not health.get("client_state_fresh"):
+        return "mt5_state_stale"
+    if not health.get("market_fresh"):
+        return "market_closed_or_stale"
+    if int(health.get("pending", 0) or 0) >= 2:
+        return "pending_command_limit"
+    if not health.get("ready"):
+        blockers = health.get("readiness_blockers") or []
+        return "bridge_not_ready:" + (str(blockers[0]) if blockers else "unknown")
+    return None
 
 
-def _ema(values, period):
-    alpha = 2.0 / (period + 1.0)
-    out = [float(values[0])]
-    for value in values[1:]:
-        out.append(alpha * float(value) + (1.0 - alpha) * out[-1])
-    return out
-
-
-def _rsi(closes, period=14):
-    if len(closes) <= period:
-        return 50.0
-    gains = []
-    losses = []
-    for a, b in zip(closes[-period-1:-1], closes[-period:]):
-        ch = b - a
-        gains.append(max(ch, 0.0))
-        losses.append(max(-ch, 0.0))
-    ag = sum(gains) / period
-    al = sum(losses) / period
-    if al <= 1e-12:
-        return 100.0
-    rs = ag / al
-    return 100.0 - 100.0 / (1.0 + rs)
-
-
-def _aggregate_h4(h1_rows):
-    buckets = {}
-    for row in h1_rows:
-        dt = _parse_dt(row["datetime"])
-        key = dt.replace(hour=(dt.hour // 4) * 4, minute=0, second=0, microsecond=0)
-        k = key.isoformat(sep=" ")
-        b = buckets.get(k)
-        if b is None:
-            buckets[k] = {
-                "datetime": k,
-                "open": row["open"], "high": row["high"], "low": row["low"],
-                "close": row["close"], "tick_volume": row.get("tick_volume", 0),
-            }
-        else:
-            b["high"] = max(b["high"], row["high"])
-            b["low"] = min(b["low"], row["low"])
-            b["close"] = row["close"]
-            b["tick_volume"] += row.get("tick_volume", 0)
-    return [buckets[k] for k in sorted(buckets)]
-
-
-def _trend(rows):
-    closes = [r["close"] for r in rows]
-    if len(closes) < 22:
-        return "NEUTRAL"
-    e8 = _ema(closes, 8)
-    e21 = _ema(closes, 21)
-    slope = e21[-1] - e21[-4]
-    if e8[-1] > e21[-1] and slope > 0:
-        return "UP"
-    if e8[-1] < e21[-1] and slope < 0:
-        return "DOWN"
-    return "NEUTRAL"
-
-
-def fetch_market():
-    status, payload = _json_request(f"{BRIDGE_URL}/market")
-    if status != 200 or payload.get("ok") is not True:
-        raise RuntimeError(f"market_http_{status}")
-    age = payload.get("market_age")
-    if age is None or float(age) > 20:
-        raise RuntimeError("market_stale")
-    feeds = {
-        "m5": payload.get("m5"),
-        "m15": payload.get("m15"),
-        "h1": payload.get("h1"),
+def publish_signal(signal, spot_override=None, copy_index=1):
+    side = signal["side"]
+    spot = float(spot_override or 0)
+    if spot <= 0:
+        raise RuntimeError("real_mt5_price_missing")
+    risk_distance = float(signal["risk_distance"])
+    if side == "BUY":
+        sl = spot - risk_distance
+        tp = spot + risk_distance * float(signal.get("target_r", 1.5))
+    else:
+        sl = spot + risk_distance
+        tp = spot - risk_distance * float(signal.get("target_r", 1.5))
+    trade_mode = "MAIN" if str(signal.get("mode") or "").upper() == "MAIN" else "SNIPER"
+    strength = sum(bool(x) for x in signal["checks"][side])
+    payload = {
+        "mode": "REAL",
+        "trade_mode": trade_mode,
+        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:C{copy_index}:S{strength}",
+        "symbol": "XAUUSD",
+        "side": side,
+        "volume": VOLUME,
+        "sl": round(sl, 2),
+        "tp": round(tp, 2),
+        "forced": False,
+        "checks": signal["checks"],
     }
-    if not all(isinstance(v, list) and len(v) >= 30 for v in feeds.values()):
-        raise RuntimeError("market_rows_missing")
-    return feeds
+    if trade_mode == "MAIN":
+        payload["analysis"] = signal.get("analysis", {})
+    status, response = engine._json_request(
+        f"{BRIDGE_URL}/publish",
+        method="POST",
+        payload=payload,
+        headers={"X-Publish-Token": PUBLISH_TOKEN},
+    )
+    return status, response, payload["key"]
 
 
-def compute_preview(feeds):
-    m5 = normalize_rows(feeds["m5"])
-    m15 = normalize_rows(feeds["m15"])
-    h1 = normalize_rows(feeds["h1"])
-    h4 = _aggregate_h4(h1)
-    h4_bias = _trend(h4)
-    h1_bias = _trend(h1)
-
-    m15_closes = [r["close"] for r in m15]
-    m5_closes = [r["close"] for r in m5]
-    e8 = _ema(m15_closes, 8)
-    e21 = _ema(m15_closes, 21)
-    rsi = _rsi(m15_closes)
-    momentum = m15_closes[-1] - m15_closes[-4]
-    tech = analyze_technical(m15)
-
-    m15_up = e8[-1] > e21[-1] and momentum > 0 and rsi >= 52
-    m15_down = e8[-1] < e21[-1] and momentum < 0 and rsi <= 48
-    m5_up = m5_closes[-1] > m5_closes[-2] > m5_closes[-3]
-    m5_down = m5_closes[-1] < m5_closes[-2] < m5_closes[-3]
-
-    bull = int(h4_bias == "UP") + int(h1_bias == "UP") + int(m15_up) + int(m5_up)
-    bear = int(h4_bias == "DOWN") + int(h1_bias == "DOWN") + int(m15_down) + int(m5_down)
-    bull += int(int(tech.get("bull_score") or 0) > int(tech.get("bear_score") or 0))
-    bear += int(int(tech.get("bear_score") or 0) > int(tech.get("bull_score") or 0))
-
-    side = "WAIT"
-    reason = "alignment_incomplete"
-    if bull >= 4 and bull > bear and h4_bias != "DOWN" and h1_bias != "DOWN":
-        side = "BUY"
-        reason = "multitimeframe_buy_preview"
-    elif bear >= 4 and bear > bull and h4_bias != "UP" and h1_bias != "UP":
-        side = "SELL"
-        reason = "multitimeframe_sell_preview"
-
+def preview_payload(signal):
+    side = signal.get("side") or "WAIT"
     return {
         "available": True,
         "side": side,
-        "reason": reason,
-        "score": max(bull, bear),
-        "h4": h4_bias,
-        "h1": h1_bias,
-        "m15_rsi": round(rsi, 1),
-        "m15_momentum": round(momentum, 3),
-        "bar": m15[-1]["datetime"],
-        "reference_close": m15[-1]["close"],
-        "live_handoff_enabled": False,
+        "mode": signal.get("mode"),
+        "reason": signal.get("reason"),
+        "score": int(signal.get("score") or 0),
+        "buy_score": int(signal.get("buy_score") or 0),
+        "sell_score": int(signal.get("sell_score") or 0),
+        "bar": signal.get("bar"),
+        "reference_close": signal.get("reference_close"),
+        "risk_distance": signal.get("risk_distance"),
+        "rsi": round(float(signal.get("rsi") or 0), 1),
+        "h4": (signal.get("mtf") or {}).get("h4_bias"),
+        "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
+        "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
         "updated_at": time.time(),
     }
-
-
-def bridge_health():
-    status, payload = _json_request(f"{BRIDGE_URL}/health")
-    if status != 200:
-        raise RuntimeError(f"bridge_health_http_{status}")
-    return payload
 
 
 def status_payload():
@@ -251,12 +167,13 @@ def status_payload():
         "mode": "REAL",
         "analysis_preview_enabled": _preview_enabled,
         "enabled": REAL_SIGNAL_ENABLED,
-        "volume_configured": VOLUME > 0,
-        "hourly_cap_configured": MAX_PUBLISH_PER_HOUR > 0,
+        "volume_configured": abs(VOLUME - 0.01) <= 1e-9,
+        "hourly_cap_configured": MAX_PUBLISH_PER_HOUR == 6,
         "bridge_configured": bool(BRIDGE_URL and PUBLISH_TOKEN),
         "analysis_reason": analysis_reason(),
         "config_reason": config_reason(),
-        "live_handoff_enabled": False,
+        "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
+        "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
         "preview": _latest_preview,
     }
 
@@ -269,7 +186,7 @@ def _cors(handler):
 
 
 class StatusHandler(BaseHTTPRequestHandler):
-    server_version = "LaithRealSignalStatus/1.1"
+    server_version = "LaithRealSignalStatus/2.0"
 
     def log_message(self, fmt, *args):
         return
@@ -284,9 +201,7 @@ class StatusHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path not in ("/", "/health", "/status"):
-            self.send_response(404)
-            self.end_headers()
-            return
+            self.send_response(404); self.end_headers(); return
         body = json.dumps(status_payload(), separators=(",", ":")).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -299,17 +214,13 @@ class StatusHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         global _preview_enabled, _latest_preview
         if self.path != "/preview":
-            self.send_response(404)
-            self.end_headers()
-            return
+            self.send_response(404); self.end_headers(); return
         if not ALLOWED_ORIGIN or self.headers.get("Origin", "") != ALLOWED_ORIGIN:
             body = b'{"ok":false,"reason":"trusted_app_origin_required"}'
             self.send_response(403)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
+            self.end_headers(); self.wfile.write(body); return
         try:
             size = int(self.headers.get("Content-Length", "0") or 0)
             data = json.loads(self.rfile.read(size).decode() or "{}")
@@ -317,24 +228,19 @@ class StatusHandler(BaseHTTPRequestHandler):
             data = {}
         _preview_enabled = bool(data.get("enabled"))
         if not _preview_enabled:
-            _latest_preview = {
-                "available": False,
-                "reason": "preview_disabled",
-                "updated_at": time.time(),
-            }
+            _latest_preview = {"available": False, "reason": "preview_disabled", "updated_at": time.time()}
         body = json.dumps({
             "ok": True,
             "analysis_preview_enabled": _preview_enabled,
-            "live_handoff_enabled": False,
-            "signal_enabled": False,
+            "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
+            "signal_enabled": REAL_SIGNAL_ENABLED,
         }, separators=(",", ":")).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
         _cors(self)
         self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.end_headers(); self.wfile.write(body)
 
 
 def start_status_server():
@@ -347,47 +253,159 @@ def run_forever():
     global _latest_preview
     print(
         "REAL_SIGNAL_START "
-        f"preview_enabled={_preview_enabled} "
-        f"enabled={REAL_SIGNAL_ENABLED} volume_configured={VOLUME > 0} "
-        f"hourly_cap_configured={MAX_PUBLISH_PER_HOUR > 0} "
-        "live_handoff_enabled=False",
+        f"mirrored_demo_release={MIRRORED_DEMO_RELEASE} "
+        f"preview_enabled={_preview_enabled} enabled={REAL_SIGNAL_ENABLED} "
+        f"live_handoff_enabled={REAL_LIVE_HANDOFF_ENABLED} volume={VOLUME:.2f} "
+        f"max_publish_per_hour={MAX_PUBLISH_PER_HOUR}",
         flush=True,
     )
+    last_bar = None
+    last_sniper_side = None
+    last_sniper_score = 0
+    last_sniper_bar = None
+    publishes = deque()
+
     while True:
-        a_reason = analysis_reason()
-        if a_reason:
-            _latest_preview = {
-                "available": False,
-                "reason": a_reason,
-                "updated_at": time.time(),
-            }
-            print(f"real_analysis_wait reason={a_reason}", flush=True)
-            time.sleep(POLL_SECONDS)
-            continue
-
         try:
-            feeds = fetch_market()
-            _latest_preview = compute_preview(feeds)
-            print(
-                "real_analysis_preview "
-                f"bar={_latest_preview.get('bar')} side={_latest_preview.get('side')} "
-                f"score={_latest_preview.get('score')} h4={_latest_preview.get('h4')} "
-                f"h1={_latest_preview.get('h1')} reason={_latest_preview.get('reason')}",
-                flush=True,
-            )
-        except Exception as exc:
-            detail = str(exc)
-            reason = "market_closed_or_stale" if detail == "market_stale" else f"preview_error:{type(exc).__name__}"
-            _latest_preview = {
-                "available": False,
-                "reason": reason,
-                "updated_at": time.time(),
-            }
-            print(f"real_analysis_wait reason={reason} detail={type(exc).__name__}:{exc}", flush=True)
+            now = time.time()
+            while publishes and now - publishes[0] >= 3600:
+                publishes.popleft()
 
-        # This build intentionally stops before any /publish call.
-        if REAL_SIGNAL_ENABLED:
-            print(f"real_signal_wait reason={config_reason() or 'live_handoff_not_enabled'}", flush=True)
+            if not _preview_enabled and not REAL_SIGNAL_ENABLED:
+                time.sleep(POLL_SECONDS)
+                continue
+
+            health = bridge_health()
+            if not health.get("market_fresh"):
+                _latest_preview = {
+                    "available": False,
+                    "reason": "market_closed_or_stale",
+                    "updated_at": time.time(),
+                }
+                time.sleep(POLL_SECONDS)
+                continue
+
+            feeds = engine.fetch_multitimeframe_values()
+            try:
+                engine.validate_market_feed_freshness(feeds)
+            except RuntimeError as exc:
+                _latest_preview = {
+                    "available": False,
+                    "reason": str(exc),
+                    "updated_at": time.time(),
+                }
+                time.sleep(POLL_SECONDS)
+                continue
+
+            signal = engine.compute_signal(feeds["5m"])
+            mtf = engine.analyze_structure(
+                engine.normalize_rows(feeds["5m"]),
+                engine.normalize_rows(feeds["15m"]),
+                engine.normalize_rows(feeds["h4"]),
+            )
+            signal = engine.apply_main_structure(signal, mtf)
+            signal = engine.recover_m15_continuation(signal, health)
+            signal = engine.recover_strong_structural_entry(signal, health)
+
+            if _preview_enabled:
+                _latest_preview = preview_payload(signal)
+
+            if signal["bar"] == last_bar:
+                time.sleep(POLL_SECONDS)
+                continue
+            last_bar = signal["bar"]
+
+            if not REAL_SIGNAL_ENABLED or not REAL_LIVE_HANDOFF_ENABLED:
+                print(
+                    f"real_signal_preview bar={signal['bar']} side={signal.get('side') or 'WAIT'} "
+                    f"buy={signal['buy_score']}/7 sell={signal['sell_score']}/7 "
+                    f"reason={signal.get('reason')}",
+                    flush=True,
+                )
+                time.sleep(POLL_SECONDS)
+                continue
+
+            reason = config_reason()
+            if reason:
+                print(f"real_signal_skip reason={reason}", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+
+            block_reason = execution_block_reason(health)
+            if block_reason:
+                print(f"real_signal_skip reason={block_reason}", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+
+            if MAX_PUBLISH_PER_HOUR > 0 and len(publishes) >= MAX_PUBLISH_PER_HOUR:
+                print("real_signal_skip reason=hourly_publish_cap", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+
+            if not signal["side"]:
+                print(
+                    f"real_signal_wait bar={signal['bar']} buy={signal['buy_score']}/7 "
+                    f"sell={signal['sell_score']}/7 close={signal['reference_close']:.2f} "
+                    f"rsi={signal['rsi']:.1f} reason={signal.get('reason')} "
+                    f"h4={signal.get('mtf',{}).get('h4_bias')}",
+                    flush=True,
+                )
+                time.sleep(POLL_SECONDS)
+                continue
+
+            chase_reason = engine.sniper_chase_block_reason(
+                signal, last_sniper_side, last_sniper_score, last_sniper_bar
+            )
+            if chase_reason:
+                print(
+                    f"real_signal_skip reason={chase_reason} side={signal.get('side')} "
+                    f"score={engine.signal_strength(signal)}",
+                    flush=True,
+                )
+                time.sleep(POLL_SECONDS)
+                continue
+
+            mt5_spot = float(health.get("price") or 0)
+            copies = engine.same_entry_copies(signal, health)
+            if copies <= 0:
+                print(
+                    f"real_signal_skip reason=aggregate_risk_budget "
+                    f"budget={health.get('effective_risk_budget_usd')} "
+                    f"used={health.get('total_position_risk_usd')} "
+                    f"required={signal.get('risk_distance')}",
+                    flush=True,
+                )
+                time.sleep(POLL_SECONDS)
+                continue
+
+            slots = MAX_PUBLISH_PER_HOUR - len(publishes) if MAX_PUBLISH_PER_HOUR > 0 else copies
+            for copy_index in range(1, min(copies, slots) + 1):
+                status, response, key = publish_signal(signal, mt5_spot, copy_index)
+                if status == 201 and response.get("ok") is True:
+                    publishes.append(time.time())
+                    if str(signal.get("mode") or "").upper() != "MAIN":
+                        last_sniper_side = signal.get("side")
+                        last_sniper_score = engine.signal_strength(signal)
+                        last_sniper_bar = signal.get("bar")
+                    print(
+                        f"real_signal_published key={key} side={signal['side']} "
+                        f"mode={signal.get('mode')} confidence={signal.get('confidence')} "
+                        f"risk_distance={signal['risk_distance']:.2f}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"real_signal_publish_rejected status={status} "
+                        f"reason={response.get('reason','unknown')}",
+                        flush=True,
+                    )
+                    break
+
+        except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
+            print(f"real_signal_error type={type(exc).__name__} detail={exc}", flush=True)
+        except Exception as exc:
+            print(f"real_signal_error type={type(exc).__name__} detail={exc}", flush=True)
+
         time.sleep(POLL_SECONDS)
 
 
