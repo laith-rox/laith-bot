@@ -710,11 +710,18 @@ def same_entry_copies(signal, health):
     risk=max(0.01,float(signal.get("risk_distance") or 0))
     selected=(signal.get("checks") or {}).get(signal.get("side"))
     strength=sum(bool(x) for x in selected) if isinstance(selected,list) else int(signal.get("score") or 0)
-    budget_field="strong_risk_budget_usd" if strength>=6 and health.get("strong_risk_budget_usd") is not None else "effective_risk_budget_usd"
-    full=float(health.get(budget_field) or 0)
     tier=sniper_budget_usd(signal)
-    # Keep the worker at or below the sniper tier; the EA enforces exact USD loss.
-    budget=min(full,tier) if tier is not None and full>0 else (tier if tier is not None else full)
+    if tier is not None:
+        # Sniper uses the requested 3/5/7/10 ladder. The bridge strong budget is
+        # still treated as an absolute ceiling, never as the sniper target.
+        hard=float(health.get("strong_risk_budget_usd") or 0)
+        budget=min(tier,hard) if hard>0 else tier
+    else:
+        # MAIN stays structural/dynamic and uses the bridge's MAIN safety ceiling.
+        budget_field=("strong_risk_budget_usd"
+                      if health.get("strong_risk_budget_usd") is not None
+                      else "effective_risk_budget_usd")
+        budget=float(health.get(budget_field) or 0)
     used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
     available=max(0.0,budget-used)
     return 1 if available+0.01>=risk else 0
@@ -759,12 +766,6 @@ def recover_m15_continuation(signal, health):
                  float(mtf.get("m15_prev_high") or 0))+pad
         raw_risk=stop-ref
     risk=max(0.80,raw_risk)
-    budget_field="strong_risk_budget_usd" if score>=6 else "effective_risk_budget_usd"
-    budget=float(health.get(budget_field) or 0)
-    used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
-    if raw_risk<=0 or risk>min(15.0,budget-used):
-        out["reason"]="m15_stop_exceeds_budget"
-        return out
     opposite=int(out.get("sell_score" if side=="BUY" else "buy_score") or 0)
     checks=(out.get("checks") or {}).get(side) or []
     primary=sum(bool(checks[i]) for i in (0,3,4)) if len(checks)>4 else 0
@@ -777,6 +778,20 @@ def recover_m15_continuation(signal, health):
     breakout=bool(mtf.get("break_up" if side=="BUY" else "break_down"))
     official=(score>=5 and score-opposite>=3 and primary>=2 and aligned and m5 and m15)
     mode="MAIN" if (breakout or official) else "SNIPER"
+
+    if mode=="MAIN":
+        # Official trade: use its real M15 invalidation distance; do not squeeze
+        # it into a sniper stop. A separate bridge/executor ceiling remains.
+        budget=float(health.get("strong_risk_budget_usd") or 0)
+    else:
+        tier=3.0 if score<=4 else (5.0 if score==5 else (7.0 if score==6 else 10.0))
+        hard=float(health.get("strong_risk_budget_usd") or 0)
+        budget=min(tier,hard) if hard>0 else tier
+    used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
+    available=max(0.0,budget-used)
+    if raw_risk<=0 or risk>available:
+        out["reason"]="m15_stop_exceeds_budget"
+        return out
     reason="m15_aligned_official_continuation" if (official and not breakout) else "m15_aligned_continuation"
     confidence=7 if score>=6 else 6
     target_r=(adaptive_main_target_r(side,ref,risk,mtf,confidence)
