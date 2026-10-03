@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import datetime, timezone
 
@@ -53,6 +54,41 @@ class GigiETFTests(unittest.TestCase):
             "North America":2100,"Europe":1500,"Asia":530,"Other":75
         }))
         self.assertEqual(out["regime"],"BROAD_OUTFLOW")
+
+    def test_fetch_has_stdlib_fallback_without_requests(self):
+        original_requests = gigi_etf.requests
+        original_urlopen = gigi_etf.urllib.request.urlopen
+        original_cache = dict(gigi_etf._cache)
+        latest={"North America":1e9,"Europe":0.8e9,"Asia":0.4e9,"Other":0.1e9}
+        flows=flows_payload(latest)
+        holdings=holdings_payload({"North America":2100,"Europe":1500,"Asia":530,"Other":75})
+        payloads=[flows,holdings]
+
+        class FakeResponse:
+            def __init__(self, value):
+                self.value=value
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return json.dumps(self.value).encode("utf-8")
+
+        def fake_urlopen(req, timeout=10):
+            return FakeResponse(payloads.pop(0))
+
+        try:
+            gigi_etf.requests=None
+            gigi_etf.urllib.request.urlopen=fake_urlopen
+            gigi_etf._cache={"fetched_at":0.0,"value":None}
+            out=gigi_etf.fetch(now=12345)
+            self.assertEqual(out["regime"],"BROAD_INFLOW")
+            self.assertIsNone(out["error"])
+        finally:
+            gigi_etf.requests=original_requests
+            gigi_etf.urllib.request.urlopen=original_urlopen
+            gigi_etf._cache=original_cache
+
 
 
 if __name__=="__main__":
