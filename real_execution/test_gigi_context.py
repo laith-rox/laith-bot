@@ -283,6 +283,30 @@ class GigiContextTests(unittest.TestCase):
         self.assertIn("lbma_benchmark_auction_window",out["reasons"])
 
 
+    def test_target_geometry_is_context_only(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {"real_yield_regime":"STABLE_REAL_YIELD","policy_regime":"STABLE_FRONT_END"},
+            {"state":"NO_ACTIVE_HIGH_EVENT","impulse":"NONE"},
+            {"vwap_relation":"CROSSING","extension_state":"FAIR_VALUE_ZONE","range_event":"INSIDE"},
+            {"phase":"OUTSIDE_AUCTION_WINDOW","nearest_auction":"LBMA_AM"},
+            {"state":"AMBITION_HIGH","implied_move_relation":"FAR_BEYOND_1D_PROXY"},
+        )
+        self.assertEqual(out["target_geometry_state"],"AMBITION_HIGH")
+        self.assertEqual(out["target_implied_relation"],"FAR_BEYOND_1D_PROXY")
+        self.assertIn("target_ambition_high",out["reasons"])
+        self.assertIn("target_far_beyond_options_1d_proxy",out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
