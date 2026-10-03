@@ -330,3 +330,25 @@ Research lesson:
   promote live execution;
 - fresh forward confirmation plus regime/macro/liquidity context is required
   before trusting any historical edge.
+
+
+## Calibration discipline added
+
+- The Gigi alignment score remains a context score, not a claimed win probability.
+- Context scores are grouped only into coarse buckets:
+  NEG_STRONG / NEG / ZERO / POS / POS_STRONG.
+- Empirical positive-rate calibration requires at least 30 resolved shadow
+  observations per bucket.
+- Calibration reports include a 95% Wilson interval, sample size and mean R.
+- A bucket is not called calibrated when the sample is small or the confidence
+  interval is still too wide.
+- The live shadow observer now writes a separate
+  `gigi_calibration_report.json`; this report never changes execution.
+
+## Wiring review
+
+- LBMA AM/PM benchmark-auction context is now explicitly attached to the REAL
+  shadow signal before context/thesis/readiness are evaluated.
+- This fixed a wiring gap where the module existed and was previewed but the
+  live shadow worker had not populated the benchmark field.
+- Duplicate options-module import was removed.
