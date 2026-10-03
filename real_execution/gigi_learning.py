@@ -14,6 +14,7 @@ DIMENSIONS = (
     "mode",
     "regime",
     "alignment",
+    "context_score_bucket",
     "macro_regime",
     "macro_phase",
     "macro_event_class",
@@ -59,6 +60,23 @@ DIMENSIONS = (
     "session",
     "strength",
 )
+
+
+def context_score_bucket(score):
+    """Coarse bucket for calibration; the raw alignment score is not a probability."""
+    try:
+        value = int(score)
+    except Exception:
+        return "UNKNOWN"
+    if value >= 3:
+        return "POS_STRONG"
+    if value >= 1:
+        return "POS"
+    if value <= -3:
+        return "NEG_STRONG"
+    if value <= -1:
+        return "NEG"
+    return "ZERO"
 
 
 def new_state():
