@@ -50,6 +50,23 @@ class GigiThesisTests(unittest.TestCase):
         self.assertIn("high_impact_event_window",out["uncertainty"])
         self.assertNotIn("high_impact_event_window",out["conflicts"])
 
+    def test_related_flow_evidence_counts_as_one_family(self):
+        out=gigi_thesis.audit(
+            {"side":"BUY","risk_distance":3.0},
+            {"h4_bias":"NEUTRAL"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+            {"regime":"LONG_BIASED_ADDING"},
+            {"regime":"BROAD_INFLOW"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"UPSIDE_CALL_BID"},
+        )
+        self.assertIn("flows",out["support_families"])
+        self.assertEqual(out["support_count"],1)
+        self.assertEqual(out["state"],"UNPROVEN")
+
+
 
 if __name__=="__main__":
     unittest.main()
