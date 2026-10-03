@@ -322,7 +322,7 @@ def compute_signal(values):
     # verifies the exact USD loss with OrderCalcProfit before DEMO execution.
     strength = max(buy_score, sell_score)
     sniper_mode = d.mode in ("SNIPER", "NIGHT_SNIPER", "REJECTION_SCALP", "CORRECTION_SCALP")
-    sniper_cap = 2.00 if strength <= 4 else (3.00 if strength == 5 else (5.00 if strength == 6 else 7.00))
+    sniper_cap = 3.00 if strength <= 4 else (5.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
     if sniper_mode:
         risk_cap = sniper_cap
     else:
@@ -368,7 +368,7 @@ def compute_signal(values):
     if night_sniper and side and d.mode != "REBOUND":
         # Use the same strength ladder through the entire sniper window.
         strength = max(buy_score, sell_score)
-        cap = 2.00 if strength <= 4 else (3.00 if strength == 5 else (5.00 if strength == 6 else 7.00))
+        cap = 3.00 if strength <= 4 else (5.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
         risk_distance = min(risk_distance, cap)
         d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
@@ -513,6 +513,45 @@ def fetch_multitimeframe_values():
     raise RuntimeError("broker_h4_direct_required")
 
 
+def adaptive_main_target_r(side, reference, risk_distance, mtf, confidence=0):
+    """Choose MAIN profit target from structure instead of a fixed dollar TP.
+
+    The stop remains the M15 structural invalidation. Profit is expressed as
+    R-multiple and adapts to setup quality, retest quality and the next H4
+    boundary when one is available.
+    """
+    risk=max(0.01,float(risk_distance or 0))
+    ref=float(reference or 0)
+    confidence=int(confidence or 0)
+    retest=bool(mtf.get("retest_up") if side=="BUY" else mtf.get("retest_down"))
+    breakout=bool(mtf.get("break_up") if side=="BUY" else mtf.get("break_down"))
+
+    target_r=1.60
+    if breakout:
+        target_r=1.90
+    if retest:
+        target_r=2.20
+    if confidence>=9:
+        target_r=max(target_r,2.50)
+    elif confidence>=8:
+        target_r=max(target_r,2.00)
+
+    # Do not blindly target through a nearby H4 barrier. Leave a small buffer
+    # before the boundary, but never manufacture a huge target when no boundary
+    # is visible in the current map.
+    if side=="BUY":
+        boundary=float(mtf.get("h4_resistance") or 0)
+        room=(boundary-ref) if boundary>ref else 0.0
+    else:
+        boundary=float(mtf.get("h4_support") or 0)
+        room=(ref-boundary) if boundary>0 and boundary<ref else 0.0
+    if room>0:
+        room_r=(0.88*room)/risk
+        if room_r>0:
+            target_r=min(target_r,max(0.80,room_r))
+    return max(0.80,min(3.00,target_r))
+
+
 def apply_main_structure(signal, mtf):
     out=dict(signal)
     side=mtf.get("side")
@@ -599,7 +638,7 @@ def apply_main_structure(signal, mtf):
                          float(mtf.get("m15_prev_high") or ref))+pad
         structural=max(0.80,invalidation-ref)
     out["risk_distance"]=structural
-    out["target_r"]=2.0
+    out["target_r"]=adaptive_main_target_r(side,ref,structural,mtf,out.get("confidence"))
     out["analysis"]={
         "h4_bias":mtf.get("h4_bias"),
         "m15_structure":out["reason"],
@@ -623,17 +662,22 @@ def signal_strength(signal):
 
 
 def sniper_budget_usd(signal):
+    """Requested LIVE sniper stop ladder in USD at the fixed 0.01 lot.
+
+    3-4/7 => $3, 5/7 => $5, 6/7 => $7, 7/7 => $10.
+    This is a ceiling, not a forced stop: structure can choose a tighter stop.
+    """
     mode=str(signal.get("mode") or "").upper()
     if mode not in ("SNIPER","NIGHT_SNIPER","REJECTION_SCALP","CORRECTION_SCALP"):
         return None
     strength=signal_strength(signal)
     if strength<=4:
-        return 2.0
-    if strength==5:
         return 3.0
-    if strength==6:
+    if strength==5:
         return 5.0
-    return 7.0
+    if strength==6:
+        return 7.0
+    return 10.0
 
 
 def sniper_chase_block_reason(signal,last_side,last_score,last_bar):
@@ -734,8 +778,11 @@ def recover_m15_continuation(signal, health):
     official=(score>=5 and score-opposite>=3 and primary>=2 and aligned and m5 and m15)
     mode="MAIN" if (breakout or official) else "SNIPER"
     reason="m15_aligned_official_continuation" if (official and not breakout) else "m15_aligned_continuation"
-    out.update(side=side,mode=mode,confidence=7 if score>=6 else 6,
-               risk_distance=risk,target_r=1.5 if mode=="MAIN" else 1.15,
+    confidence=7 if score>=6 else 6
+    target_r=(adaptive_main_target_r(side,ref,risk,mtf,confidence)
+              if mode=="MAIN" else 1.15)
+    out.update(side=side,mode=mode,confidence=confidence,
+               risk_distance=risk,target_r=target_r,
                reason=reason)
     if mode=="MAIN":
         out["analysis"]={"h4_bias":mtf.get("h4_bias"),
