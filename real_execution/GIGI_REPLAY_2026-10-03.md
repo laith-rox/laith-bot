@@ -68,3 +68,20 @@ A candidate must:
 3. survive spread/slippage assumptions,
 4. avoid relying on a tiny subgroup,
 5. then prove itself again in forward shadow data.
+
+
+## Hypothetical transaction-cost sensitivity
+These are NOT measured JustMarkets fills. They simply subtract a fixed XAU
+price-unit cost divided by each trade's risk distance.
+
+| Assumed total price cost | MAIN mean R | SNIPER mean R |
+| --- | ---: | ---: |
+| 0.00 | +0.1088 | -0.0803 |
+| 0.20 | +0.0926 | -0.1623 |
+| 0.40 | +0.0765 | -0.2442 |
+| 0.60 | +0.0604 | -0.3262 |
+
+The sign of MAIN remained positive across this sensitivity range, while the
+raw SNIPER baseline deteriorated sharply because its risk distances are smaller.
+This strengthens the case for separate execution-quality calibration by mode,
+but still does not prove future profitability.
