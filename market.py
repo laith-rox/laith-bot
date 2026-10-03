@@ -68,6 +68,38 @@ def resample(bars, minutes):
         result.append(Bar(datetime.fromtimestamp(bucket,UTC),group[0].open,max(b.high for b in group),min(b.low for b in group),group[-1].close,minutes))
     return result
 
+def market_session_state(bars, now, warmup_bars=3):
+    """Fail closed around the weekly XAU/USD shutdown and reopen.
+
+    CLOSED: weekend/no fresh closed candle. WARMUP: market has reopened but fewer
+    than warmup_bars consecutive post-weekend 5m candles exist. LIVE: safe to
+    analyze for a new signal. This guard is informational/read-only.
+    """
+    now = now.astimezone(UTC)
+    if now.weekday() == 5:
+        return "CLOSED"
+    if not bars:
+        return "CLOSED"
+    # Sunday reopen: require consecutive candles created on Sunday UTC, so Friday
+    # history or the opening gap cannot be interpreted as a fresh trend.
+    if now.weekday() == 6:
+        sunday = [b for b in bars if b.start.date() == now.date()]
+        if len(sunday) < warmup_bars:
+            return "WARMUP"
+        tail = sunday[-warmup_bars:]
+        if any(tail[i].start - tail[i-1].start != timedelta(minutes=5)
+               for i in range(1, len(tail))):
+            return "WARMUP"
+    return "LIVE"
+
+def require_live_session(bars, now, warmup_bars=3):
+    state = market_session_state(bars, now, warmup_bars)
+    if state == "CLOSED":
+        raise DataError("market_closed")
+    if state == "WARMUP":
+        raise DataError("market_reopen_warmup")
+    return state
+
 def require_fresh(bars, now, max_age_seconds=600):
     if not bars: raise DataError("market_no_closed_candles")
     age=(now-bars[-1].end).total_seconds()
