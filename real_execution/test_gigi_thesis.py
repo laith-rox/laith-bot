@@ -93,6 +93,19 @@ class GigiThesisTests(unittest.TestCase):
         self.assertNotIn("broker_spread_wide",out["conflicts"])
 
 
+    def test_same_direction_stacking_is_uncertainty_not_block(self):
+        out=gigi_thesis.audit(
+            {"side":"BUY","risk_distance":3.0},
+            {"h4_bias":"UP"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+            exposure={"stacking_state":"HIGH_CONCENTRATION","book_state":"SAME_DIRECTION"},
+        )
+        self.assertIn("same_direction_exposure_high",out["uncertainty"])
+        self.assertNotIn("same_direction_exposure_high",out["conflicts"])
+
+
 
 if __name__=="__main__":
     unittest.main()
