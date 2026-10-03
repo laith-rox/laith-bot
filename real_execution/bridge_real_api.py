@@ -264,6 +264,12 @@ def _status():
         "strong_risk_budget_usd": state.get("strong_risk_budget_usd"),
         "profit_risk_budget_usd": state.get("profit_risk_budget_usd"),
         "owned_position_count": state.get("owned_position_count", 0),
+        "owned_buy_count": state.get("owned_buy_count", 0),
+        "owned_sell_count": state.get("owned_sell_count", 0),
+        "main_buy_count": state.get("main_buy_count", 0),
+        "main_sell_count": state.get("main_sell_count", 0),
+        "sniper_buy_count": state.get("sniper_buy_count", 0),
+        "sniper_sell_count": state.get("sniper_sell_count", 0),
     }
 
 
