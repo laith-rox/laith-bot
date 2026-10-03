@@ -26,6 +26,8 @@ HMAC_SECRET = os.getenv("REAL_BRIDGE_HMAC_SECRET", "").strip()
 REAL_ARMED = os.getenv("REAL_BRIDGE_ARMED", "false").strip().lower() == "true"
 EXECUTION_ENABLED = os.getenv("REAL_EXECUTION_ENABLED", "false").strip().lower() == "true"
 FIXED_VOLUME = float(os.getenv("REAL_FIXED_VOLUME", "0") or 0)
+EFFECTIVE_RISK_BUDGET_USD = float(os.getenv("REAL_EFFECTIVE_RISK_BUDGET_USD", "3") or 3)
+STRONG_RISK_BUDGET_USD = float(os.getenv("REAL_STRONG_RISK_BUDGET_USD", "15") or 15)
 MAX_AGE_SECONDS = 30
 STATE_FRESH_SECONDS = 10
 MARKET_FRESH_SECONDS = 20
@@ -103,7 +105,7 @@ def _market_source_age(payload=None, now=None):
 
 
 def _validate_market_payload(data: dict, now=None):
-    feeds = {k: data.get(k) for k in ("m5", "m15", "h1")}
+    feeds = {k: data.get(k) for k in ("m5", "m15", "h4")}
     if not all(isinstance(v, list) and len(v) >= 30 for v in feeds.values()):
         return False, "market_rows_required"
     source_age = _market_source_age(data, now)
@@ -179,6 +181,10 @@ def _status():
         "readiness_blockers": _readiness_blockers(now),
         "preflight_ok": len(_readiness_blockers(now)) == 0,
         "fixed_volume_configured": FIXED_VOLUME > 0,
+        "fixed_volume": FIXED_VOLUME,
+        "effective_risk_budget_usd": EFFECTIVE_RISK_BUDGET_USD,
+        "strong_risk_budget_usd": STRONG_RISK_BUDGET_USD,
+        "position_risk_usd": state.get("position_risk_usd", 0),
         "client_state_fresh": s_age is not None and s_age <= STATE_FRESH_SECONDS,
         "client_state_age": s_age,
         "market_fresh": (
@@ -311,7 +317,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/market":
             payload = {"ok": True}
             if _market_state:
-                payload.update({k: _market_state.get(k) for k in ("m5", "m15", "h1")})
+                payload.update({k: _market_state.get(k) for k in ("m5", "m15", "h1", "h4")})
                 payload["market_age"] = _market_age()
             return _json(self, 200, payload)
         if path == "/verify":
@@ -402,6 +408,7 @@ class Handler(BaseHTTPRequestHandler):
                 "m5": data.get("m5"),
                 "m15": data.get("m15"),
                 "h1": data.get("h1"),
+                "h4": data.get("h4"),
                 "source_timestamp": data.get("source_timestamp"),
                 "received_at": time.time(),
             }
