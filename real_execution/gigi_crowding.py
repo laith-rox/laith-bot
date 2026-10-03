@@ -8,12 +8,13 @@ liquidation cascade.
 from __future__ import annotations
 
 
-def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=None):
+def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=None, options=None):
     positioning = positioning or {}
     volatility = volatility or {}
     liquidity = liquidity or {}
     etf = etf or {}
     regime = regime or {}
+    options = options or {}
 
     long_risk = 0
     short_risk = 0
@@ -77,6 +78,22 @@ def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=
         reasons.append("volatility_speed_gate_open")
     elif vol_state == "PRICED_MOVE_COMPRESSION":
         reasons.append("options_priced_move_before_break")
+
+    # Options skew/OI are hedging/crowding clues, not price direction.
+    options_skew = str(options.get("skew") or "UNKNOWN").upper()
+    options_oi = str(options.get("oi_state") or "UNKNOWN").upper()
+    if options_skew == "DOWNSIDE_HEDGE_BID":
+        long_risk += 1
+        reasons.append("options_downside_hedge_bid")
+    elif options_skew == "UPSIDE_CALL_BID":
+        short_risk += 1
+        reasons.append("options_upside_call_bid")
+    if options_oi == "PUT_HEAVY":
+        long_risk += 1
+        reasons.append("options_put_oi_heavy")
+    elif options_oi == "CALL_HEAVY":
+        short_risk += 1
+        reasons.append("options_call_oi_heavy")
 
     # Structure is context, not a trigger.
     if h4_bias == "DOWN":
