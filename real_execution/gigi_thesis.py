@@ -30,6 +30,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
 
     h4=str(regime.get("h4_bias") or "NEUTRAL").upper()
     inter=str(intermarket.get("bias") or "NEUTRAL").upper()
+    inter_relationship=str(intermarket.get("relationship_state") or "WEAK").upper()
     liq=str(liquidity.get("pressure") or "NEUTRAL").upper()
     pos=str(positioning.get("regime") or "UNKNOWN").upper()
     etf_regime=str(etf.get("regime") or "UNKNOWN").upper()
@@ -69,6 +70,14 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     elif macro_regime=="UNKNOWN":
         uncertainty.append("macro_unknown")
 
+    if inter_relationship=="FLIPPING_PRESENT":
+        uncertainty.append("intermarket_relationship_flipping")
+    elif inter_relationship=="SHORT_ONLY_PRESENT":
+        uncertainty.append("intermarket_relationship_short_only")
+
+    if etf_regime.startswith("MIXED"):
+        uncertainty.append("etf_regional_rotation")
+
     real_yield_regime=str(yields.get("real_yield_regime") or "UNKNOWN").upper()
     if side=="BUY" and real_yield_regime=="RISING_REAL_YIELD":
         uncertainty.append("real_yield_headwind")
@@ -81,6 +90,17 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         uncertainty.append("options_downside_hedging")
     elif skew=="UPSIDE_CALL_BID":
         uncertainty.append("options_upside_call_demand")
+
+    oi_state=str(options.get("oi_state") or "UNKNOWN").upper()
+    gamma_context=str(options.get("gross_gamma_oi_context") or "UNKNOWN").upper()
+    if oi_state=="PUT_HEAVY":
+        uncertainty.append("options_put_oi_heavy")
+    elif oi_state=="CALL_HEAVY":
+        uncertainty.append("options_call_oi_heavy")
+    if gamma_context=="HIGH_NEAR_SPOT_CONVEXITY":
+        uncertainty.append("options_near_spot_convexity_high")
+    elif gamma_context=="MODERATE_NEAR_SPOT_CONVEXITY":
+        uncertainty.append("options_near_spot_convexity_moderate")
 
     execution_state=str(execution_quality.get("quality") or "UNKNOWN").upper()
     if execution_state in ("WIDE","EXTREME"):
