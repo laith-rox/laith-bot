@@ -19,6 +19,7 @@ from urllib.error import HTTPError, URLError
 import real_analysis_engine as engine
 import gigi_regime
 import gigi_intermarket
+import gigi_macro
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -225,6 +226,7 @@ def preview_payload(signal):
         "native_h4_reopen_ready": bool(signal.get("native_h4_reopen_ready", True)),
         "regime": signal.get("regime") or {},
         "intermarket": signal.get("intermarket") or {},
+        "macro": signal.get("macro") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
@@ -388,6 +390,7 @@ def run_forever():
                 engine.normalize_rows(feeds["15m"]),
                 feeds.get("intermarket") or {},
             )
+            signal["macro"] = gigi_macro.context(time.time())
 
             if _preview_enabled:
                 _latest_preview = preview_payload(signal)
