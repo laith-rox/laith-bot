@@ -74,6 +74,21 @@ class GigiContextTests(unittest.TestCase):
         self.assertIn("positioning_supports_sell",out["reasons"])
 
 
+    def test_options_priced_move_is_context_not_direction(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"PRICED_MOVE_COMPRESSION"},
+        )
+        self.assertEqual(out["volatility_state"],"PRICED_MOVE_COMPRESSION")
+        self.assertIn("options_price_move_before_realized_expansion",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
