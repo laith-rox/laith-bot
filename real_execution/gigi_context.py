@@ -188,17 +188,6 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif policy_regime=="FALLING_FRONT_END":
         reasons.append("front_end_yields_falling")
 
-    options_skew=str(options.get("skew") or "UNKNOWN").upper()
-    options_oi_state=str(options.get("oi_state") or "UNKNOWN").upper()
-    if options_skew=="DOWNSIDE_HEDGE_BID":
-        reasons.append("options_downside_hedge_bid")
-    elif options_skew=="UPSIDE_CALL_BID":
-        reasons.append("options_upside_call_bid")
-    if options_oi_state=="PUT_HEAVY":
-        reasons.append("options_put_oi_heavy")
-    elif options_oi_state=="CALL_HEAVY":
-        reasons.append("options_call_oi_heavy")
-
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -222,8 +211,6 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "market_state": market_state,
         "volatility_state": volatility_state,
         "crowding_risk": crowding_risk,
-        "options_skew": options_skew,
-        "options_oi_state": options_oi_state,
         "options_skew": options_skew,
         "options_oi_state": options_oi,
         "options_gamma_context": options_gamma,
