@@ -7,13 +7,14 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
     macro=macro or {}
     liquidity=liquidity or {}
     positioning=positioning or {}
+    volatility=volatility or {}
 
     score=0
     reasons=[]
@@ -111,6 +112,18 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None)
     else:
         market_state="NORMAL"
 
+    volatility_state=str(volatility.get("state") or "UNKNOWN").upper()
+    if volatility_state=="STRESS_EXPANSION":
+        reasons.append("volatility_stress_expansion")
+    elif volatility_state=="PRICED_MOVE_COMPRESSION":
+        reasons.append("options_price_move_before_realized_expansion")
+    elif volatility_state=="IMPLIED_ELEVATED":
+        reasons.append("options_implied_vol_elevated")
+    elif volatility_state=="REALIZED_EXPANSION":
+        reasons.append("realized_vol_expanding")
+    elif volatility_state=="REALIZED_COMPRESSION":
+        reasons.append("realized_vol_compressed")
+
     if score>=3:
         alignment="STRONG_SUPPORT"
     elif score>=1:
@@ -126,6 +139,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None)
         "alignment": alignment,
         "score": int(score),
         "market_state": market_state,
+        "volatility_state": volatility_state,
         "reasons": reasons,
         "note": "alignment_score_not_probability",
     }
