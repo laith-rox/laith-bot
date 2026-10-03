@@ -36,6 +36,24 @@ class GigiIntermarketTests(unittest.TestCase):
         out=gigi_intermarket.analyze(series([100+i for i in range(20)]),{"WTI":[]})
         self.assertEqual(out["bias"],"NEUTRAL")
 
+    def test_wti_and_brent_do_not_double_count_same_family(self):
+        gold=series([100+i for i in range(20)])
+        wti=series([50+0.5*i for i in range(20)])
+        brent=series([60+0.6*i for i in range(20)])
+        out=gigi_intermarket.analyze(gold,{"WTI":wti,"BRENT":brent})
+        self.assertEqual(out["family_details"]["ENERGY"]["members"],2)
+        self.assertLessEqual(out["bull_evidence"],1.0)
+        self.assertEqual(out["method"],"rolling_correlation_family_deduplicated")
+
+    def test_related_family_conflict_averages_instead_of_stacking(self):
+        gold=series([100+i for i in range(20)])
+        up=series([50+0.5*i for i in range(20)])
+        down=series([80-0.5*i for i in range(20)])
+        out=gigi_intermarket.analyze(gold,{"WTI":up,"BRENT":down})
+        self.assertEqual(out["family_details"]["ENERGY"]["members"],2)
+        self.assertLess(abs(out["family_details"]["ENERGY"]["vote"]),0.25)
+
+
 
 if __name__=="__main__":
     unittest.main()
