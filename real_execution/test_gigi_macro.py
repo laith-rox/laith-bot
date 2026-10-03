@@ -51,6 +51,25 @@ class GigiMacroTests(unittest.TestCase):
         self.assertEqual(digest["phase"], "HIGH_EVENT_DIGESTION_5_15M")
 
 
+    def test_event_classes_split_cpi_nfp_and_fomc(self):
+        self.assertEqual(gigi_macro.event_class("CPI m/m"), "CPI")
+        self.assertEqual(gigi_macro.event_class("Non-Farm Employment Change"), "LABOR_NFP")
+        self.assertEqual(gigi_macro.event_class("FOMC Statement"), "FOMC_FED")
+        self.assertEqual(gigi_macro.event_class("Fed Chair Powell Speaks"), "FOMC_FED")
+
+    def test_context_exposes_active_event_class(self):
+        event_time = datetime(2026,10,5,12,30,tzinfo=timezone.utc).timestamp()
+        events = [{
+            "title":"CPI m/m",
+            "event_class":"CPI",
+            "impact":"HIGH",
+            "time":event_time,
+        }]
+        out = gigi_macro.context(event_time - 10*60, events, None)
+        self.assertEqual(out["active_event_class"], "CPI")
+        self.assertEqual(out["active_event_impact"], "HIGH")
+
+
 
 if __name__ == "__main__":
     unittest.main()
