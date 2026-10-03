@@ -111,7 +111,7 @@ def normalize_rows(values):
 
 
 MAX_CLOSED_BAR_AGE_SECONDS = {"5m": 15 * 60, "15m": 40 * 60, "h4": 9 * 60 * 60}
-REOPEN_MIN_CLOSED_BARS = {"5m": 3, "15m": 1, "h4": 1}
+REOPEN_MIN_CLOSED_BARS = {"5m": 3, "15m": 1, "h4": 0}
 # H4 must be broker-native and the latest H4 candle used by analysis must be closed.
 # We never synthesize H4 from smaller candles in REAL mode.
 REQUIRE_NATIVE_H4 = True
@@ -138,6 +138,38 @@ def _rows_after_last_gap(rows, expected_seconds):
     if last_gap_index < 0:
         return len(rows)
     return len(rows) - last_gap_index
+
+
+def native_h4_reopen_ready(values):
+    """Require one newly CLOSED broker-native H4 candle after a long closure.
+
+    The newest MT5 H4 row is the active candle, so it is deliberately excluded
+    from the completed-after-gap count. This prevents a weekend/daily reopen
+    from promoting an old pre-close H4 candle into a new MAIN setup.
+    """
+    if not isinstance(values, list) or len(values) < 3:
+        return False
+    rows = []
+    for item in values:
+        raw = str(item.get("datetime") or "").replace(".", "-", 2)
+        if not raw:
+            continue
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        rows.append(dt)
+    rows.sort()
+    if len(rows) < 3:
+        return False
+    last_gap_index = -1
+    for i in range(1, len(rows)):
+        if (rows[i] - rows[i-1]).total_seconds() > EXPECTED_BAR_SECONDS["h4"] * 3:
+            last_gap_index = i
+    if last_gap_index < 0:
+        return True
+    rows_after_gap_including_active = len(rows) - last_gap_index
+    completed_after_gap = max(0, rows_after_gap_including_active - 1)
+    return completed_after_gap >= 1
 
 
 def validate_market_feed_freshness(feeds, now_ts=None):
