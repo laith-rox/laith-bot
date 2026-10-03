@@ -172,6 +172,17 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         self.assertTrue(s["account_trade_allowed"])
 
 
+    def test_ready_uses_same_fail_closed_blockers(self):
+        original = bridge._readiness_blockers
+        try:
+            bridge._readiness_blockers = lambda now=None: ["terminal_autotrading_off"]
+            self.assertFalse(bridge._ready())
+            bridge._readiness_blockers = lambda now=None: []
+            self.assertTrue(bridge._ready())
+        finally:
+            bridge._readiness_blockers = original
+
+
 
 if __name__ == "__main__":
     unittest.main()
