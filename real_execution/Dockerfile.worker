@@ -33,6 +33,7 @@ COPY gigi_clock.py test_gigi_clock.py ./
 COPY gigi_drift.py test_gigi_drift.py ./
 COPY gigi_session_profile.py test_gigi_session_profile.py ./
 COPY gigi_walkforward.py test_gigi_walkforward.py ./
+COPY gigi_price_prior.py test_gigi_price_prior.py ./
 
 RUN python -m unittest -v \
     test_bridge_real_signal_worker.py \
@@ -63,7 +64,8 @@ RUN python -m unittest -v \
     test_gigi_clock.py \
     test_gigi_drift.py \
     test_gigi_session_profile.py \
-    test_gigi_walkforward.py
+    test_gigi_walkforward.py \
+    test_gigi_price_prior.py
 
 EXPOSE 8080
 CMD ["python","-u","bridge_real_signal_worker.py"]
