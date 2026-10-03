@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -18,6 +18,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     etf=etf or {}
     crowding=crowding or {}
     options=options or {}
+    yields=yields or {}
 
     score=0
     reasons=[]
@@ -156,6 +157,19 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         reasons.append("options_high_near_spot_convexity")
     elif options_gamma=="MODERATE_NEAR_SPOT_CONVEXITY":
         reasons.append("options_moderate_near_spot_convexity")
+
+    real_yield_regime=str(yields.get("real_yield_regime") or "UNKNOWN").upper()
+    policy_regime=str(yields.get("policy_regime") or "UNKNOWN").upper()
+    if real_yield_regime=="RISING_REAL_YIELD":
+        reasons.append("real_yield_headwind_gold")
+    elif real_yield_regime=="FALLING_REAL_YIELD":
+        reasons.append("real_yield_tailwind_gold")
+    elif real_yield_regime=="STALE":
+        reasons.append("real_yield_data_stale")
+    if policy_regime=="RISING_FRONT_END":
+        reasons.append("front_end_yields_rising")
+    elif policy_regime=="FALLING_FRONT_END":
+        reasons.append("front_end_yields_falling")
 
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
