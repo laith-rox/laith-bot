@@ -143,6 +143,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
 
     options_skew=str(options.get("skew") or "UNKNOWN").upper()
     options_oi=str(options.get("oi_state") or "UNKNOWN").upper()
+    options_gamma=str(options.get("gross_gamma_oi_context") or "UNKNOWN").upper()
     if options_skew=="DOWNSIDE_HEDGE_BID":
         reasons.append("options_downside_hedge_bid")
     elif options_skew=="UPSIDE_CALL_BID":
@@ -151,6 +152,10 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         reasons.append("options_put_oi_heavy")
     elif options_oi=="CALL_HEAVY":
         reasons.append("options_call_oi_heavy")
+    if options_gamma=="HIGH_NEAR_SPOT_CONVEXITY":
+        reasons.append("options_high_near_spot_convexity")
+    elif options_gamma=="MODERATE_NEAR_SPOT_CONVEXITY":
+        reasons.append("options_moderate_near_spot_convexity")
 
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
@@ -177,6 +182,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "crowding_risk": crowding_risk,
         "options_skew": options_skew,
         "options_oi_state": options_oi,
+        "options_gamma_context": options_gamma,
         "reasons": reasons,
         "note": "alignment_score_not_probability",
     }
