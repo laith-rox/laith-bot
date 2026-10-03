@@ -71,9 +71,10 @@ def parse(payload):
     if spot <= 0 or not options:
         raise ValueError("option_chain_missing")
 
-    timestamp = str(payload.get("timestamp") or data.get("last_trade_time") or "")
+    snapshot_time = str(payload.get("timestamp") or "")
+    market_time = str(data.get("last_trade_time") or snapshot_time or "")
     try:
-        now_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        now_dt = datetime.fromisoformat((snapshot_time or market_time).replace("Z", "+00:00"))
     except Exception:
         now_dt = datetime.now(timezone.utc)
     if now_dt.tzinfo is None:
@@ -154,7 +155,8 @@ def parse(payload):
         oi_state = "BALANCED"
 
     return {
-        "as_of": timestamp,
+        "as_of": market_time,
+        "snapshot_time": snapshot_time,
         "spot": round(spot, 3),
         "expiry": expiry.date().isoformat(),
         "dte": (expiry.date() - now_dt.date()).days,
