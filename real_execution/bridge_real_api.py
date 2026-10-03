@@ -132,6 +132,32 @@ def _clean(now=None):
             item["ack"] = {"ok": False, "reason": "expired", "at": now}
 
 
+def _readiness_blockers(now=None):
+    now = time.time() if now is None else now
+    blockers = []
+    s_age = _state_age(now)
+    m_age = _market_age(now)
+    source_age = _market_source_age(_market_state, now)
+    if not CLIENT_TOKEN or not PUBLISH_TOKEN or not HMAC_SECRET:
+        blockers.append("auth_incomplete")
+    if FIXED_VOLUME <= 0:
+        blockers.append("risk_unset")
+    if not REAL_ARMED:
+        blockers.append("not_armed")
+    if not EXECUTION_ENABLED:
+        blockers.append("execution_disabled")
+    if _emergency_stop:
+        blockers.append("emergency_stop")
+    if s_age is None or s_age > STATE_FRESH_SECONDS:
+        blockers.append("mt5_state_stale")
+    if (
+        m_age is None or m_age > MARKET_FRESH_SECONDS
+        or source_age is None or source_age > MARKET_SOURCE_FRESH_SECONDS
+    ):
+        blockers.append("market_closed_or_stale")
+    return blockers
+
+
 def _status():
     now = time.time()
     s_age = _state_age(now)
@@ -150,6 +176,8 @@ def _status():
         "publish_auth_configured": bool(PUBLISH_TOKEN),
         "hmac_configured": bool(HMAC_SECRET),
         "ready": _ready(),
+        "readiness_blockers": _readiness_blockers(now),
+        "preflight_ok": len(_readiness_blockers(now)) == 0,
         "fixed_volume_configured": FIXED_VOLUME > 0,
         "client_state_fresh": s_age is not None and s_age <= STATE_FRESH_SECONDS,
         "client_state_age": s_age,
