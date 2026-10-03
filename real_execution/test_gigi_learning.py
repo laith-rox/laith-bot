@@ -96,6 +96,28 @@ class GigiLearningTests(unittest.TestCase):
         )
 
 
+    def test_validated_weight_is_suppressed_when_recent_edge_drifts(self):
+        state = gigi_learning.new_state()
+        for i in range(gigi_learning.MIN_WEIGHT_SAMPLES):
+            gigi_learning.record(state, self.observation(i, close_r=0.5))
+        validation = {
+            "buckets": {
+                "mode:SNIPER": {"status": "STABLE_POSITIVE"}
+            }
+        }
+        drift = {
+            "buckets": {
+                "mode:SNIPER": {"status": "SIGN_FLIP", "shadow_trust": False}
+            }
+        }
+        self.assertEqual(
+            gigi_learning.validated_shadow_weight(
+                state, validation, "mode", "SNIPER", drift
+            ),
+            0.0,
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
