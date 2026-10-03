@@ -374,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/market":
             payload = {"ok": True}
             if _market_state:
-                payload.update({k: _market_state.get(k) for k in ("m5", "m15", "h1", "h4")})
+                payload.update({k: _market_state.get(k) for k in ("m5", "m15", "h1", "h4", "intermarket")})
                 payload["market_age"] = _market_age()
             return _json(self, 200, payload)
         if path == "/verify":
@@ -466,6 +466,7 @@ class Handler(BaseHTTPRequestHandler):
                 "m15": data.get("m15"),
                 "h1": data.get("h1"),
                 "h4": data.get("h4"),
+                "intermarket": data.get("intermarket") or {},
                 "h4_source": data.get("h4_source"),
                 "source_clock": data.get("source_clock"),
                 "source_timestamp": data.get("source_timestamp"),
