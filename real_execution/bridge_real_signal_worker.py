@@ -27,7 +27,6 @@ import gigi_volatility
 import gigi_etf
 import gigi_crowding
 import gigi_options
-import gigi_options
 import gigi_thesis
 import gigi_yields
 import gigi_stop_geometry
@@ -148,6 +147,12 @@ def session_block_reason(signal):
     if DAY_ENTRY_START_MINUTE <= minute < DAY_ENTRY_END_MINUTE:
         return None
     return "main_session_closed" if mode == "MAIN" else "sniper_session_closed"
+
+
+def attach_benchmark_context(signal):
+    """Attach DST-aware LBMA auction timing to the live analysis signal."""
+    signal["benchmark"] = gigi_benchmark.context(signal.get("bar"))
+    return signal
 
 
 def execution_block_reason(health):
@@ -447,6 +452,7 @@ def run_forever():
             signal["session_profile"] = gigi_session_profile.analyze(
                 engine.normalize_rows(feeds["5m"])
             )
+            signal = attach_benchmark_context(signal)
             signal["price_prior"] = gigi_price_prior.assess(signal.get("reason"))
             signal["stop_geometry"] = gigi_stop_geometry.analyze(
                 signal,
