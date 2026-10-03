@@ -57,6 +57,17 @@ class GigiYieldTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"treasury_history_too_short"):
             gigi_yields.parse("<ROOT/>","<ROOT/>")
 
+    def test_two_sessions_do_not_masquerade_as_five_day_trend(self):
+        nom="<ROOT><G_NEW_DATE><BID_CURVE_DATE>01-OCT-26</BID_CURVE_DATE><BC_2YEAR>4.70</BC_2YEAR><BC_10YEAR>5.20</BC_10YEAR></G_NEW_DATE><G_NEW_DATE><BID_CURVE_DATE>02-OCT-26</BID_CURVE_DATE><BC_2YEAR>4.83</BC_2YEAR><BC_10YEAR>5.28</BC_10YEAR></G_NEW_DATE></ROOT>"
+        real="<ROOT><G_NEW_DATE><TIPS_CURVE_DATE>01-OCT-26</TIPS_CURVE_DATE><TC_10YEAR>2.88</TC_10YEAR></G_NEW_DATE><G_NEW_DATE><TIPS_CURVE_DATE>02-OCT-26</TIPS_CURVE_DATE><TC_10YEAR>2.92</TC_10YEAR></G_NEW_DATE></ROOT>"
+        now=datetime(2026,10,3,tzinfo=timezone.utc).timestamp()
+        out=gigi_yields.parse(nom,real,now=now)
+        self.assertEqual(out["real_yield_regime"],"INSUFFICIENT_HISTORY")
+        self.assertEqual(out["policy_regime"],"INSUFFICIENT_HISTORY")
+        self.assertIsNone(out["real_10y_change_5d_bps"])
+        self.assertIsNone(out["nominal_2y_change_5d_bps"])
+
+
 
 if __name__=="__main__":
     unittest.main()
