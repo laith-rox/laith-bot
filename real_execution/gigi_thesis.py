@@ -83,9 +83,23 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     if not invalidation_defined:
         conflicts.append("invalidation_missing")
 
-    # Distinct conflict families matter more than raw indicator count.
-    conflict_count=len(set(conflicts))
-    support_count=len(set(support))
+    # Count independent evidence families, not raw indicators. Positioning,
+    # ETF flows, options and crowding are related flow/positioning evidence and
+    # must not masquerade as four independent confirmations.
+    family_map={
+        "h4_structure":"structure",
+        "intermarket":"intermarket",
+        "liquidity":"liquidity",
+        "positioning":"flows",
+        "etf_flow":"flows",
+        "crowding_liquidation":"flows",
+        "crowding_squeeze":"flows",
+        "invalidation_missing":"risk",
+    }
+    support_families=sorted({family_map.get(x,x) for x in set(support)})
+    conflict_families=sorted({family_map.get(x,x) for x in set(conflicts)})
+    conflict_count=len(conflict_families)
+    support_count=len(support_families)
     if conflict_count >= 2 or not invalidation_defined:
         state="FRAGILE"
     elif conflict_count == 1:
@@ -101,6 +115,10 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         "conflict_count":conflict_count,
         "supports":sorted(set(support)),
         "conflicts":sorted(set(conflicts)),
+        "support_families":support_families,
+        "conflict_families":conflict_families,
+        "support_evidence_count":len(set(support)),
+        "conflict_evidence_count":len(set(conflicts)),
         "uncertainty":sorted(set(uncertainty)),
         "invalidation_defined":invalidation_defined,
         "note":"shadow_contradiction_audit_not_entry_gate",
