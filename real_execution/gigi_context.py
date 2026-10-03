@@ -50,6 +50,12 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         score+=1
         reasons.append("effort_result_expansion")
 
+    inter_relationship=str(intermarket.get("relationship_state") or "WEAK").upper()
+    if inter_relationship=="FLIPPING_PRESENT":
+        reasons.append("intermarket_relationship_flipping")
+    elif inter_relationship=="SHORT_ONLY_PRESENT":
+        reasons.append("intermarket_relationship_short_only")
+
     inter_bias=str(intermarket.get("bias") or "NEUTRAL").upper()
     if side=="BUY":
         if inter_bias=="BULLISH_GOLD":
