@@ -7,7 +7,7 @@ from __future__ import annotations
 
 
 def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
-          positioning=None, etf=None, crowding=None, options=None, yields=None):
+          positioning=None, etf=None, crowding=None, options=None, yields=None, quality=None):
     signal=signal or {}
     regime=regime or {}
     intermarket=intermarket or {}
@@ -18,6 +18,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     crowding=crowding or {}
     options=options or {}
     yields=yields or {}
+    quality=quality or {}
 
     side=str(signal.get("side") or "WAIT").upper()
     support=[]
@@ -77,6 +78,12 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         uncertainty.append("options_downside_hedging")
     elif skew=="UPSIDE_CALL_BID":
         uncertainty.append("options_upside_call_demand")
+
+    quality_state=str(quality.get("quality") or "UNKNOWN").upper()
+    if quality_state=="LOW":
+        uncertainty.append("external_context_low_quality")
+    elif quality_state=="MEDIUM":
+        uncertainty.append("external_context_partial")
 
     risk_distance=float(signal.get("risk_distance") or 0.0)
     invalidation_defined=risk_distance > 0
