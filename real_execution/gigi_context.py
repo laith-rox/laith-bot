@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -16,6 +16,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     positioning=positioning or {}
     volatility=volatility or {}
     etf=etf or {}
+    crowding=crowding or {}
 
     score=0
     reasons=[]
@@ -139,6 +140,12 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif volatility_state=="REALIZED_COMPRESSION":
         reasons.append("realized_vol_compressed")
 
+    crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
+    if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
+        reasons.append("long_liquidation_risk")
+    elif crowding_risk in ("HIGH_SHORT_SQUEEZE","WATCH_SHORT_SQUEEZE","SHORT_SQUEEZE_BIAS"):
+        reasons.append("short_squeeze_risk")
+
     if score>=3:
         alignment="STRONG_SUPPORT"
     elif score>=1:
@@ -155,6 +162,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "score": int(score),
         "market_state": market_state,
         "volatility_state": volatility_state,
+        "crowding_risk": crowding_risk,
         "reasons": reasons,
         "note": "alignment_score_not_probability",
     }
