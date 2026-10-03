@@ -322,6 +322,28 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_multi_high_macro_bundle_is_visible_not_fake_direction(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"HIGH_IMPACT_WINDOW","phase":"PRE_HIGH_EVENT","event_bundle_state":"MULTI_HIGH_RELEASE"},
+        )
+        self.assertEqual(out["macro_event_bundle"],"MULTI_HIGH_RELEASE")
+        self.assertIn("macro_multi_high_release_bundle",out["reasons"])
+
+    def test_options_reasons_are_not_duplicated(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            options={"skew":"DOWNSIDE_HEDGE_BID","oi_state":"PUT_HEAVY"},
+        )
+        self.assertEqual(out["reasons"].count("options_downside_hedge_bid"),1)
+        self.assertEqual(out["reasons"].count("options_put_oi_heavy"),1)
+
+
 
 if __name__=="__main__":
     unittest.main()
