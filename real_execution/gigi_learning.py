@@ -25,6 +25,8 @@ DIMENSIONS = (
     "etf_regime",
     "etf_breadth",
     "crowding_risk",
+    "options_skew",
+    "options_oi_state",
     "session",
     "strength",
 )
