@@ -106,6 +106,35 @@ def parse(payload):
     oi_ratio = (put_oi / call_oi) if call_oi > 0 else None
     vol_ratio = (put_vol / call_vol) if call_vol > 0 else None
 
+    # Gross gamma-open-interest concentration. This is intentionally unsigned:
+    # public option-chain data does not reveal dealer positioning sign, so Gigi
+    # must not call this "dealer gamma" or infer support/resistance from it.
+    gamma_by_strike = {}
+    for x in band:
+        try:
+            gamma = abs(float(x.get("gamma") or 0.0))
+            oi = float(x.get("open_interest") or 0.0)
+            gamma_by_strike[x["_strike"]] = gamma_by_strike.get(x["_strike"], 0.0) + gamma * oi
+        except Exception:
+            continue
+    gross_gamma_oi = sum(gamma_by_strike.values())
+    if gamma_by_strike and gross_gamma_oi > 0:
+        top_gamma_strike, top_gamma_value = max(gamma_by_strike.items(), key=lambda kv: kv[1])
+        top_gamma_share = top_gamma_value / gross_gamma_oi
+        near_gamma = sum(v for strike, v in gamma_by_strike.items() if abs(strike / spot - 1.0) <= 0.02)
+        near_gamma_share = near_gamma / gross_gamma_oi
+    else:
+        top_gamma_strike = None
+        top_gamma_share = 0.0
+        near_gamma_share = 0.0
+
+    if near_gamma_share >= 0.35:
+        gamma_context = "HIGH_NEAR_SPOT_CONVEXITY"
+    elif near_gamma_share >= 0.20:
+        gamma_context = "MODERATE_NEAR_SPOT_CONVEXITY"
+    else:
+        gamma_context = "DISTRIBUTED_CONVEXITY"
+
     if rr25 >= 0.03:
         skew = "DOWNSIDE_HEDGE_BID"
     elif rr25 <= -0.03:
@@ -139,6 +168,11 @@ def parse(payload):
         "put_call_volume_ratio": None if vol_ratio is None else round(vol_ratio, 3),
         "oi_state": oi_state,
         "iv30": data.get("iv30"),
+        "gross_gamma_oi_context": gamma_context,
+        "near_spot_gamma_share": round(near_gamma_share, 3),
+        "top_gamma_strike": None if top_gamma_strike is None else round(float(top_gamma_strike), 3),
+        "top_gamma_share": round(float(top_gamma_share), 3),
+        "gamma_note": "unsigned_gross_gamma_oi_no_dealer_sign_inference",
         "source": "CBOE_DELAYED_GLD_OPTIONS_PROXY",
         "proxy_note": "GLD_options_not_COMEX_gold_futures_options",
         "directional_signal": False,
