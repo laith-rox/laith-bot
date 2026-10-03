@@ -52,7 +52,7 @@ class GigiCrowdingTests(unittest.TestCase):
             {"h4_bias":"NEUTRAL"},
             {"skew":"DOWNSIDE_HEDGE_BID","oi_state":"PUT_HEAVY"},
         )
-        self.assertGreaterEqual(out["long_liquidation_score"], 4)
+        self.assertEqual(out["long_liquidation_score"], 4)
         self.assertFalse(out["directional_signal"])
         self.assertIn("options_downside_hedge_bid", out["reasons"])
 
