@@ -27,6 +27,7 @@ COPY gigi_exposure.py test_gigi_exposure.py ./
 COPY gigi_behavior.py test_gigi_behavior.py ./
 COPY gigi_readiness.py test_gigi_readiness.py ./
 COPY gigi_replay.py test_gigi_replay.py ./
+COPY gigi_evaluation.py test_gigi_evaluation.py ./
 COPY gigi_event_response.py test_gigi_event_response.py ./
 COPY gigi_clock.py test_gigi_clock.py ./
 COPY gigi_drift.py test_gigi_drift.py ./
@@ -56,6 +57,7 @@ RUN python -m unittest -v \
     test_gigi_behavior.py \
     test_gigi_readiness.py \
     test_gigi_replay.py \
+    test_gigi_evaluation.py \
     test_gigi_event_response.py \
     test_gigi_clock.py \
     test_gigi_drift.py \
