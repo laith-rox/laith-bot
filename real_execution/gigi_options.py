@@ -49,6 +49,79 @@ def _pick_expiry(options, now_dt):
     return min(counts, key=lambda dt: (abs((dt.date()-now_dt.date()).days - 30), -counts[dt]))
 
 
+def _expiry_groups(options, now_dt):
+    groups = {}
+    for item in options:
+        try:
+            expiry, cp, strike = _parse_contract(item.get("option"))
+        except Exception:
+            continue
+        dte = (expiry.date() - now_dt.date()).days
+        if dte < 1 or dte > 90:
+            continue
+        row = dict(item)
+        row["_cp"] = cp
+        row["_strike"] = strike
+        groups.setdefault(expiry, []).append(row)
+    return groups
+
+
+def _atm_iv(rows, spot):
+    vals = []
+    for item in rows or []:
+        try:
+            iv = float(item.get("iv") or 0.0)
+            strike = float(item.get("_strike"))
+            if iv > 0 and math.isfinite(iv):
+                vals.append((abs(strike / spot - 1.0), iv))
+        except Exception:
+            continue
+    if not vals:
+        return None
+    vals.sort(key=lambda x: x[0])
+    take = [iv for _, iv in vals[:4]]
+    return sum(take) / len(take)
+
+
+def _term_structure(options, now_dt, spot):
+    groups = _expiry_groups(options, now_dt)
+    expiries = sorted(groups)
+    near = [e for e in expiries if 7 <= (e.date()-now_dt.date()).days <= 24]
+    far = [e for e in expiries if 25 <= (e.date()-now_dt.date()).days <= 60]
+    if not near or not far:
+        return {
+            "term_structure":"UNKNOWN",
+            "near_expiry":None,
+            "far_expiry":None,
+            "near_atm_iv":None,
+            "far_atm_iv":None,
+            "term_iv_diff":None,
+        }
+    near_exp = min(near, key=lambda e: abs((e.date()-now_dt.date()).days-14))
+    far_exp = min(far, key=lambda e: abs((e.date()-now_dt.date()).days-45))
+    near_iv = _atm_iv(groups[near_exp], spot)
+    far_iv = _atm_iv(groups[far_exp], spot)
+    if near_iv is None or far_iv is None:
+        state = "UNKNOWN"
+        diff = None
+    else:
+        diff = near_iv - far_iv
+        if diff >= 0.03:
+            state = "BACKWARDATION"
+        elif diff <= -0.03:
+            state = "CONTANGO"
+        else:
+            state = "FLAT"
+    return {
+        "term_structure":state,
+        "near_expiry":near_exp.date().isoformat(),
+        "far_expiry":far_exp.date().isoformat(),
+        "near_atm_iv":None if near_iv is None else round(float(near_iv),4),
+        "far_atm_iv":None if far_iv is None else round(float(far_iv),4),
+        "term_iv_diff":None if diff is None else round(float(diff),4),
+    }
+
+
 def _closest_delta(items, target):
     good = []
     for item in items:
@@ -145,6 +218,16 @@ def parse(payload):
     else:
         skew = "BALANCED"
 
+    term = _term_structure(options, now_dt, spot)
+    iv30_value = data.get("iv30")
+    try:
+        iv30_decimal = float(iv30_value) / 100.0
+        expected_move_1d_pct = iv30_decimal / math.sqrt(252.0) * 100.0
+        expected_move_5d_pct = iv30_decimal * math.sqrt(5.0/252.0) * 100.0
+    except Exception:
+        expected_move_1d_pct = None
+        expected_move_5d_pct = None
+
     if oi_ratio is None:
         oi_state = "UNKNOWN"
     elif oi_ratio >= 1.50:
@@ -171,7 +254,10 @@ def parse(payload):
         "put_call_oi_ratio": None if oi_ratio is None else round(oi_ratio, 3),
         "put_call_volume_ratio": None if vol_ratio is None else round(vol_ratio, 3),
         "oi_state": oi_state,
-        "iv30": data.get("iv30"),
+        "iv30": iv30_value,
+        "expected_move_1d_pct": None if expected_move_1d_pct is None else round(expected_move_1d_pct,3),
+        "expected_move_5d_pct": None if expected_move_5d_pct is None else round(expected_move_5d_pct,3),
+        **term,
         "gross_gamma_oi_context": gamma_context,
         "near_spot_gamma_share": round(near_gamma_share, 3),
         "top_gamma_strike": None if top_gamma_strike is None else round(float(top_gamma_strike), 3),
