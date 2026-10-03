@@ -145,8 +145,8 @@ async function loadRealExecutionStatus(){
   var b=await rb.json();
   if(badge){
    if(b.emergency_stop){badge.textContent='STOPPED • EMERGENCY';badge.className='pill red'}
-   else if(b.armed&&b.execution_enabled&&b.market_fresh){badge.textContent='ON • REAL';badge.className='pill green'}
-   else if(b.armed&&b.execution_enabled){badge.textContent='ARMED • WAIT MARKET';badge.className='pill blue'}
+   else if(b.armed&&b.execution_enabled&&b.ready){badge.textContent='ON • REAL';badge.className='pill green'}
+   else if(b.armed&&b.execution_enabled){badge.textContent='ARMED • WAITING';badge.className='pill blue'}
    else{badge.textContent='OFF • LOCKED';badge.className='pill red'}
   }
   if(em){
