@@ -49,6 +49,7 @@ DIMENSIONS = (
     "session_extension",
     "session_range_event",
     "session_profile_quality",
+    "price_prior_status",
     "session",
     "strength",
 )
