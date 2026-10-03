@@ -7,7 +7,7 @@ from __future__ import annotations
 
 
 def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
-          positioning=None, etf=None, crowding=None, options=None):
+          positioning=None, etf=None, crowding=None, options=None, yields=None):
     signal=signal or {}
     regime=regime or {}
     intermarket=intermarket or {}
@@ -17,6 +17,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     etf=etf or {}
     crowding=crowding or {}
     options=options or {}
+    yields=yields or {}
 
     side=str(signal.get("side") or "WAIT").upper()
     support=[]
@@ -63,6 +64,14 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         uncertainty.append("high_impact_event_window")
     elif macro_regime=="UNKNOWN":
         uncertainty.append("macro_unknown")
+
+    real_yield_regime=str(yields.get("real_yield_regime") or "UNKNOWN").upper()
+    if side=="BUY" and real_yield_regime=="RISING_REAL_YIELD":
+        uncertainty.append("real_yield_headwind")
+    elif side=="SELL" and real_yield_regime=="FALLING_REAL_YIELD":
+        uncertainty.append("real_yield_tailwind_against_sell")
+    elif real_yield_regime=="STALE":
+        uncertainty.append("real_yield_data_stale")
 
     if skew=="DOWNSIDE_HEDGE_BID":
         uncertainty.append("options_downside_hedging")
