@@ -774,6 +774,19 @@ def sniper_chase_block_reason(signal,last_side,last_score,last_bar):
     return "same_direction_sniper_chase"
 
 
+def used_risk_for_mode(health, mode):
+    """Keep MAIN and SNIPER risk pools independent when relay mode data exists.
+
+    This lets a qualified SNIPER setup coexist with an open MAIN position and
+    vice versa, while each mode still respects its own risk ceiling.
+    """
+    mode=str(mode or "").upper()
+    key="main_position_risk_usd" if mode=="MAIN" else "sniper_position_risk_usd"
+    if key in health and health.get(key) is not None:
+        return max(0.0,float(health.get(key) or 0))
+    return max(0.0,float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0))
+
+
 def same_entry_copies(signal, health):
     """Start with one ticket; a later closed candle can add another entry."""
     risk=max(0.01,float(signal.get("risk_distance") or 0))
@@ -791,7 +804,8 @@ def same_entry_copies(signal, health):
                       if health.get("strong_risk_budget_usd") is not None
                       else "effective_risk_budget_usd")
         budget=float(health.get(budget_field) or 0)
-    used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
+    mode="SNIPER" if tier is not None else "MAIN"
+    used=used_risk_for_mode(health,mode)
     available=max(0.0,budget-used)
     return 1 if available+0.01>=risk else 0
 
@@ -856,7 +870,7 @@ def recover_m15_continuation(signal, health):
         tier=3.0 if score<=4 else (5.0 if score==5 else (7.0 if score==6 else 10.0))
         hard=float(health.get("strong_risk_budget_usd") or 0)
         budget=min(tier,hard) if hard>0 else tier
-    used=float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
+    used=used_risk_for_mode(health,mode)
     available=max(0.0,budget-used)
     if raw_risk<=0 or risk>available:
         out["reason"]="m15_stop_exceeds_budget"
@@ -909,7 +923,7 @@ def recover_strong_structural_entry(signal, health):
     raw_risk = float(out.get("local_buy_risk" if side == "BUY" else "local_sell_risk") or 0)
     risk = max(0.80, raw_risk)
     budget = float(health.get("strong_risk_budget_usd") or health.get("effective_risk_budget_usd") or 0)
-    used = float(health.get("total_position_risk_usd") or health.get("position_risk_usd") or 0)
+    used = used_risk_for_mode(health,"SNIPER")
     available = max(0.0, budget - used)
     if raw_risk <= 0 or risk > available or risk > 15.0:
         out["reason"] = "strong_signal_stop_exceeds_budget"
