@@ -23,6 +23,7 @@ import gigi_macro
 import gigi_context
 import gigi_liquidity
 import gigi_positioning
+import gigi_volatility
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -232,6 +233,7 @@ def preview_payload(signal):
         "macro": signal.get("macro") or {},
         "liquidity": signal.get("liquidity") or {},
         "positioning": signal.get("positioning") or {},
+        "volatility": signal.get("volatility") or {},
         "gigi_context": signal.get("gigi_context") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
@@ -402,6 +404,9 @@ def run_forever():
                 engine.normalize_rows(feeds["15m"]),
             )
             signal["positioning"] = gigi_positioning.fetch(time.time())
+            signal["volatility"] = gigi_volatility.analyze(
+                engine.normalize_rows(feeds["15m"])
+            )
             signal["gigi_context"] = gigi_context.evaluate(
                 signal.get("side"),
                 signal.get("regime"),
@@ -409,6 +414,7 @@ def run_forever():
                 signal.get("macro"),
                 signal.get("liquidity"),
                 signal.get("positioning"),
+                signal.get("volatility"),
             )
 
             if _preview_enabled:
