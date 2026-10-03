@@ -92,6 +92,16 @@ class GigiMacroTests(unittest.TestCase):
         self.assertEqual(out["event_bundle_size"], 1)
 
 
+    def test_exhausted_weekly_calendar_is_not_false_clear(self):
+        last = datetime(2026,10,2,14,0,tzinfo=timezone.utc).timestamp()
+        now = datetime(2026,10,4,0,0,tzinfo=timezone.utc).timestamp()
+        events = [{"title":"ISM","event_class":"ISM","impact":"MEDIUM","time":last}]
+        out = gigi_macro.context(now, events, None)
+        self.assertEqual(out["calendar_horizon"], "EXHAUSTED")
+        self.assertEqual(out["regime"], "HORIZON_EXHAUSTED")
+        self.assertEqual(out["phase"], "OUT_OF_HORIZON")
+
+
 
 if __name__ == "__main__":
     unittest.main()
