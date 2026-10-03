@@ -40,6 +40,7 @@ _items: dict[str, dict] = {}
 _client_state: dict | None = None
 _market_state: dict | None = None
 _client_last_poll: float | None = None
+_emergency_stop = not (REAL_ARMED and EXECUTION_ENABLED)
 _key_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 
@@ -51,7 +52,7 @@ def _ready() -> bool:
     s_age = _state_age()
     m_age = _market_age()
     return bool(
-        REAL_ARMED and EXECUTION_ENABLED and _configured()
+        REAL_ARMED and EXECUTION_ENABLED and _configured() and not _emergency_stop
         and s_age is not None and s_age <= STATE_FRESH_SECONDS
         and m_age is not None and m_age <= MARKET_FRESH_SECONDS
     )
@@ -114,6 +115,7 @@ def _status():
         "mode": "REAL",
         "armed": REAL_ARMED,
         "execution_enabled": EXECUTION_ENABLED,
+        "emergency_stop": bool(_emergency_stop),
         "configured": _configured(),
         "ready": _ready(),
         "fixed_volume_configured": FIXED_VOLUME > 0,
@@ -138,6 +140,8 @@ def _validate_publish(data: dict):
         if FIXED_VOLUME <= 0:
             return False, "real_volume_not_configured"
         return False, "real_auth_not_configured"
+    if _emergency_stop:
+        return False, "real_emergency_stop"
     s_age = _state_age()
     if s_age is None or s_age > STATE_FRESH_SECONDS:
         return False, "real_state_stale"
@@ -230,7 +234,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         _cors(self)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
@@ -298,8 +303,19 @@ class Handler(BaseHTTPRequestHandler):
         return _json(self, 404, {"ok": False, "reason": "not_found"})
 
     def do_POST(self):
-        global _client_state, _market_state
+        global _client_state, _market_state, _emergency_stop
         path = urlparse(self.path).path
+        if path == "/emergency-stop":
+            if not ALLOWED_ORIGIN or self.headers.get("Origin", "") != ALLOWED_ORIGIN:
+                return _json(self, 401, {"ok": False, "reason": "trusted_app_origin_required"})
+            with _lock:
+                _emergency_stop = True
+                now = time.time()
+                for item in _items.values():
+                    if item.get("ack") is None:
+                        item["ack"] = {"ok": False, "reason": "emergency_stop", "at": now}
+            return _json(self, 200, _status())
+
         data = _read_json(self)
         if data is None:
             return _json(self, 400, {"ok": False, "reason": "invalid_json"})
@@ -367,7 +383,7 @@ if __name__ == "__main__":
     print(
         "REAL_BRIDGE_START "
         f"armed={s['armed']} execution_enabled={s['execution_enabled']} "
-        f"configured={s['configured']} ready={s['ready']} "
+        f"emergency_stop={s['emergency_stop']} configured={s['configured']} ready={s['ready']} "
         f"fixed_volume_configured={s['fixed_volume_configured']}",
         flush=True,
     )
