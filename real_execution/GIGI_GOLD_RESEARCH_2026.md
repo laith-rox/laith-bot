@@ -111,3 +111,33 @@ risk -> shadow learning.
 - Mixed regional rotation is recorded but does not become a directional trigger.
 - ETF flow remains a slow H4/D1 context layer, never an M5 entry signal.
 - The learning layer records ETF regime and regional breadth separately.
+
+
+## Crowding / liquidation-cascade layer
+
+Gigi now separates normal directional context from squeeze/liquidation risk.
+
+Long-liquidation risk rises when several pieces align:
+- Managed Money is long-biased but deleveraging, or long crowding is elevated.
+- ETF flows are broad/mixed outflows.
+- Price rejects buy-side liquidity and closes back below the swept area.
+- H4 is down.
+- Realised volatility is expanding; this is the speed gate that can turn a
+  slow vulnerability into a cascade.
+
+Short-squeeze risk is the mirror image:
+- short crowding or active short covering;
+- broad ETF inflow;
+- sell-side sweep and bullish rejection;
+- H4 up;
+- expanding realised volatility.
+
+Without a volatility speed gate, even a high slow-context score stays WATCH,
+not HIGH. The layer is context-only and never generates BUY/SELL by itself.
+
+### Slow snapshot while market is closed — 2026-10-03
+- CFTC: LONG_BIASED_DELEVERAGING.
+- ETF: MIXED_INFLOW.
+- GVZ: LOW relative to its recent 1-year history.
+- Live realised volatility/liquidity: unavailable while market is closed.
+- Result: BALANCED crowding risk; no active cascade/squeeze state.
