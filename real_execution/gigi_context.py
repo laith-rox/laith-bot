@@ -79,20 +79,21 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
 
     position_regime=str(positioning.get("regime") or "UNKNOWN").upper()
     positioning_crowding=str(positioning.get("crowding") or "UNKNOWN").upper()
+    flow_vote=0
     if side=="BUY":
         if position_regime in ("LONG_BIASED_ADDING","SHORT_BIASED_COVERING"):
-            score+=1; reasons.append("positioning_supports_buy")
+            flow_vote+=1; reasons.append("positioning_supports_buy")
         elif position_regime=="SHORT_BIASED_ADDING":
-            score-=1; reasons.append("positioning_conflicts_buy")
+            flow_vote-=1; reasons.append("positioning_conflicts_buy")
         if positioning_crowding=="ELEVATED_LONG":
-            score-=1; reasons.append("long_crowding_caution")
+            flow_vote-=1; reasons.append("long_crowding_caution")
     elif side=="SELL":
         if position_regime in ("SHORT_BIASED_ADDING","LONG_BIASED_DELEVERAGING"):
-            score+=1; reasons.append("positioning_supports_sell")
+            flow_vote+=1; reasons.append("positioning_supports_sell")
         elif position_regime=="LONG_BIASED_ADDING":
-            score-=1; reasons.append("positioning_conflicts_sell")
+            flow_vote-=1; reasons.append("positioning_conflicts_sell")
         if positioning_crowding=="ELEVATED_SHORT":
-            score-=1; reasons.append("short_crowding_caution")
+            flow_vote-=1; reasons.append("short_crowding_caution")
 
     macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
     macro_phase=str(macro.get("phase") or "NORMAL").upper()
@@ -119,16 +120,26 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     etf_regime=str(etf.get("regime") or "UNKNOWN").upper()
     if side=="BUY":
         if etf_regime=="BROAD_INFLOW":
-            score+=1; reasons.append("etf_flows_support_buy")
+            flow_vote+=1; reasons.append("etf_flows_support_buy")
         elif etf_regime=="BROAD_OUTFLOW":
-            score-=1; reasons.append("etf_flows_conflict_buy")
+            flow_vote-=1; reasons.append("etf_flows_conflict_buy")
     elif side=="SELL":
         if etf_regime=="BROAD_OUTFLOW":
-            score+=1; reasons.append("etf_flows_support_sell")
+            flow_vote+=1; reasons.append("etf_flows_support_sell")
         elif etf_regime=="BROAD_INFLOW":
-            score-=1; reasons.append("etf_flows_conflict_sell")
+            flow_vote-=1; reasons.append("etf_flows_conflict_sell")
     if etf_regime.startswith("MIXED"):
         reasons.append("etf_flows_mixed")
+
+    # CFTC positioning, ETF flows and positioning crowding are one related
+    # evidence family. They may confirm each other, but cannot stack multiple
+    # score points and masquerade as independent evidence.
+    flow_family_score=1 if flow_vote>0 else (-1 if flow_vote<0 else 0)
+    score+=flow_family_score
+    if flow_vote==0 and (
+        position_regime!="UNKNOWN" or etf_regime!="UNKNOWN" or positioning_crowding!="UNKNOWN"
+    ):
+        reasons.append("flow_family_mixed")
 
     volatility_state=str(volatility.get("state") or "UNKNOWN").upper()
     if volatility_state=="STRESS_EXPANSION":
@@ -197,6 +208,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "options_skew": options_skew,
         "options_oi_state": options_oi,
         "options_gamma_context": options_gamma,
+        "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
     }
