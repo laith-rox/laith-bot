@@ -36,6 +36,8 @@ DIMENSIONS = (
     "data_quality",
     "execution_quality",
     "spread_atr_bucket",
+    "exposure_stacking",
+    "exposure_book",
     "session",
     "strength",
 )
