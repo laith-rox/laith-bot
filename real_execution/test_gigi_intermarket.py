@@ -43,7 +43,7 @@ class GigiIntermarketTests(unittest.TestCase):
         out=gigi_intermarket.analyze(gold,{"WTI":wti,"BRENT":brent})
         self.assertEqual(out["family_details"]["ENERGY"]["members"],2)
         self.assertLessEqual(out["bull_evidence"],1.0)
-        self.assertEqual(out["method"],"rolling_correlation_family_deduplicated")
+        self.assertEqual(out["method"],"dual_window_correlation_family_deduplicated")
 
     def test_related_family_conflict_averages_instead_of_stacking(self):
         gold=series([100+i for i in range(20)])
@@ -52,6 +52,23 @@ class GigiIntermarketTests(unittest.TestCase):
         out=gigi_intermarket.analyze(gold,{"WTI":up,"BRENT":down})
         self.assertEqual(out["family_details"]["ENERGY"]["members"],2)
         self.assertLess(abs(out["family_details"]["ENERGY"]["vote"]),0.25)
+
+
+    def test_flipping_relationship_does_not_vote(self):
+        gold=[100.0]
+        other=[50.0]
+        # 64 returns: first 40 move together, last 24 move opposite.
+        for i in range(64):
+            r=0.01 if i%2==0 else -0.008
+            gold.append(gold[-1]*(1+r))
+            other_r=r if i<40 else -r
+            other.append(other[-1]*(1+other_r))
+        out=gigi_intermarket.analyze(series(gold),{"WTI":series(other)})
+        detail=out["details"]["WTI"]
+        self.assertEqual(detail["relationship_stability"],"FLIPPING")
+        self.assertEqual(detail["signed_contribution"],0.0)
+        self.assertEqual(out["bias"],"NEUTRAL")
+        self.assertEqual(out["relationship_state"],"FLIPPING_PRESENT")
 
 
 
