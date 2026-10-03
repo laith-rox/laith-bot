@@ -196,3 +196,37 @@ Shadow learning now has a chronological validation layer:
   live execution automatically.
 
 This is specifically designed to defend against overfitting and data snooping.
+
+
+### Cross-market persistence rule — added 2026-10-03
+- A short-window correlation is not enough to call another market a gold driver.
+- Gigi now compares short and longer rolling correlations.
+- WTI/Brent, equities and FX only vote when the relationship is directionally
+  persistent across both windows.
+- A relationship that flips sign is logged as FLIPPING and contributes zero
+  directional evidence until it stabilizes.
+- This specifically protects against the common mistake of learning a temporary
+  oil/gold or dollar/gold relationship and treating it as permanent.
+
+### Current slow-context snapshot — 2026-10-03
+- CFTC: Managed Money remains strongly net long, but the latest weekly change
+  is deleveraging rather than fresh long addition.
+- WGC ETF: four-week flows are strongly positive, while the latest week is
+  regionally mixed, with North American outflow offset by Europe/Asia.
+- Cboe GVZ: 23.23, relatively low versus its own recent one-year history.
+- Delayed GLD options proxy, ~27 DTE:
+  - 25-delta call IV ~20.68%; 25-delta put IV ~21.19%.
+  - 25-delta risk reversal (put minus call IV) ~+0.51 vol points: broadly
+    balanced rather than an extreme downside hedge bid.
+  - put/call open-interest ratio ~0.629 and volume ratio ~0.289: call-heavy
+    participation in this GLD proxy, but not a standalone bullish signal.
+  - gross gamma-open-interest is moderately concentrated near spot; this is
+    unsigned public-chain gamma, so no dealer-gamma sign is inferred.
+- US Treasury context as of 2026-10-02:
+  - 2y nominal ~4.83%, 10y nominal ~5.28%, 10y real ~2.92%.
+  - 10y real yield +4bp day/day and +9bp over five sessions.
+  - Current classifier still treats the move as stable rather than a fresh
+    directional yield regime.
+- Combined conclusion for shadow analysis: the slow backdrop is MIXED, not a
+  clean one-factor bullish or bearish regime. Price structure, liquidity and
+  fresh session flow must still decide the trade thesis.
