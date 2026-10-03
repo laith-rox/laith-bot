@@ -67,6 +67,35 @@ class GigiLearningTests(unittest.TestCase):
         self.assertEqual(state["buckets"]["data_quality:HIGH"]["n"], 1)
 
 
+    def test_validated_shadow_weight_rejects_sign_flip(self):
+        state = gigi_learning.new_state()
+        for i in range(gigi_learning.MIN_WEIGHT_SAMPLES):
+            gigi_learning.record(state, self.observation(i, close_r=1.0))
+        validation = {
+            "buckets": {
+                "mode:SNIPER": {"status": "UNSTABLE_SIGN_FLIP"}
+            }
+        }
+        self.assertEqual(
+            gigi_learning.validated_shadow_weight(state, validation, "mode", "SNIPER"),
+            0.0,
+        )
+
+    def test_validated_shadow_weight_allows_stable_bucket(self):
+        state = gigi_learning.new_state()
+        for i in range(gigi_learning.MIN_WEIGHT_SAMPLES):
+            gigi_learning.record(state, self.observation(i, close_r=1.0))
+        validation = {
+            "buckets": {
+                "mode:SNIPER": {"status": "STABLE_POSITIVE"}
+            }
+        }
+        self.assertGreater(
+            gigi_learning.validated_shadow_weight(state, validation, "mode", "SNIPER"),
+            0.0,
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
