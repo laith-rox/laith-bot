@@ -164,6 +164,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     options_skew=str(options.get("skew") or "UNKNOWN").upper()
     options_oi=str(options.get("oi_state") or "UNKNOWN").upper()
     options_gamma=str(options.get("gross_gamma_oi_context") or "UNKNOWN").upper()
+    options_term=str(options.get("term_structure") or "UNKNOWN").upper()
     if options_skew=="DOWNSIDE_HEDGE_BID":
         reasons.append("options_downside_hedge_bid")
     elif options_skew=="UPSIDE_CALL_BID":
@@ -176,6 +177,10 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         reasons.append("options_high_near_spot_convexity")
     elif options_gamma=="MODERATE_NEAR_SPOT_CONVEXITY":
         reasons.append("options_moderate_near_spot_convexity")
+    if options_term=="BACKWARDATION":
+        reasons.append("options_near_term_vol_premium")
+    elif options_term=="CONTANGO":
+        reasons.append("options_far_term_vol_premium")
 
     real_yield_regime=str(yields.get("real_yield_regime") or "UNKNOWN").upper()
     policy_regime=str(yields.get("policy_regime") or "UNKNOWN").upper()
@@ -249,6 +254,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "options_skew": options_skew,
         "options_oi_state": options_oi,
         "options_gamma_context": options_gamma,
+        "options_term_structure": options_term,
         "event_response_state": event_state,
         "event_impulse": event_impulse,
         "session_vwap_relation": session_vwap,
