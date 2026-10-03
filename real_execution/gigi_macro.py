@@ -138,6 +138,16 @@ def context(at_timestamp=None, events=None, error=None):
         if delta >= 0:
             future.append(dict(event, seconds_to_event=round(delta, 1)))
 
+    last_event_time=max((float(event["time"]) for event in (events or [])), default=None)
+    if last_event_time is not None and not future and now > last_event_time:
+        calendar_horizon="EXHAUSTED"
+    elif events:
+        calendar_horizon="ACTIVE"
+    elif error:
+        calendar_horizon="UNAVAILABLE"
+    else:
+        calendar_horizon="EMPTY"
+
     phase = "NORMAL"
     if near_high:
         regime = "HIGH_IMPACT_WINDOW"
@@ -160,6 +170,9 @@ def context(at_timestamp=None, events=None, error=None):
     elif error and not events:
         regime = "UNKNOWN"
         phase = "UNKNOWN"
+    elif calendar_horizon=="EXHAUSTED":
+        regime = "HORIZON_EXHAUSTED"
+        phase = "OUT_OF_HORIZON"
     else:
         regime = "CLEAR"
 
@@ -206,6 +219,8 @@ def context(at_timestamp=None, events=None, error=None):
         "event_bundle_high_count": int(high_bundle),
         "event_bundle_classes": bundle_classes,
         "event_bundle": event_bundle[:6],
+        "calendar_horizon": calendar_horizon,
+        "calendar_last_event_time": last_event_time,
         "calendar_error": error,
         "method": "weekly_usd_event_calendar",
     }
