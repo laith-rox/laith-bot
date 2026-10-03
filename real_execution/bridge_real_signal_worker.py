@@ -35,6 +35,7 @@ import gigi_execution_quality
 import gigi_exposure
 import gigi_behavior
 import gigi_readiness
+import gigi_event_response
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -421,6 +422,10 @@ def run_forever():
                 feeds.get("intermarket") or {},
             )
             signal["macro"] = gigi_macro.context(time.time())
+            signal["event_response"] = gigi_event_response.analyze(
+                engine.normalize_rows(feeds["5m"]),
+                signal.get("macro"),
+            )
             signal["liquidity"] = gigi_liquidity.analyze(
                 engine.normalize_rows(feeds["5m"]),
                 engine.normalize_rows(feeds["15m"]),
@@ -472,6 +477,7 @@ def run_forever():
                 signal.get("crowding"),
                 signal.get("options"),
                 signal.get("yields"),
+                signal.get("event_response"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
