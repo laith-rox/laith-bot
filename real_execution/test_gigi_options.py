@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import datetime, timezone, timedelta
 
@@ -53,6 +54,32 @@ class GigiOptionsTests(unittest.TestCase):
         ))
         self.assertIn("no_dealer_sign_inference",out["gamma_note"])
         self.assertFalse(out["directional_signal"])
+
+
+    def test_fetch_has_stdlib_fallback_without_requests(self):
+        original_requests = gigi_options.requests
+        original_urlopen = gigi_options.urllib.request.urlopen
+        original_cache = dict(gigi_options._cache)
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return json.dumps(payload()).encode("utf-8")
+
+        try:
+            gigi_options.requests=None
+            gigi_options.urllib.request.urlopen=lambda req,timeout=15: FakeResponse()
+            gigi_options._cache={"fetched_at":0.0,"value":None}
+            out=gigi_options.fetch(now=12345)
+            self.assertEqual(out["skew"],"BALANCED")
+            self.assertIsNone(out["error"])
+        finally:
+            gigi_options.requests=original_requests
+            gigi_options.urllib.request.urlopen=original_urlopen
+            gigi_options._cache=original_cache
 
 
 
