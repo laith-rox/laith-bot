@@ -36,6 +36,7 @@ import gigi_exposure
 import gigi_behavior
 import gigi_readiness
 import gigi_event_response
+import gigi_clock
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -109,7 +110,6 @@ def bridge_health():
     raise RuntimeError(f"bridge_health_unavailable:{last_error}")
 
 
-PALESTINE_OFFSET = timedelta(hours=3)
 DAY_ENTRY_START_MINUTE = 5 * 60
 DAY_ENTRY_END_MINUTE = 20 * 60
 MAIN_LONDON_START_MINUTE = 10 * 60
@@ -119,15 +119,11 @@ MAIN_US_END_MINUTE = 18 * 60
 
 
 def signal_local_minute(signal):
-    """Resolve the closed broker candle into Palestine local clock time."""
+    """Resolve the closed broker candle into DST-aware Palestine local time."""
     raw = str(signal.get("bar") or "")
     if not raw:
         raise RuntimeError("signal_bar_missing")
-    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    local = dt.astimezone(timezone.utc) + PALESTINE_OFFSET
-    return local.hour * 60 + local.minute
+    return gigi_clock.local_minute(raw)
 
 
 def main_session_name(minute):
@@ -235,6 +231,7 @@ def preview_payload(signal):
         "buy_score": int(signal.get("buy_score") or 0),
         "sell_score": int(signal.get("sell_score") or 0),
         "bar": signal.get("bar"),
+        "clock": gigi_clock.context(signal.get("bar")),
         "reference_close": signal.get("reference_close"),
         "risk_distance": signal.get("risk_distance"),
         "rsi": round(float(signal.get("rsi") or 0), 1),
