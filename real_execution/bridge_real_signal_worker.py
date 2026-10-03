@@ -243,6 +243,7 @@ def preview_payload(signal):
         "regime": signal.get("regime") or {},
         "intermarket": signal.get("intermarket") or {},
         "macro": signal.get("macro") or {},
+        "event_response": signal.get("event_response") or {},
         "liquidity": signal.get("liquidity") or {},
         "positioning": signal.get("positioning") or {},
         "volatility": signal.get("volatility") or {},
