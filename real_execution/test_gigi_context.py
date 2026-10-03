@@ -157,6 +157,44 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_related_positioning_and_etf_only_count_once(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"LONG_BIASED_ADDING","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"BROAD_INFLOW"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {"real_yield_regime":"STABLE_REAL_YIELD","policy_regime":"STABLE_FRONT_END"},
+        )
+        self.assertEqual(out["flow_family_score"],1)
+        self.assertEqual(out["score"],1)
+        self.assertIn("positioning_supports_buy",out["reasons"])
+        self.assertIn("etf_flows_support_buy",out["reasons"])
+
+    def test_conflicting_flow_evidence_cancels_family_score(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"LONG_BIASED_ADDING","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"BROAD_OUTFLOW"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {"real_yield_regime":"STABLE_REAL_YIELD","policy_regime":"STABLE_FRONT_END"},
+        )
+        self.assertEqual(out["flow_family_score"],0)
+        self.assertEqual(out["score"],0)
+        self.assertIn("flow_family_mixed",out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
