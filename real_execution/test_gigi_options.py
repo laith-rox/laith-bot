@@ -82,6 +82,15 @@ class GigiOptionsTests(unittest.TestCase):
             gigi_options._cache=original_cache
 
 
+    def test_freshness_uses_underlying_last_trade_time(self):
+        data=payload()
+        data["timestamp"]="2026-10-03 03:43:53"
+        data["data"]["last_trade_time"]="2026-10-02T15:59:59"
+        out=gigi_options.parse(data)
+        self.assertEqual(out["as_of"],"2026-10-02T15:59:59")
+        self.assertEqual(out["snapshot_time"],"2026-10-03 03:43:53")
+
+
 
 if __name__=="__main__":
     unittest.main()
