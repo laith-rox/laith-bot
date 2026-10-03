@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import unittest
 from unittest.mock import patch
 
-from market import Market
+from market import Market, Bar, DataError, market_session_state, require_live_session
 
 UTC = timezone.utc
 
