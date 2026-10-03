@@ -41,13 +41,14 @@ def _age_days(value, now_dt):
     return max(0.0,(now_dt-dt).total_seconds()/86400.0)
 
 
-def assess(positioning=None, etf=None, volatility=None, options=None, yields=None, macro=None, now=None):
+def assess(positioning=None, etf=None, volatility=None, options=None, yields=None, macro=None, now=None, local_premium=None):
     positioning=positioning or {}
     etf=etf or {}
     volatility=volatility or {}
     options=options or {}
     yields=yields or {}
     macro=macro or {}
+    local_premium=local_premium or {}
     now_dt=datetime.now(timezone.utc) if now is None else datetime.fromtimestamp(float(now),timezone.utc)
 
     specs={
@@ -56,6 +57,7 @@ def assess(positioning=None, etf=None, volatility=None, options=None, yields=Non
         "gvz":(volatility.get("gvz_date"),5.0,volatility.get("error")),
         "options":(options.get("as_of"),3.5,options.get("error")),
         "yields":(yields.get("as_of"),5.0,yields.get("error")),
+        "local_premium":(local_premium.get("as_of"),10.0,local_premium.get("error")),
     }
 
     ages={}
@@ -86,9 +88,9 @@ def assess(positioning=None, etf=None, volatility=None, options=None, yields=Non
     else:
         missing.append("macro")
 
-    if not stale and len(available)>=6:
+    if not stale and len(available)>=7:
         quality="HIGH"
-    elif len(available)>=4 and len(stale)<=1:
+    elif len(available)>=5 and len(stale)<=1:
         quality="MEDIUM"
     else:
         quality="LOW"
