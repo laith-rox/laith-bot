@@ -261,6 +261,28 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_lbma_benchmark_window_is_context_only(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {"real_yield_regime":"STABLE_REAL_YIELD","policy_regime":"STABLE_FRONT_END"},
+            {"state":"NO_ACTIVE_HIGH_EVENT","impulse":"NONE"},
+            {"vwap_relation":"CROSSING","extension_state":"FAIR_VALUE_ZONE","range_event":"INSIDE"},
+            {"phase":"AUCTION_OR_IMMEDIATE_POST","nearest_auction":"LBMA_AM"},
+        )
+        self.assertEqual(out["benchmark_phase"],"AUCTION_OR_IMMEDIATE_POST")
+        self.assertEqual(out["nearest_benchmark"],"LBMA_AM")
+        self.assertIn("lbma_benchmark_auction_window",out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
