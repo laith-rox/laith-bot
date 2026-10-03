@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -19,6 +19,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     crowding=crowding or {}
     options=options or {}
     yields=yields or {}
+    event_response=event_response or {}
 
     score=0
     reasons=[]
@@ -188,6 +189,19 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif policy_regime=="FALLING_FRONT_END":
         reasons.append("front_end_yields_falling")
 
+    event_state=str(event_response.get("state") or "NO_ACTIVE_HIGH_EVENT").upper()
+    event_impulse=str(event_response.get("impulse") or "NONE").upper()
+    if event_state=="FIRST_SPIKE_UNTRUSTED":
+        reasons.append("event_first_spike_untrusted")
+    elif event_state=="SHOCK_REVERSED":
+        reasons.append("event_shock_reversed")
+    elif event_state=="SHOCK_CONFIRMED":
+        reasons.append("event_shock_confirmed")
+    elif event_state=="SHOCK_PARTIALLY_RETRACED":
+        reasons.append("event_shock_partially_retraced")
+    elif event_state=="MUTED_RESPONSE":
+        reasons.append("event_response_muted")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -214,6 +228,8 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "options_skew": options_skew,
         "options_oi_state": options_oi,
         "options_gamma_context": options_gamma,
+        "event_response_state": event_state,
+        "event_impulse": event_impulse,
         "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
