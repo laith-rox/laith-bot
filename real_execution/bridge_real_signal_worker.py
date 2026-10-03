@@ -7,6 +7,7 @@ only transport/configuration from DEMO to REAL and remains fail-closed.
 from __future__ import annotations
 
 from collections import deque
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -145,6 +146,24 @@ def execution_block_reason(health):
     return None
 
 
+def signal_fingerprint(signal, copy_index=1):
+    """Stable identity for one independent setup.
+
+    Same candle + mode + side + reason + copy is one idea. A different reason
+    or different mode on the same candle is allowed to be a separate idea.
+    """
+    side=str(signal.get("side") or "WAIT").upper()
+    mode="MAIN" if str(signal.get("mode") or "").upper()=="MAIN" else "SNIPER"
+    bar=str(signal.get("bar") or "")
+    reason=str(signal.get("reason") or "")
+    digest=hashlib.sha1(reason.encode("utf-8")).hexdigest()[:8]
+    return f"{bar}|{mode}|{side}|{digest}|C{int(copy_index)}"
+
+
+def reason_tag(signal):
+    return hashlib.sha1(str(signal.get("reason") or "").encode("utf-8")).hexdigest()[:8]
+
+
 def publish_signal(signal, spot_override=None, copy_index=1):
     session_reason = session_block_reason(signal)
     if session_reason:
@@ -167,7 +186,7 @@ def publish_signal(signal, spot_override=None, copy_index=1):
     payload = {
         "mode": "REAL",
         "trade_mode": trade_mode,
-        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:C{copy_index}:S{strength}",
+        "key": f"auto:{signal['bar'].replace(' ','T').replace(':','').replace('-','')}:{trade_mode}:{side}:R{reason_tag(signal)}:C{copy_index}:S{strength}",
         "symbol": "XAUUSD",
         "side": side,
         "volume": VOLUME,
@@ -314,6 +333,7 @@ def run_forever():
     last_sniper_score = 0
     last_sniper_bar = None
     publishes = deque()
+    published_fingerprints = deque(maxlen=500)
 
     while True:
         try:
@@ -455,8 +475,17 @@ def run_forever():
 
             slots = MAX_PUBLISH_PER_HOUR - len(publishes) if MAX_PUBLISH_PER_HOUR > 0 else copies
             for copy_index in range(1, min(copies, slots) + 1):
+                fingerprint = signal_fingerprint(signal, copy_index)
+                if fingerprint in published_fingerprints:
+                    print(
+                        f"real_signal_skip reason=duplicate_signal_fingerprint "
+                        f"fingerprint={fingerprint}",
+                        flush=True,
+                    )
+                    continue
                 status, response, key = publish_signal(signal, mt5_spot, copy_index)
                 if status == 201 and response.get("ok") is True:
+                    published_fingerprints.append(fingerprint)
                     publishes.append(time.time())
                     if str(signal.get("mode") or "").upper() != "MAIN":
                         last_sniper_side = signal.get("side")
