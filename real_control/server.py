@@ -50,6 +50,10 @@ ALLOWED_ORIGIN = os.getenv(
 ).strip()
 
 
+def _safe_stop_origin(handler) -> bool:
+    return bool(ALLOWED_ORIGIN) and handler.headers.get("Origin", "") == ALLOWED_ORIGIN
+
+
 def _cors(handler):
     origin = handler.headers.get("Origin", "")
     if ALLOWED_ORIGIN and origin == ALLOWED_ORIGIN:
@@ -92,7 +96,13 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path not in ("/arm", "/disarm", "/emergency-stop"):
             return _json(self, 404, {"ok": False, "reason": "not_found"})
-        if not _authorized(self):
+        # Emergency stop is deliberately available to the trusted app origin.
+        # It can only move REAL state toward the fail-closed condition; it can
+        # never arm or enable execution. Arm/disarm remain owner-authenticated.
+        if path == "/emergency-stop":
+            if not (_authorized(self) or _safe_stop_origin(self)):
+                return _json(self, 401, {"ok": False, "reason": "safe_stop_auth_required"})
+        elif not _authorized(self):
             return _json(self, 401, {"ok": False, "reason": "owner_auth_required"})
 
         global _state
