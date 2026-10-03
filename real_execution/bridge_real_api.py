@@ -54,10 +54,12 @@ def _configured() -> bool:
 def _ready() -> bool:
     s_age = _state_age()
     m_age = _market_age()
+    p_age = _client_poll_age()
     return bool(
         REAL_ARMED and EXECUTION_ENABLED and _configured() and not _emergency_stop
         and s_age is not None and s_age <= STATE_FRESH_SECONDS
         and m_age is not None and m_age <= MARKET_FRESH_SECONDS
+        and p_age is not None and p_age <= 10
     )
 
 
@@ -159,6 +161,9 @@ def _readiness_blockers(now=None):
         blockers.append("emergency_stop")
     if s_age is None or s_age > STATE_FRESH_SECONDS:
         blockers.append("mt5_state_stale")
+    p_age = _client_poll_age(now)
+    if p_age is None or p_age > 10:
+        blockers.append("executor_not_connected")
     if (
         m_age is None or m_age > MARKET_FRESH_SECONDS
         or source_age is None or source_age > MARKET_SOURCE_FRESH_SECONDS
