@@ -34,6 +34,8 @@ DIMENSIONS = (
     "stop_noise_exposure",
     "thesis_state",
     "data_quality",
+    "execution_quality",
+    "spread_atr_bucket",
     "session",
     "strength",
 )
