@@ -27,6 +27,7 @@ import gigi_volatility
 import gigi_etf
 import gigi_crowding
 import gigi_options
+import gigi_local_premium
 import gigi_thesis
 import gigi_yields
 import gigi_stop_geometry
@@ -257,6 +258,7 @@ def preview_payload(signal):
         "etf": signal.get("etf") or {},
         "crowding": signal.get("crowding") or {},
         "options": signal.get("options") or {},
+        "local_premium": signal.get("local_premium") or {},
         "yields": signal.get("yields") or {},
         "stop_geometry": signal.get("stop_geometry") or {},
         "target_geometry": signal.get("target_geometry") or {},
@@ -448,6 +450,7 @@ def run_forever():
             )
             signal["etf"] = gigi_etf.fetch(time.time())
             signal["options"] = gigi_options.fetch(time.time())
+            signal["local_premium"] = gigi_local_premium.fetch(time.time())
             signal["yields"] = gigi_yields.fetch(time.time())
             signal["session_profile"] = gigi_session_profile.analyze(
                 engine.normalize_rows(feeds["5m"])
@@ -472,6 +475,7 @@ def run_forever():
                 signal.get("yields"),
                 signal.get("macro"),
                 now=time.time(),
+                local_premium=signal.get("local_premium"),
             )
             signal["execution_quality"] = gigi_execution_quality.analyze(
                 health,
@@ -503,6 +507,7 @@ def run_forever():
                 signal.get("session_profile"),
                 signal.get("benchmark"),
                 signal.get("target_geometry"),
+                signal.get("local_premium"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
