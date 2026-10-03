@@ -37,6 +37,7 @@ import gigi_behavior
 import gigi_readiness
 import gigi_event_response
 import gigi_clock
+import gigi_session_profile
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -255,6 +256,7 @@ def preview_payload(signal):
         "behavior": signal.get("behavior") or {},
         "thesis": signal.get("thesis") or {},
         "readiness": signal.get("readiness") or {},
+        "session_profile": signal.get("session_profile") or {},
         "gigi_context": signal.get("gigi_context") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
@@ -435,6 +437,9 @@ def run_forever():
             signal["etf"] = gigi_etf.fetch(time.time())
             signal["options"] = gigi_options.fetch(time.time())
             signal["yields"] = gigi_yields.fetch(time.time())
+            signal["session_profile"] = gigi_session_profile.analyze(
+                engine.normalize_rows(feeds["5m"])
+            )
             signal["stop_geometry"] = gigi_stop_geometry.analyze(
                 signal,
                 engine.normalize_rows(feeds["15m"]),
@@ -476,6 +481,7 @@ def run_forever():
                 signal.get("options"),
                 signal.get("yields"),
                 signal.get("event_response"),
+                signal.get("session_profile"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
