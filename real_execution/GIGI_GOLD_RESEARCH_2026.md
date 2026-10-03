@@ -141,3 +141,36 @@ not HIGH. The layer is context-only and never generates BUY/SELL by itself.
 - GVZ: LOW relative to its recent 1-year history.
 - Live realised volatility/liquidity: unavailable while market is closed.
 - Result: BALANCED crowding risk; no active cascade/squeeze state.
+
+
+### Cboe delayed GLD options snapshot — 2026-10-03
+- Proxy underlying GLD: about 380.14.
+- Selected expiry for the ~30-day window: 2026-10-30 (27 DTE).
+- 25-delta call IV: about 20.68%.
+- 25-delta put IV: about 21.19%.
+- 25-delta put-minus-call skew: about +0.51 vol points -> BALANCED.
+- Put/call open-interest ratio inside +/-20% moneyness: about 0.629 -> CALL_HEAVY.
+- Put/call volume ratio: about 0.289 -> call activity dominated this delayed snapshot.
+- Gross unsigned gamma-OI: about 22.3% sits within +/-2% of spot -> MODERATE_NEAR_SPOT_CONVEXITY.
+- Largest gross gamma-OI strike in the selected expiry: about GLD 400, but this is
+  NOT a signed dealer-gamma level. Public chain data does not tell Gigi whether
+  dealers are net long or short gamma.
+
+## Options reasoning added
+
+- 25-delta skew is treated as hedging demand, not an automatic price forecast.
+- Put/call OI and volume are crowding clues only.
+- Gross gamma*OI is deliberately unsigned; Gigi must not invent "dealer gamma"
+  support/resistance without dealer-side positioning.
+- Convexity concentration near spot is learned as a context bucket, not a BUY/SELL rule.
+
+## Contradiction-first thesis audit
+
+Before calling a setup "clean", Gigi now searches for independent evidence
+against it. Families include H4 structure, intermarket, liquidity, CFTC
+positioning, ETF flows, crowding/liquidation risk and event uncertainty.
+The audit labels each setup CLEAN, MIXED, FRAGILE or UNPROVEN.
+A missing invalidation automatically makes the thesis FRAGILE.
+This layer is SHADOW only and is tracked in the learning database so we can
+later test whether FRAGILE setups actually underperform CLEAN setups instead of
+assuming they do.
