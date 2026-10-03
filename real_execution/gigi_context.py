@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -15,6 +15,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     liquidity=liquidity or {}
     positioning=positioning or {}
     volatility=volatility or {}
+    etf=etf or {}
 
     score=0
     reasons=[]
@@ -111,6 +112,20 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         market_state="UNKNOWN_MACRO"
     else:
         market_state="NORMAL"
+
+    etf_regime=str(etf.get("regime") or "UNKNOWN").upper()
+    if side=="BUY":
+        if etf_regime=="BROAD_INFLOW":
+            score+=1; reasons.append("etf_flows_support_buy")
+        elif etf_regime=="BROAD_OUTFLOW":
+            score-=1; reasons.append("etf_flows_conflict_buy")
+    elif side=="SELL":
+        if etf_regime=="BROAD_OUTFLOW":
+            score+=1; reasons.append("etf_flows_support_sell")
+        elif etf_regime=="BROAD_INFLOW":
+            score-=1; reasons.append("etf_flows_conflict_sell")
+    if etf_regime.startswith("MIXED"):
+        reasons.append("etf_flows_mixed")
 
     volatility_state=str(volatility.get("state") or "UNKNOWN").upper()
     if volatility_state=="STRESS_EXPANSION":
