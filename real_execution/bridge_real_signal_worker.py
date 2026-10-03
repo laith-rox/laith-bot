@@ -28,6 +28,8 @@ import gigi_etf
 import gigi_crowding
 import gigi_options
 import gigi_thesis
+import gigi_yields
+import gigi_stop_geometry
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -241,6 +243,8 @@ def preview_payload(signal):
         "etf": signal.get("etf") or {},
         "crowding": signal.get("crowding") or {},
         "options": signal.get("options") or {},
+        "yields": signal.get("yields") or {},
+        "stop_geometry": signal.get("stop_geometry") or {},
         "thesis": signal.get("thesis") or {},
         "gigi_context": signal.get("gigi_context") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
@@ -417,6 +421,12 @@ def run_forever():
             )
             signal["etf"] = gigi_etf.fetch(time.time())
             signal["options"] = gigi_options.fetch(time.time())
+            signal["yields"] = gigi_yields.fetch(time.time())
+            signal["stop_geometry"] = gigi_stop_geometry.analyze(
+                signal,
+                engine.normalize_rows(feeds["15m"]),
+                signal.get("volatility"),
+            )
             signal["crowding"] = gigi_crowding.analyze(
                 signal.get("positioning"),
                 signal.get("volatility"),
@@ -436,6 +446,7 @@ def run_forever():
                 signal.get("etf"),
                 signal.get("crowding"),
                 signal.get("options"),
+                signal.get("yields"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
@@ -447,6 +458,7 @@ def run_forever():
                 signal.get("etf"),
                 signal.get("crowding"),
                 signal.get("options"),
+                signal.get("yields"),
             )
 
             if _preview_enabled:
