@@ -17,6 +17,7 @@ DIMENSIONS = (
     "macro_regime",
     "macro_phase",
     "intermarket_bias",
+    "intermarket_relationship_state",
     "liquidity_event",
     "positioning_regime",
     "positioning_crowding",
