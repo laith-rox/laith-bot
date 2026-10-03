@@ -8,7 +8,7 @@ from __future__ import annotations
 
 def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
           positioning=None, etf=None, crowding=None, options=None, yields=None,
-          quality=None, execution_quality=None, exposure=None):
+          quality=None, execution_quality=None, exposure=None, event_response=None):
     signal=signal or {}
     regime=regime or {}
     intermarket=intermarket or {}
@@ -22,6 +22,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     quality=quality or {}
     execution_quality=execution_quality or {}
     exposure=exposure or {}
+    event_response=event_response or {}
 
     side=str(signal.get("side") or "WAIT").upper()
     support=[]
@@ -64,6 +65,17 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
             conflicts.append("crowding_squeeze")
     else:
         uncertainty.append("no_directional_signal")
+
+    event_state=str(event_response.get("state") or "NO_ACTIVE_HIGH_EVENT").upper()
+    event_impulse=str(event_response.get("impulse") or "NONE").upper()
+    if event_state=="FIRST_SPIKE_UNTRUSTED":
+        uncertainty.append("event_first_spike_untrusted")
+    elif event_state=="SHOCK_REVERSED":
+        uncertainty.append("event_shock_reversed")
+    elif event_state=="SHOCK_PARTIALLY_RETRACED":
+        uncertainty.append("event_shock_partially_retraced")
+    elif event_state=="SHOCK_CONFIRMED":
+        uncertainty.append("event_shock_confirmed_"+event_impulse.lower())
 
     if macro_regime=="HIGH_IMPACT_WINDOW":
         uncertainty.append("high_impact_event_window")
