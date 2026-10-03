@@ -27,21 +27,12 @@ def _atr(rows, period=14):
 
 
 def aggregate_h4(h1_rows):
-    buckets = {}
-    for r in h1_rows:
-        try:
-            dt = datetime.fromisoformat(str(r["datetime"]).replace("Z","+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            continue
-        key = dt.replace(hour=(dt.hour//4)*4, minute=0, second=0, microsecond=0)
-        b = buckets.setdefault(key, {"datetime": key.isoformat(), "open": r["open"],
-                                     "high": r["high"], "low": r["low"], "close": r["close"], "n": 0})
-        b["high"] = max(b["high"], r["high"]); b["low"] = min(b["low"], r["low"])
-        b["close"] = r["close"]; b["n"] += 1
-    # Only completed four-hour proxy candles are used.
-    return [{k:v for k,v in b.items() if k!="n"} for _,b in sorted(buckets.items()) if b["n"] == 4]
+    """Aggregation is forbidden for REAL analysis.
+
+    H4 must come directly from the broker-native MT5 H4 series so session
+    boundaries and closures cannot be synthesized incorrectly.
+    """
+    raise RuntimeError("native_mt5_h4_required")
 
 
 def analyze_structure(m5, m15, h4):
