@@ -48,7 +48,7 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         rows = [{"datetime": "2026.10.03 00:00:00"} for _ in range(30)]
         return {
             "source_timestamp": source_timestamp,
-            "tick_timestamp": source_timestamp,
+            "tick_timestamp": 1_999_999_995,
             "source_clock": "UTC_EPOCH",
             "h4_source": "MT5_NATIVE_TIMEFRAME_H4",
             "m5": list(rows),
