@@ -215,6 +215,34 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_session_vwap_and_failed_break_are_context_only(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {"real_yield_regime":"STABLE_REAL_YIELD","policy_regime":"STABLE_FRONT_END"},
+            {"state":"NO_ACTIVE_HIGH_EVENT","impulse":"NONE"},
+            {
+                "vwap_relation":"ABOVE_ACCEPTANCE",
+                "extension_state":"EXTENDED",
+                "range_event":"FAILED_BREAK_ABOVE",
+            },
+        )
+        self.assertEqual(out["session_vwap_relation"],"ABOVE_ACCEPTANCE")
+        self.assertEqual(out["session_extension"],"EXTENDED")
+        self.assertEqual(out["session_range_event"],"FAILED_BREAK_ABOVE")
+        self.assertIn("session_vwap_above_acceptance",out["reasons"])
+        self.assertIn("session_failed_break_above",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
