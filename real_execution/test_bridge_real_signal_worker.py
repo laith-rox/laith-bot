@@ -238,6 +238,52 @@ class RealSignalMirrorTests(unittest.TestCase):
         self.assertEqual(worker.engine.same_entry_copies(signal, health), 1)
 
 
+    def test_signal_fingerprint_blocks_only_same_idea(self):
+        base = {
+            "mode": "SNIPER",
+            "side": "BUY",
+            "bar": "2026-10-03T08:00:00Z",
+            "reason": "m15_aligned_continuation",
+        }
+        same = dict(base)
+        different_reason = dict(base, reason="fresh_breakout")
+        main_same_bar = dict(base, mode="MAIN")
+        self.assertEqual(worker.signal_fingerprint(base), worker.signal_fingerprint(same))
+        self.assertNotEqual(worker.signal_fingerprint(base), worker.signal_fingerprint(different_reason))
+        self.assertNotEqual(worker.signal_fingerprint(base), worker.signal_fingerprint(main_same_bar))
+
+    def test_publish_key_contains_reason_tag(self):
+        original_request = worker.engine._json_request
+        original_volume = worker.VOLUME
+        original_token = worker.PUBLISH_TOKEN
+        captured = {}
+
+        def fake_request(url, method="GET", payload=None, headers=None, timeout=10):
+            captured["payload"] = payload
+            return 201, {"ok": True}
+
+        worker.engine._json_request = fake_request
+        worker.VOLUME = 0.01
+        worker.PUBLISH_TOKEN = "test-publish-token"
+        try:
+            signal = {
+                "side": "BUY",
+                "bar": "2026-10-03T08:00:00Z",
+                "mode": "SNIPER",
+                "reason": "fresh_breakout",
+                "risk_distance": 1.0,
+                "target_r": 1.2,
+                "checks": {"BUY": [True, True, True, True, True, False, False]},
+                "native_h4_reopen_ready": True,
+            }
+            worker.publish_signal(signal, spot_override=4100.0)
+            self.assertIn(":R" + worker.reason_tag(signal) + ":", captured["payload"]["key"])
+        finally:
+            worker.engine._json_request = original_request
+            worker.VOLUME = original_volume
+            worker.PUBLISH_TOKEN = original_token
+
+
 
 if __name__ == "__main__":
     unittest.main()
