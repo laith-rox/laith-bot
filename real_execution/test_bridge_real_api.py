@@ -51,6 +51,7 @@ class RealBridgeFailClosedTests(unittest.TestCase):
             "m5": list(rows),
             "m15": list(rows),
             "h1": list(rows),
+            "h4": list(rows),
         }
 
     def test_fresh_market_source_is_accepted(self):
