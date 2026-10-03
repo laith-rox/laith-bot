@@ -79,6 +79,22 @@ def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=
         short_risk += 1
         reasons.append("options_call_oi_heavy")
 
+    # Options proxy: skew and OI are context, never direction by themselves.
+    option_skew = str(options.get("skew") or "UNKNOWN").upper()
+    oi_state = str(options.get("oi_state") or "UNKNOWN").upper()
+    if option_skew == "DOWNSIDE_HEDGE_BID":
+        long_risk += 1
+        reasons.append("downside_hedge_bid")
+    elif option_skew == "UPSIDE_CALL_BID":
+        short_risk += 1
+        reasons.append("upside_call_bid")
+    if oi_state == "PUT_HEAVY":
+        long_risk += 1
+        reasons.append("put_heavy_open_interest")
+    elif oi_state == "CALL_HEAVY":
+        short_risk += 1
+        reasons.append("call_heavy_open_interest")
+
     # Live trigger-like context: liquidity rejection and volatility expansion.
     if liq_event == "BUY_SIDE_SWEEP" or liq_pressure == "BEARISH":
         long_risk += 2
