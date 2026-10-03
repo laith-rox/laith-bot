@@ -104,6 +104,23 @@ class GigiContextTests(unittest.TestCase):
         self.assertGreater(out["score"],0)
 
 
+    def test_liquidation_risk_is_exposed_without_changing_score(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"WATCH_LONG_LIQUIDATION"},
+        )
+        self.assertEqual(out["crowding_risk"],"WATCH_LONG_LIQUIDATION")
+        self.assertIn("long_liquidation_risk",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
