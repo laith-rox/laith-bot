@@ -77,6 +77,30 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(reason, "market_source_timestamp_required")
 
+    def test_preflight_lists_fail_closed_blockers(self):
+        bridge.REAL_ARMED = False
+        bridge.EXECUTION_ENABLED = False
+        bridge.FIXED_VOLUME = 0.0
+        bridge._emergency_stop = True
+        bridge._client_state = None
+        bridge._market_state = None
+        blockers = bridge._readiness_blockers(now=2_000_000_000)
+        self.assertIn("risk_unset", blockers)
+        self.assertIn("not_armed", blockers)
+        self.assertIn("execution_disabled", blockers)
+        self.assertIn("emergency_stop", blockers)
+        self.assertIn("mt5_state_stale", blockers)
+        self.assertIn("market_closed_or_stale", blockers)
+
+    def test_status_reports_preflight_false_while_locked(self):
+        bridge.REAL_ARMED = False
+        bridge.EXECUTION_ENABLED = False
+        bridge.FIXED_VOLUME = 0.0
+        bridge._emergency_stop = True
+        s = bridge._status()
+        self.assertFalse(s["preflight_ok"])
+        self.assertTrue(isinstance(s["readiness_blockers"], list))
+
 
 if __name__ == "__main__":
     unittest.main()
