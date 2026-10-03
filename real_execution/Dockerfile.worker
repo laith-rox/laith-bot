@@ -20,6 +20,7 @@ COPY gigi_options.py test_gigi_options.py ./
 COPY gigi_thesis.py test_gigi_thesis.py ./
 COPY gigi_yields.py test_gigi_yields.py ./
 COPY gigi_stop_geometry.py test_gigi_stop_geometry.py ./
+COPY gigi_target_geometry.py test_gigi_target_geometry.py ./
 COPY gigi_quality.py test_gigi_quality.py ./
 COPY gigi_validation.py test_gigi_validation.py ./
 COPY gigi_execution_quality.py test_gigi_execution_quality.py ./
@@ -53,6 +54,7 @@ RUN python -m unittest -v \
     test_gigi_thesis.py \
     test_gigi_yields.py \
     test_gigi_stop_geometry.py \
+    test_gigi_target_geometry.py \
     test_gigi_quality.py \
     test_gigi_validation.py \
     test_gigi_execution_quality.py \
