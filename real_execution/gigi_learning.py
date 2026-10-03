@@ -20,6 +20,8 @@ DIMENSIONS = (
     "liquidity_event",
     "positioning_regime",
     "positioning_crowding",
+    "volatility_state",
+    "gvz_regime",
     "session",
     "strength",
 )
