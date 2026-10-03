@@ -296,3 +296,37 @@ Research conclusion:
 - This allows future shadow validation to answer questions such as whether a
   first NFP spike behaves differently from CPI or FOMC in this broker feed,
   instead of assuming all red-folder news is the same.
+
+
+## MT5 price-only walk-forward finding — 3 non-overlapping 60-day windows
+
+The current technical/structure engine was replayed chronologically on broker
+M5/M15/H4 bars, with historical spread approximation, 05:00-20:00 Palestine
+entry hours, the six-per-hour cap, and the candidate profit-protection policy.
+External historical macro/CFTC/ETF/options/yield states were deliberately
+excluded to avoid look-ahead.
+
+Latest 60-day window after spread:
+- whole book: -0.0948R mean despite a 56.61% win rate;
+- static-stop comparison: -0.1432R mean;
+- MAIN: +0.1117R mean over 223 observations;
+- SNIPER: -0.1147R mean over 2,319 observations.
+
+Across three independent 60-day windows:
+- MAIN mean R: +0.1117, -0.0650, +0.0278 -> mixed, not a stable positive edge;
+- SNIPER mean R: -0.1147, -0.1508, -0.1723 -> consistently negative after spread;
+- m15_support_break_retest stayed positive in all three windows:
+  +0.3229, +0.0988, +0.0180R;
+- several high-frequency reasons stayed negative across all three windows,
+  including fast_primary_2of3, mtf_countertrend_medium,
+  mtf_medium_continuation, sniper_strength_stop_cap,
+  technical_medium_local_invalidation, and technical_medium_recovered.
+
+Research lesson:
+- profit protection materially improves the distribution but does not create an
+  edge by itself;
+- a higher win rate can coexist with negative expectancy;
+- historical reason-level priors remain SHADOW and cannot directly veto or
+  promote live execution;
+- fresh forward confirmation plus regime/macro/liquidity context is required
+  before trusting any historical edge.
