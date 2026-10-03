@@ -27,6 +27,7 @@ DIMENSIONS = (
     "crowding_risk",
     "options_skew",
     "options_oi_state",
+    "options_gamma_context",
     "session",
     "strength",
 )
