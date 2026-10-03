@@ -116,6 +116,13 @@ def _validate_market_payload(data: dict, now=None):
     return True, "approved"
 
 
+def _client_poll_age(now=None):
+    if _client_last_poll is None:
+        return None
+    now = time.time() if now is None else now
+    return max(0.0, now - float(_client_last_poll))
+
+
 def _pending_count(now=None):
     now = time.time() if now is None else now
     count = 0
@@ -165,6 +172,7 @@ def _status():
     s_age = _state_age(now)
     m_age = _market_age(now)
     source_age = _market_source_age(_market_state, now)
+    poll_age = _client_poll_age(now)
     state = _client_state or {}
     return {
         "ok": True,
@@ -187,6 +195,8 @@ def _status():
         "position_risk_usd": state.get("position_risk_usd", 0),
         "client_state_fresh": s_age is not None and s_age <= STATE_FRESH_SECONDS,
         "client_state_age": s_age,
+        "executor_poll_fresh": poll_age is not None and poll_age <= 10,
+        "executor_poll_age": poll_age,
         "market_fresh": (
             m_age is not None and m_age <= MARKET_FRESH_SECONDS
             and source_age is not None and source_age <= MARKET_SOURCE_FRESH_SECONDS
