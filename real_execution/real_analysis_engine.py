@@ -111,6 +111,30 @@ def normalize_rows(values):
 
 
 MAX_CLOSED_BAR_AGE_SECONDS = {"5m": 15 * 60, "15m": 40 * 60, "h4": 9 * 60 * 60}
+REOPEN_MIN_CLOSED_BARS = {"5m": 3, "15m": 1, "h4": 1}
+EXPECTED_BAR_SECONDS = {"5m": 5 * 60, "15m": 15 * 60, "h4": 4 * 60 * 60}
+
+
+def _rows_after_last_gap(rows, expected_seconds):
+    """Count completed candles after the latest market closure/discontinuity."""
+    if len(rows) < 2:
+        return len(rows)
+    last_gap_index = -1
+    for i in range(1, len(rows)):
+        a = datetime.fromisoformat(str(rows[i-1]["datetime"]).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(rows[i]["datetime"]).replace("Z", "+00:00"))
+        if a.tzinfo is None:
+            a = a.replace(tzinfo=timezone.utc)
+        if b.tzinfo is None:
+            b = b.replace(tzinfo=timezone.utc)
+        gap = b.timestamp() - a.timestamp()
+        # 3x timeframe catches the daily maintenance break and weekend closure,
+        # without treating one missing bar as a reopen event.
+        if gap > expected_seconds * 3:
+            last_gap_index = i
+    if last_gap_index < 0:
+        return len(rows)
+    return len(rows) - last_gap_index
 
 
 def validate_market_feed_freshness(feeds, now_ts=None):
@@ -129,6 +153,16 @@ def validate_market_feed_freshness(feeds, now_ts=None):
             raise RuntimeError(f"market_clock_ahead:{timeframe}:age={age:.0f}s:last={latest}")
         if age > max_age:
             raise RuntimeError(f"stale_market_data:{timeframe}:age={age:.0f}s:last={latest}")
+
+        closed_after_gap = _rows_after_last_gap(
+            rows, EXPECTED_BAR_SECONDS[timeframe]
+        )
+        minimum = REOPEN_MIN_CLOSED_BARS[timeframe]
+        if closed_after_gap < minimum:
+            raise RuntimeError(
+                f"market_reopen_warmup:{timeframe}:"
+                f"closed_after_gap={closed_after_gap}:required={minimum}"
+            )
         ages[timeframe] = age
     return ages
 
