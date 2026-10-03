@@ -74,8 +74,11 @@ def assess(positioning=None, etf=None, volatility=None, options=None, yields=Non
         else:
             available.append(name)
 
+    macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
+    macro_horizon=str(macro.get("calendar_horizon") or "UNKNOWN").upper()
     macro_ok=(
-        str(macro.get("regime") or "UNKNOWN").upper()!="UNKNOWN"
+        macro_regime not in ("UNKNOWN","HORIZON_EXHAUSTED")
+        and macro_horizon!="EXHAUSTED"
         and not macro.get("calendar_error")
     )
     if macro_ok:
