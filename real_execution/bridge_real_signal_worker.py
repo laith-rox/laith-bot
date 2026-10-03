@@ -334,12 +334,14 @@ def run_forever():
                 flush=True,
             )
         except Exception as exc:
+            detail = str(exc)
+            reason = "market_closed_or_stale" if detail == "market_stale" else f"preview_error:{type(exc).__name__}"
             _latest_preview = {
                 "available": False,
-                "reason": f"preview_error:{type(exc).__name__}",
+                "reason": reason,
                 "updated_at": time.time(),
             }
-            print(f"real_analysis_wait reason={type(exc).__name__}:{exc}", flush=True)
+            print(f"real_analysis_wait reason={reason} detail={type(exc).__name__}:{exc}", flush=True)
 
         # This build intentionally stops before any /publish call.
         if REAL_SIGNAL_ENABLED:
