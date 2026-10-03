@@ -178,6 +178,38 @@ def _net_summary(observations):
     return gigi_replay.summarize(transformed)
 
 
+def multi_window_stability(window_summaries, min_per_window=20, required_windows=3):
+    """Conservative stability label across independent chronological windows.
+
+    Every required window must have enough observations. One missing/small
+    window is not silently ignored because that can turn sparse evidence into
+    fake stability.
+    """
+    rows=list(window_summaries or [])
+    if len(rows) < int(required_windows):
+        return {"status":"INSUFFICIENT_WINDOWS","qualified":False}
+    rows=rows[:int(required_windows)]
+    if any(int((row or {}).get("n") or 0) < int(min_per_window) for row in rows):
+        return {
+            "status":"INSUFFICIENT_PER_WINDOW",
+            "qualified":False,
+            "min_per_window":int(min_per_window),
+        }
+    means=[float((row or {}).get("mean_r") or 0.0) for row in rows]
+    if all(x>0 for x in means):
+        status="STABLE_POSITIVE"
+    elif all(x<0 for x in means):
+        status="STABLE_NEGATIVE"
+    else:
+        status="UNSTABLE"
+    return {
+        "status":status,
+        "qualified":True,
+        "means":[round(x,4) for x in means],
+        "min_per_window":int(min_per_window),
+    }
+
+
 def report(observations):
     rows=list(observations or [])
     split=gigi_replay.chronological_split(rows,0.70)
