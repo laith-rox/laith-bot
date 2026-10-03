@@ -71,5 +71,27 @@ class GigiMacroTests(unittest.TestCase):
 
 
 
+    def test_simultaneous_nfp_components_are_one_event_bundle(self):
+        event_time = datetime(2026,10,2,12,30,tzinfo=timezone.utc).timestamp()
+        events = [
+            {"title":"Non-Farm Employment Change","event_class":"LABOR_NFP","impact":"HIGH","time":event_time},
+            {"title":"Unemployment Rate","event_class":"LABOR_NFP","impact":"HIGH","time":event_time},
+            {"title":"Average Hourly Earnings m/m","event_class":"LABOR_NFP","impact":"HIGH","time":event_time},
+        ]
+        out = gigi_macro.context(event_time - 5*60, events, None)
+        self.assertEqual(out["event_bundle_state"], "MULTI_HIGH_RELEASE")
+        self.assertEqual(out["event_bundle_size"], 3)
+        self.assertEqual(out["event_bundle_high_count"], 3)
+        self.assertEqual(out["event_bundle_classes"], ["LABOR_NFP"])
+
+    def test_single_cpi_stays_single_release(self):
+        event_time = datetime(2026,10,5,12,30,tzinfo=timezone.utc).timestamp()
+        events = [{"title":"CPI m/m","event_class":"CPI","impact":"HIGH","time":event_time}]
+        out = gigi_macro.context(event_time - 5*60, events, None)
+        self.assertEqual(out["event_bundle_state"], "SINGLE_RELEASE")
+        self.assertEqual(out["event_bundle_size"], 1)
+
+
+
 if __name__ == "__main__":
     unittest.main()
