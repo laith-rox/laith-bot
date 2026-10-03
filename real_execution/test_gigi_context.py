@@ -50,6 +50,18 @@ class GigiContextTests(unittest.TestCase):
         self.assertIn("liquidity_supports_buy",out["reasons"])
 
 
+    def test_first_post_event_spike_is_flagged_as_untrusted(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"TREND_UP","h4_bias":"UP","effort_result":"BALANCED"},
+            {"bias":"BULLISH_GOLD"},
+            {"regime":"HIGH_IMPACT_WINDOW","phase":"HIGH_EVENT_SHOCK_0_5M"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+        )
+        self.assertEqual(out["market_state"],"EVENT_DRIVEN")
+        self.assertIn("first_spike_untrusted",out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
