@@ -11,6 +11,11 @@ import re
 import time
 import urllib.request
 
+try:
+    import requests
+except Exception:
+    requests = None
+
 CFTC_URL = "https://www.cftc.gov/dea/futures/other_lf.htm"
 CACHE_SECONDS = 15 * 60
 _cache = {"fetched_at": 0.0, "value": None, "error": None}
@@ -101,14 +106,20 @@ def fetch(now=None, opener=None):
     now = time.time() if now is None else float(now)
     if _cache["value"] is not None and now - float(_cache["fetched_at"] or 0) <= CACHE_SECONDS:
         return dict(_cache["value"])
-    opener = opener or urllib.request.urlopen
     try:
-        req = urllib.request.Request(
-            CFTC_URL,
-            headers={"User-Agent": "Laith-Gigi-CFTC/1.0", "Accept": "text/html"},
-        )
-        with opener(req, timeout=8) as res:
-            raw = res.read().decode("utf-8", errors="replace")
+        headers={"User-Agent": "Laith-Gigi-CFTC/1.0", "Accept": "text/html"}
+        if opener is not None:
+            req = urllib.request.Request(CFTC_URL, headers=headers)
+            with opener(req, timeout=8) as res:
+                raw = res.read().decode("utf-8", errors="replace")
+        elif requests is not None:
+            res = requests.get(CFTC_URL, timeout=8, headers=headers)
+            res.raise_for_status()
+            raw = res.text
+        else:
+            req = urllib.request.Request(CFTC_URL, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as res:
+                raw = res.read().decode("utf-8", errors="replace")
         value = parse_gold_report(raw)
         value["error"] = None
         _cache.update({"fetched_at": now, "value": value, "error": None})
