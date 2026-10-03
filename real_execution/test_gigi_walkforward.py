@@ -60,6 +60,32 @@ class GigiWalkForwardTests(unittest.TestCase):
         self.assertTrue(out["qualified"])
 
 
+    def test_sniper_profit_protection_can_lock_positive_r(self):
+        future=[
+            {"high":102.5,"low":99.2,"close":102.0},
+            {"high":101.5,"low":100.5,"close":100.8},
+        ]
+        out=gigi_walkforward.protected_outcome(
+            "BUY",100.0,2.0,2.0,future,"SNIPER",usd_per_price_unit=1.0
+        )
+        self.assertTrue(out["resolved"])
+        self.assertEqual(out["outcome"],"PROTECTED_STOP")
+        self.assertAlmostEqual(out["close_r"],0.5,places=4)
+        self.assertTrue(out["protection_activated"])
+
+    def test_main_profit_protection_is_next_bar_conservative(self):
+        future=[
+            {"high":102.5,"low":99.5,"close":102.0},
+            {"high":101.0,"low":100.4,"close":100.6},
+        ]
+        out=gigi_walkforward.protected_outcome(
+            "BUY",100.0,2.0,2.0,future,"MAIN",usd_per_price_unit=1.0
+        )
+        self.assertTrue(out["resolved"])
+        self.assertEqual(out["outcome"],"PROTECTED_STOP")
+        self.assertGreater(out["close_r"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
