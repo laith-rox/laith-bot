@@ -90,6 +90,53 @@ class RealSignalMirrorTests(unittest.TestCase):
         ):
             self.assertTrue(callable(getattr(worker.engine, name, None)), name)
 
+    def test_sniper_live_stop_ladder_is_3_to_10(self):
+        base = {
+            "mode": "SNIPER",
+            "side": "BUY",
+            "checks": {"BUY": [False] * 7},
+        }
+        expected = {3: 3.0, 4: 3.0, 5: 5.0, 6: 7.0, 7: 10.0}
+        for strength, budget in expected.items():
+            signal = dict(base)
+            checks = [True] * strength + [False] * (7 - strength)
+            signal["checks"] = {"BUY": checks}
+            self.assertEqual(worker.engine.sniper_budget_usd(signal), budget)
+
+    def test_main_target_is_structure_adaptive(self):
+        mtf = {
+            "break_up": True,
+            "retest_up": True,
+            "h4_resistance": 103.0,
+        }
+        target = worker.engine.adaptive_main_target_r(
+            "BUY", 100.0, 1.0, mtf, confidence=9
+        )
+        self.assertGreaterEqual(target, 2.0)
+        self.assertLessEqual(target, 3.0)
+
+        close_boundary = dict(mtf, h4_resistance=101.0)
+        capped = worker.engine.adaptive_main_target_r(
+            "BUY", 100.0, 1.0, close_boundary, confidence=9
+        )
+        self.assertLess(capped, target)
+
+    def test_sniper_budget_uses_requested_tier_not_old_effective_budget(self):
+        signal = {
+            "mode": "SNIPER",
+            "side": "BUY",
+            "risk_distance": 4.5,
+            "checks": {"BUY": [True, True, True, True, True, False, False]},
+        }
+        health = {
+            "effective_risk_budget_usd": 3.0,
+            "strong_risk_budget_usd": 15.0,
+            "position_risk_usd": 0.0,
+            "total_position_risk_usd": 0.0,
+        }
+        self.assertEqual(worker.engine.same_entry_copies(signal, health), 1)
+
+
 
 if __name__ == "__main__":
     unittest.main()
