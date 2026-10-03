@@ -158,19 +158,23 @@ class RealSignalMirrorTests(unittest.TestCase):
 
 
     def test_session_windows_are_fail_closed(self):
-        # Bar timestamps are UTC; Palestine is UTC+3 in this strategy clock.
+        # The clock follows Asia/Hebron DST instead of assuming UTC+3 all year.
         before_open = {"mode": "MAIN", "bar": "2026-10-03T01:59:00Z"}     # 04:59 Palestine
         day_main = {"mode": "MAIN", "bar": "2026-10-03T02:00:00Z"}        # 05:00 Palestine
         day_sniper = {"mode": "SNIPER", "bar": "2026-10-03T08:00:00Z"}   # 11:00 Palestine
         london = {"mode": "MAIN", "bar": "2026-10-03T07:00:00Z"}         # 10:00 Palestine
         us = {"mode": "MAIN", "bar": "2026-10-03T12:20:00Z"}             # 15:20 Palestine
         after_close = {"mode": "SNIPER", "bar": "2026-10-03T17:00:00Z"}  # 20:00 Palestine
+        winter_before = {"mode": "MAIN", "bar": "2026-11-03T02:59:00Z"}  # 04:59 Palestine (UTC+2)
+        winter_open = {"mode": "MAIN", "bar": "2026-11-03T03:00:00Z"}    # 05:00 Palestine (UTC+2)
         self.assertEqual(worker.session_block_reason(before_open), "main_session_closed")
         self.assertIsNone(worker.session_block_reason(day_main))
         self.assertIsNone(worker.session_block_reason(day_sniper))
         self.assertEqual(worker.main_session_name(worker.signal_local_minute(london)), "LONDON_MAIN")
         self.assertEqual(worker.main_session_name(worker.signal_local_minute(us)), "US_MAIN")
         self.assertEqual(worker.session_block_reason(after_close), "sniper_session_closed")
+        self.assertEqual(worker.session_block_reason(winter_before), "main_session_closed")
+        self.assertIsNone(worker.session_block_reason(winter_open))
 
     def test_main_publish_requires_fresh_closed_h4_after_reopen(self):
         signal = {
