@@ -278,6 +278,7 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         _cors(self)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
