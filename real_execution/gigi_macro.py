@@ -35,6 +35,38 @@ def _parse_timestamp(value):
     return dt.astimezone(timezone.utc).timestamp()
 
 
+def event_class(title):
+    text=str(title or "").strip().lower()
+    if not text:
+        return "UNKNOWN"
+    if "consumer price" in text or text.startswith("cpi") or " cpi" in text:
+        return "CPI"
+    if "core pce" in text or "pce price" in text or "personal consumption expenditures" in text:
+        return "PCE"
+    if "producer price" in text or text.startswith("ppi") or " ppi" in text:
+        return "PPI"
+    if (
+        "non-farm" in text or "nonfarm" in text or "payroll" in text
+        or "unemployment rate" in text or "average hourly earnings" in text
+    ):
+        return "LABOR_NFP"
+    if "fomc" in text or "federal funds rate" in text or "fed chair" in text or "powell" in text:
+        return "FOMC_FED"
+    if "jolts" in text or "job openings" in text or "adp" in text or "unemployment claims" in text:
+        return "LABOR_OTHER"
+    if "ism" in text:
+        return "ISM"
+    if "retail sales" in text:
+        return "RETAIL_SALES"
+    if "gross domestic product" in text or text.startswith("gdp") or " gdp" in text:
+        return "GDP"
+    if "pmi" in text or "purchasing managers" in text:
+        return "PMI"
+    if "consumer sentiment" in text or "consumer confidence" in text:
+        return "SENTIMENT"
+    return "OTHER"
+
+
 def parse_events(payload):
     if not isinstance(payload, list):
         raise ValueError("calendar_payload_invalid")
@@ -46,8 +78,10 @@ def parse_events(payload):
             impact = str(row.get("impact") or "").strip().lower()
             if impact not in ("high", "medium"):
                 continue
+            title=str(row.get("title") or "")[:180]
             out.append({
-                "title": str(row.get("title") or "")[:180],
+                "title": title,
+                "event_class": event_class(title),
                 "impact": impact.upper(),
                 "time": _parse_timestamp(row.get("date")),
             })
@@ -129,9 +163,17 @@ def context(at_timestamp=None, events=None, error=None):
     else:
         regime = "CLEAR"
 
+    active = near_high[0] if near_high else (near_medium[0] if near_medium else None)
+    next_event = future[0] if future else None
+
     return {
         "regime": regime,
         "phase": phase,
+        "active_event_class": (active or {}).get("event_class", "NONE"),
+        "active_event_title": (active or {}).get("title"),
+        "active_event_impact": (active or {}).get("impact"),
+        "next_event_class": (next_event or {}).get("event_class", "NONE"),
+        "next_event_title": (next_event or {}).get("title"),
         "near_high": near_high[:5],
         "near_medium": near_medium[:5],
         "next_events": future[:5],
