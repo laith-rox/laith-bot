@@ -157,6 +157,50 @@ class RealSignalMirrorTests(unittest.TestCase):
             mtf.aggregate_h4([])
 
 
+    def test_session_windows_are_fail_closed(self):
+        # Bar timestamps are UTC; Palestine is UTC+3 in this strategy clock.
+        main_ok = {"mode": "MAIN", "bar": "2026-10-03T01:30:00Z"}
+        main_late = {"mode": "MAIN", "bar": "2026-10-03T04:00:00Z"}
+        sniper_ok = {"mode": "SNIPER", "bar": "2026-10-03T16:00:00Z"}
+        sniper_closed = {"mode": "SNIPER", "bar": "2026-10-03T10:00:00Z"}
+        self.assertIsNone(worker.session_block_reason(main_ok))
+        self.assertEqual(worker.session_block_reason(main_late), "main_session_closed")
+        self.assertIsNone(worker.session_block_reason(sniper_ok))
+        self.assertEqual(worker.session_block_reason(sniper_closed), "sniper_session_closed")
+
+    def test_main_publish_requires_fresh_closed_h4_after_reopen(self):
+        signal = {
+            "side": "BUY",
+            "bar": "2026-10-03T01:30:00Z",
+            "mode": "MAIN",
+            "risk_distance": 1.0,
+            "target_r": 2.0,
+            "checks": {"BUY": [True, True, True, True, True, False, False]},
+            "native_h4_reopen_ready": False,
+        }
+        with self.assertRaisesRegex(RuntimeError, "main_native_h4_reopen_warmup"):
+            worker.publish_signal(signal, spot_override=4100.0)
+
+    def test_native_h4_reopen_waits_for_one_closed_h4(self):
+        from datetime import datetime, timezone, timedelta
+        base = datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc)
+        old = []
+        for i in range(30):
+            t = base + timedelta(hours=4*i)
+            old.append({"datetime": t.isoformat(), "open": 1, "high": 2, "low": 0, "close": 1})
+        reopen = old[-1]["datetime"]
+        gap_start = datetime.fromisoformat(reopen) + timedelta(hours=52)
+        only_active = old + [{
+            "datetime": gap_start.isoformat(), "open": 1, "high": 2, "low": 0, "close": 1
+        }]
+        self.assertFalse(worker.engine.native_h4_reopen_ready(only_active))
+        one_closed_plus_active = only_active + [{
+            "datetime": (gap_start + timedelta(hours=4)).isoformat(),
+            "open": 1, "high": 2, "low": 0, "close": 1
+        }]
+        self.assertTrue(worker.engine.native_h4_reopen_ready(one_closed_plus_active))
+
+
 
 if __name__ == "__main__":
     unittest.main()
