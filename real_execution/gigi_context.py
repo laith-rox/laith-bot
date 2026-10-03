@@ -7,12 +7,13 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
     macro=macro or {}
     liquidity=liquidity or {}
+    positioning=positioning or {}
 
     score=0
     reasons=[]
@@ -70,6 +71,23 @@ def evaluate(side, regime, intermarket, macro, liquidity=None):
             score-=1; reasons.append("liquidity_conflicts_sell")
     if liquidity_event in ("BUY_SIDE_SWEEP","SELL_SIDE_SWEEP","TWO_SIDED_SWEEP"):
         reasons.append("liquidity_event:"+liquidity_event.lower())
+
+    position_regime=str(positioning.get("regime") or "UNKNOWN").upper()
+    crowding=str(positioning.get("crowding") or "UNKNOWN").upper()
+    if side=="BUY":
+        if position_regime in ("LONG_BIASED_ADDING","SHORT_BIASED_COVERING"):
+            score+=1; reasons.append("positioning_supports_buy")
+        elif position_regime=="SHORT_BIASED_ADDING":
+            score-=1; reasons.append("positioning_conflicts_buy")
+        if crowding=="ELEVATED_LONG":
+            score-=1; reasons.append("long_crowding_caution")
+    elif side=="SELL":
+        if position_regime in ("SHORT_BIASED_ADDING","LONG_BIASED_DELEVERAGING"):
+            score+=1; reasons.append("positioning_supports_sell")
+        elif position_regime=="LONG_BIASED_ADDING":
+            score-=1; reasons.append("positioning_conflicts_sell")
+        if crowding=="ELEVATED_SHORT":
+            score-=1; reasons.append("short_crowding_caution")
 
     macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
     macro_phase=str(macro.get("phase") or "NORMAL").upper()
