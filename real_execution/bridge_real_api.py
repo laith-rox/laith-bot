@@ -32,6 +32,7 @@ MAX_AGE_SECONDS = 30
 STATE_FRESH_SECONDS = 10
 MARKET_FRESH_SECONDS = 20
 MARKET_SOURCE_FRESH_SECONDS = 900
+MARKET_TICK_FRESH_SECONDS = 45
 MAX_PENDING = 2
 ALLOWED_ORIGIN = os.getenv(
     "REAL_STATUS_ALLOWED_ORIGIN",
@@ -106,6 +107,20 @@ def _market_source_age(payload=None, now=None):
         return None
 
 
+def _market_tick_age(payload=None, now=None):
+    payload = _market_state if payload is None else payload
+    if not payload:
+        return None
+    now = time.time() if now is None else now
+    try:
+        ts = float(payload.get("tick_timestamp", 0))
+        if ts <= 0:
+            return None
+        return max(0.0, now - ts)
+    except (TypeError, ValueError):
+        return None
+
+
 def _validate_market_payload(data: dict, now=None):
     feeds = {k: data.get(k) for k in ("m5", "m15", "h4")}
     if not all(isinstance(v, list) and len(v) >= 30 for v in feeds.values()):
@@ -114,6 +129,11 @@ def _validate_market_payload(data: dict, now=None):
         return False, "native_h4_required"
     if str(data.get("source_clock") or "") != "UTC_EPOCH":
         return False, "utc_source_clock_required"
+    tick_age = _market_tick_age(data, now)
+    if tick_age is None:
+        return False, "market_tick_timestamp_required"
+    if tick_age > MARKET_TICK_FRESH_SECONDS:
+        return False, "market_tick_stale"
     source_age = _market_source_age(data, now)
     if source_age is None:
         return False, "market_source_timestamp_required"
@@ -153,6 +173,7 @@ def _readiness_blockers(now=None):
     s_age = _state_age(now)
     m_age = _market_age(now)
     source_age = _market_source_age(_market_state, now)
+    tick_age = _market_tick_age(_market_state, now)
     if not CLIENT_TOKEN or not PUBLISH_TOKEN or not HMAC_SECRET:
         blockers.append("auth_incomplete")
     if FIXED_VOLUME <= 0:
@@ -171,6 +192,7 @@ def _readiness_blockers(now=None):
     if (
         m_age is None or m_age > MARKET_FRESH_SECONDS
         or source_age is None or source_age > MARKET_SOURCE_FRESH_SECONDS
+        or tick_age is None or tick_age > MARKET_TICK_FRESH_SECONDS
     ):
         blockers.append("market_closed_or_stale")
     return blockers
@@ -181,6 +203,7 @@ def _status():
     s_age = _state_age(now)
     m_age = _market_age(now)
     source_age = _market_source_age(_market_state, now)
+    tick_age = _market_tick_age(_market_state, now)
     poll_age = _client_poll_age(now)
     state = _client_state or {}
     return {
@@ -209,9 +232,11 @@ def _status():
         "market_fresh": (
             m_age is not None and m_age <= MARKET_FRESH_SECONDS
             and source_age is not None and source_age <= MARKET_SOURCE_FRESH_SECONDS
+            and tick_age is not None and tick_age <= MARKET_TICK_FRESH_SECONDS
         ),
         "market_age": m_age,
         "market_source_age": source_age,
+        "market_tick_age": tick_age,
         "pending": _pending_count(now),
         "price": state.get("price", 0),
         "position_open": bool(state.get("position_open")),
@@ -436,6 +461,7 @@ class Handler(BaseHTTPRequestHandler):
                 "h4_source": data.get("h4_source"),
                 "source_clock": data.get("source_clock"),
                 "source_timestamp": data.get("source_timestamp"),
+                "tick_timestamp": data.get("tick_timestamp"),
                 "received_at": time.time(),
             }
             return _json(self, 200, {"ok": True})
