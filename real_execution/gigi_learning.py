@@ -33,6 +33,7 @@ DIMENSIONS = (
     "stop_geometry",
     "stop_noise_exposure",
     "thesis_state",
+    "data_quality",
     "session",
     "strength",
 )
