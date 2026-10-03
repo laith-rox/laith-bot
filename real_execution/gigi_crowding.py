@@ -63,6 +63,22 @@ def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=
         short_risk += 1
         reasons.append("mixed_etf_inflow")
 
+    # Options skew / OI are proxy context, not direction by themselves.
+    options_skew = str(options.get("skew") or "UNKNOWN").upper()
+    options_oi = str(options.get("oi_state") or "UNKNOWN").upper()
+    if options_skew == "DOWNSIDE_HEDGE_BID":
+        long_risk += 1
+        reasons.append("options_downside_hedge_bid")
+    elif options_skew == "UPSIDE_CALL_BID":
+        short_risk += 1
+        reasons.append("options_upside_call_bid")
+    if options_oi == "PUT_HEAVY":
+        long_risk += 1
+        reasons.append("options_put_oi_heavy")
+    elif options_oi == "CALL_HEAVY":
+        short_risk += 1
+        reasons.append("options_call_oi_heavy")
+
     # Live trigger-like context: liquidity rejection and volatility expansion.
     if liq_event == "BUY_SIDE_SWEEP" or liq_pressure == "BEARISH":
         long_risk += 2
