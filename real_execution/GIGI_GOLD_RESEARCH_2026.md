@@ -68,3 +68,24 @@ risk -> shadow learning.
 - No automatic strategy rewrite from the learning layer.
 - Alignment score is not a win probability.
 - New layers enter as SHADOW first and must survive out-of-sample review.
+
+
+### Cboe GVZ options-volatility proxy — 2026-10-02
+- GVZ: 23.23.
+- 5-session change: +0.79.
+- Approximate 1-year percentile from the public Cboe history: 15.1%.
+- Shadow classification: LOW implied-volatility regime relative to its own recent history.
+- Important limitation: GVZ is based on GLD options. It is an options-implied
+  volatility proxy for gold exposure, not CME gold-futures CVOL and not a
+  directional BUY/SELL signal.
+
+## Volatility reasoning added
+
+- Separate realised volatility from options-implied volatility.
+- Rising implied volatility does not mean bearish direction.
+- Compression + elevated implied volatility is tagged as
+  PRICED_MOVE_COMPRESSION: options are pricing movement before realised
+  expansion, but direction still comes from structure/liquidity/flows.
+- Elevated implied + elevated realised is tagged STRESS_EXPANSION.
+- Volatility context may change execution quality, stop behaviour and expected
+  noise, but never chooses BUY or SELL by itself.
