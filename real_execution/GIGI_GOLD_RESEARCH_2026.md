@@ -174,3 +174,25 @@ A missing invalidation automatically makes the thesis FRAGILE.
 This layer is SHADOW only and is tracked in the learning database so we can
 later test whether FRAGILE setups actually underperform CLEAN setups instead of
 assuming they do.
+
+
+## Evidence-independence guard
+
+Gigi no longer lets related slow-flow evidence stack as if it were independent.
+CFTC positioning, ETF flows and positioning crowding are one flow family for
+the context score. They can corroborate each other, but together contribute at
+most one directional context point. This reduces false confidence from
+double-counting correlated evidence.
+
+## Out-of-sample learning guard
+
+Shadow learning now has a chronological validation layer:
+- a bucket needs at least 40 resolved observations before out-of-sample review;
+- the later 35% of observations is reserved as a test segment;
+- train/test sign disagreement is labelled UNSTABLE_SIGN_FLIP;
+- extreme R outcomes are clipped at +/-5R for stability checks so one outlier
+  cannot make a weak bucket look robust;
+- even a STABLE_POSITIVE bucket is only a shadow candidate and never changes
+  live execution automatically.
+
+This is specifically designed to defend against overfitting and data snooping.
