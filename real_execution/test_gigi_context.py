@@ -89,6 +89,21 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_broad_etf_inflow_supports_buy(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"BROAD_INFLOW"},
+        )
+        self.assertIn("etf_flows_support_buy",out["reasons"])
+        self.assertGreater(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
