@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 import gigi_clock
 import gigi_evaluation
+import gigi_profit_protection
 import gigi_replay
 import real_analysis_engine as engine
 
@@ -92,7 +93,112 @@ def apply_cost(outcome, cost_r):
     return out
 
 
-def walk_forward(m5_rows, m15_rows, h4_rows, point=0.01, max_signals_per_hour=6):
+def protected_outcome(side, entry, risk_distance, target_r, future_rows, mode,
+                      usd_per_price_unit=1.0):
+    """Replay the candidate profit-protection policy conservatively.
+
+    New locks become active from the next bar because OHLC cannot reveal the
+    intrabar ordering between a profit trigger and a reversal. This avoids
+    optimistic use of information inside the same candle.
+    """
+    side=str(side or "").upper()
+    entry=float(entry)
+    risk=float(risk_distance)
+    target_r=float(target_r)
+    usd_per=max(0.0,float(usd_per_price_unit))
+    horizon=gigi_evaluation.horizon_bars(mode)
+    rows=list(future_rows or [])[:horizon]
+    if side not in ("BUY","SELL") or entry<=0 or risk<=0 or target_r<=0 or usd_per<=0 or not rows:
+        return {"resolved":False,"outcome":"INVALID","close_r":None,"mfe_r":None,"mae_r":None,"bars":0}
+
+    initial_risk_usd=risk*usd_per
+    stop=entry-risk if side=="BUY" else entry+risk
+    target=entry+risk*target_r if side=="BUY" else entry-risk*target_r
+    peak_profit_usd=0.0
+    mfe=0.0
+    mae=0.0
+    protection_activated=False
+    best_locked_usd=0.0
+
+    for i,row in enumerate(rows,1):
+        high=float(row["high"]); low=float(row["low"])
+        if side=="BUY":
+            mfe=max(mfe,(high-entry)/risk)
+            mae=min(mae,(low-entry)/risk)
+            stop_hit=low<=stop
+            target_hit=high>=target
+        else:
+            mfe=max(mfe,(entry-low)/risk)
+            mae=min(mae,(entry-high)/risk)
+            stop_hit=high>=stop
+            target_hit=low<=target
+
+        # Conservative OHLC ordering: any already-active stop wins before target.
+        if stop_hit:
+            close_r=((stop-entry)/risk) if side=="BUY" else ((entry-stop)/risk)
+            return {
+                "resolved":True,
+                "outcome":"PROTECTED_STOP" if close_r>0 else "STOP",
+                "close_r":round(close_r,4),
+                "mfe_r":round(mfe,4),
+                "mae_r":round(mae,4),
+                "bars":i,
+                "protection_activated":protection_activated,
+                "locked_usd_peak":round(best_locked_usd,2),
+            }
+        if target_hit:
+            return {
+                "resolved":True,
+                "outcome":"TARGET",
+                "close_r":round(target_r,4),
+                "mfe_r":round(mfe,4),
+                "mae_r":round(mae,4),
+                "bars":i,
+                "protection_activated":protection_activated,
+                "locked_usd_peak":round(best_locked_usd,2),
+            }
+
+        favorable=(high-entry) if side=="BUY" else (entry-low)
+        peak_profit_usd=max(peak_profit_usd,max(0.0,favorable)*usd_per)
+        lock=gigi_profit_protection.desired_lock_usd(mode,peak_profit_usd,initial_risk_usd)
+        if lock is not None:
+            lock=max(0.0,float(lock))
+            best_locked_usd=max(best_locked_usd,lock)
+            lock_distance=best_locked_usd/usd_per
+            candidate=entry+lock_distance if side=="BUY" else entry-lock_distance
+            if side=="BUY":
+                stop=max(stop,candidate)
+            else:
+                stop=min(stop,candidate)
+            protection_activated=True
+
+    if len(rows)<horizon:
+        return {
+            "resolved":False,
+            "outcome":"PENDING",
+            "bars":len(rows),
+            "mfe_r":round(mfe,4),
+            "mae_r":round(mae,4),
+            "protection_activated":protection_activated,
+            "locked_usd_peak":round(best_locked_usd,2),
+        }
+
+    final=float(rows[-1]["close"])
+    close_r=((final-entry)/risk) if side=="BUY" else ((entry-final)/risk)
+    return {
+        "resolved":True,
+        "outcome":"HORIZON",
+        "close_r":round(close_r,4),
+        "mfe_r":round(mfe,4),
+        "mae_r":round(mae,4),
+        "bars":len(rows),
+        "protection_activated":protection_activated,
+        "locked_usd_peak":round(best_locked_usd,2),
+    }
+
+
+def walk_forward(m5_rows, m15_rows, h4_rows, point=0.01, max_signals_per_hour=6,
+                 usd_per_price_unit=1.0):
     m5=list(m5_rows or [])
     m15=list(m15_rows or [])
     h4=list(h4_rows or [])
@@ -146,7 +252,11 @@ def walk_forward(m5_rows, m15_rows, h4_rows, point=0.01, max_signals_per_hour=6)
             continue
 
         future=m5[i+1:i+1+gigi_evaluation.MAIN_HORIZON_BARS]
-        outcome=gigi_evaluation.evaluate(side,entry,risk,target_r,future,signal.get("mode"))
+        static_outcome=gigi_evaluation.evaluate(side,entry,risk,target_r,future,signal.get("mode"))
+        outcome=protected_outcome(
+            side,entry,risk,target_r,future,signal.get("mode"),
+            usd_per_price_unit=usd_per_price_unit,
+        )
         if not outcome.get("resolved"):
             continue
         cost=spread_cost_r(m5[i],point,risk)
@@ -161,6 +271,8 @@ def walk_forward(m5_rows, m15_rows, h4_rows, point=0.01, max_signals_per_hour=6)
             "entry":entry,
             "risk_distance":risk,
             "target_r":target_r,
+            "static_outcome":static_outcome.get("outcome"),
+            "static_close_r":static_outcome.get("close_r"),
             **result,
         })
         published.append(now_epoch)
@@ -174,6 +286,17 @@ def _net_summary(observations):
             continue
         copy=dict(row)
         copy["close_r"]=float(row["net_close_r"])
+        transformed.append(copy)
+    return gigi_replay.summarize(transformed)
+
+
+def _static_net_summary(observations):
+    transformed=[]
+    for row in observations or []:
+        if row.get("static_close_r") is None:
+            continue
+        copy=dict(row)
+        copy["close_r"]=float(row["static_close_r"])-float(row.get("spread_cost_r") or 0.0)
         transformed.append(copy)
     return gigi_replay.summarize(transformed)
 
@@ -217,6 +340,7 @@ def report(observations):
         "n":len(rows),
         "gross":gigi_replay.summarize(rows),
         "spread_adjusted":_net_summary(rows),
+        "static_spread_adjusted":_static_net_summary(rows),
         "train_spread_adjusted":_net_summary(split["train"]),
         "holdout_spread_adjusted":_net_summary(split["holdout"]),
         "by_mode":{
@@ -230,5 +354,5 @@ def report(observations):
             k:_net_summary([x for x in rows if x.get("reason")==k])
             for k in sorted({str(x.get("reason") or "") for x in rows})
         },
-        "note":"price_only_chronological_walk_forward_external_context_excluded",
+        "note":"price_only_walk_forward_with_conservative_next_bar_profit_protection_external_context_excluded",
     }
