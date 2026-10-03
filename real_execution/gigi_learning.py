@@ -24,6 +24,7 @@ DIMENSIONS = (
     "gvz_regime",
     "etf_regime",
     "etf_breadth",
+    "crowding_risk",
     "session",
     "strength",
 )
