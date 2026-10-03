@@ -131,35 +131,32 @@ function tog(b){b.classList.toggle('on');saveControls()}function saveControls(){
 var sessions=[['آسيا / طوكيو',2,11],['لندن',10,19],['نيويورك',15,24]];
 function clock(){var p=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Hebron',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());var h=+p.find(function(x){return x.type==='hour'}).value,m=+p.find(function(x){return x.type==='minute'}).value,now=h*60+m,open=[],out='';sessions.forEach(function(s){var a=s[1]*60,z=s[2]*60,on=now>=a&&now<z,d=on?z-now:(now<a?a-now:1440-now+a);if(on)open.push(s[0]);out+='<div class="session row"><div><b>'+s[0]+'</b><div class="muted">'+(on?'يغلق':'يفتح')+' بعد '+Math.floor(d/60)+'س '+(d%60)+'د</div></div><span class="pill '+(on?'green':'red')+'"><i class="dot '+(on?'':'off')+'"></i>'+(on?'مفتوح':'مغلق')+'</span></div>'});document.getElementById('sessions').innerHTML=out;document.getElementById('market').textContent=open.length?'المفتوح الآن: '+open.join(' + '):'الجلسات الرئيسية مغلقة الآن'}
 async function loadRealControlStatus(){
- var badge=document.getElementById('realAutoStatus'),em=document.getElementById('realEmergencyStatus');
  try{
-  var r=await fetch(REAL_CONTROL_STATUS_URL,{cache:'no-store'});
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  var s=await r.json();
-  if(badge){
-   if(s.locked||!s.arming_allowed){badge.textContent='OFF • LOCKED';badge.className='pill red'}
-   else if(s.armed&&s.execution_enabled){badge.textContent='ON • REAL';badge.className='pill green'}
-   else{badge.textContent='OFF • DISARMED';badge.className='pill red'}
-  }
-  if(em){
-   em.textContent=s.emergency_stop?'ARMED 🔒':'OFF';
-   em.className='pill '+(s.emergency_stop?'green':'red');
-  }
- }catch(e){
-  if(badge){badge.textContent='STATUS OFFLINE';badge.className='pill red'}
-  if(em){em.textContent='UNKNOWN';em.className='pill red'}
- }
+  await fetch(REAL_CONTROL_STATUS_URL,{cache:'no-store'});
+ }catch(e){}
 }
 async function loadRealExecutionStatus(){
  var bridge=document.getElementById('realBridgeStatus'),signal=document.getElementById('realSignalStatus');
+ var badge=document.getElementById('realAutoStatus'),em=document.getElementById('realEmergencyStatus');
  var previewToggle=document.getElementById('realPreviewToggle'),mt5=document.getElementById('realMt5Status'),market=document.getElementById('realMarketStatus'),auth=document.getElementById('realAuthStatus'),risk=document.getElementById('realRiskStatus'),preflight=document.getElementById('realPreflight');
  try{
   var rb=await fetch(REAL_BRIDGE_STATUS_URL,{cache:'no-store'});
   if(!rb.ok)throw new Error('bridge '+rb.status);
   var b=await rb.json();
+  if(badge){
+   if(b.emergency_stop){badge.textContent='STOPPED • EMERGENCY';badge.className='pill red'}
+   else if(b.armed&&b.execution_enabled&&b.market_fresh){badge.textContent='ON • REAL';badge.className='pill green'}
+   else if(b.armed&&b.execution_enabled){badge.textContent='ARMED • WAIT MARKET';badge.className='pill blue'}
+   else{badge.textContent='OFF • LOCKED';badge.className='pill red'}
+  }
+  if(em){
+   em.textContent=b.emergency_stop?'STOP ACTIVE ⛔':'READY';
+   em.className='pill '+(b.emergency_stop?'red':'green');
+  }
   if(bridge){
-   bridge.textContent=b.ready?'READY':'OFF • LOCKED';
-   bridge.className='pill '+(b.ready?'green':'red');
+   if(b.ready){bridge.textContent='READY';bridge.className='pill green'}
+   else if(b.armed&&b.execution_enabled){bridge.textContent='ARMED • WAIT';bridge.className='pill blue'}
+   else{bridge.textContent='OFF • LOCKED';bridge.className='pill red'}
   }
   if(mt5){
    mt5.textContent=b.client_state_fresh?'CONNECTED • READ':'NOT CONNECTED';
@@ -197,6 +194,8 @@ async function loadRealExecutionStatus(){
    }
   }
  }catch(e){
+  if(badge){badge.textContent='STATUS OFFLINE';badge.className='pill red'}
+  if(em){em.textContent='UNKNOWN';em.className='pill red'}
   if(bridge){bridge.textContent='STATUS OFFLINE';bridge.className='pill red'}
   if(mt5){mt5.textContent='UNKNOWN';mt5.className='pill red'}
   if(auth){auth.textContent='UNKNOWN';auth.className='pill red'}
