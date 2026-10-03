@@ -28,6 +28,7 @@ DIMENSIONS = (
     "options_skew",
     "options_oi_state",
     "options_gamma_context",
+    "thesis_state",
     "session",
     "strength",
 )
