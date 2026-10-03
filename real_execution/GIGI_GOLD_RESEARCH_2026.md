@@ -230,3 +230,43 @@ This is specifically designed to defend against overfitting and data snooping.
 - Combined conclusion for shadow analysis: the slow backdrop is MIXED, not a
   clean one-factor bullish or bearish regime. Price structure, liquidity and
   fresh session flow must still decide the trade thesis.
+
+
+### Core historical walk-forward check — 2026-09-02 to 2026-10-02
+Read-only research using broker-native MT5 history. External historical macro,
+ETF, CFTC and options snapshots were deliberately excluded because using today's
+external context on old candles would create look-ahead / data contamination.
+
+Method:
+- evaluated the core engine once per 15 minutes;
+- 484 historical qualifying setups;
+- 12 M5 bars (~60 minutes) evaluation horizon;
+- SL/TP first-touch simulation;
+- if SL and TP were both touched inside the same M5 bar, the result was counted
+  as SL first (conservative because intrabar order is unknown).
+
+Results:
+- 249 SL, 202 TP, 33 still mark-to-market at the horizon.
+- Conservative mean outcome: about -0.038R per setup.
+- MAIN: 29 observations, about +0.132R mean; sample is too small for
+  out-of-sample promotion.
+- SNIPER: 455 observations, about -0.049R mean.
+- Chronological train/test validation labelled the SNIPER bucket
+  STABLE_NEGATIVE over this one-month core-only sample.
+- No bucket with enough observations qualified as a stable positive
+  out-of-sample candidate.
+- Several rules changed sign between train and test, including fast 2-of-3,
+  MTF medium continuation and sniper stop-cap setups. This is evidence against
+  tuning the bot to one recent period.
+- M15 support-break-retest looked positive in this sample (~+0.42R, n=13), but
+  n=13 is explicitly too small to promote.
+
+Research conclusion:
+- Do NOT loosen REAL execution merely because a pattern looked good in a short
+  sample.
+- Do NOT interpret the current 7-condition score as monotonic win probability;
+  strength 6/7/7 did not show a clean monotonic edge in this sample.
+- Keep the new regime/macro/flow/options layers in SHADOW while collecting
+  clean forward observations.
+- Any learned weight must survive chronological out-of-sample validation before
+  it can even be suggested as a shadow weight.
