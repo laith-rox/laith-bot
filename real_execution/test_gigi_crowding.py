@@ -57,6 +57,20 @@ class GigiCrowdingTests(unittest.TestCase):
         self.assertIn("options_downside_hedge_bid", out["reasons"])
 
 
+    def test_options_can_amplify_but_not_create_high_state_without_speed(self):
+        out=gigi_crowding.analyze(
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"MIXED"},
+            {"h4_bias":"NEUTRAL"},
+            {"skew":"DOWNSIDE_HEDGE_BID","oi_state":"PUT_HEAVY"},
+        )
+        self.assertFalse(out["speed_gate"])
+        self.assertNotEqual(out["long_state"],"HIGH_LONG_LIQUIDATION")
+        self.assertFalse(out["directional_signal"])
+
+
 
 if __name__=="__main__":
     unittest.main()
