@@ -108,6 +108,9 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
     macro_phase=str(macro.get("phase") or "NORMAL").upper()
     macro_bundle=str(macro.get("event_bundle_state") or "NONE").upper()
+    macro_horizon=str(macro.get("calendar_horizon") or "UNKNOWN").upper()
+    if macro_horizon=="EXHAUSTED":
+        reasons.append("macro_calendar_horizon_exhausted")
     if macro_bundle=="MULTI_HIGH_RELEASE":
         reasons.append("macro_multi_high_release_bundle")
     elif macro_bundle=="MULTI_RELEASE":
@@ -275,6 +278,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "score": int(score),
         "market_state": market_state,
         "macro_event_bundle": macro_bundle,
+        "macro_calendar_horizon": macro_horizon,
         "volatility_state": volatility_state,
         "crowding_risk": crowding_risk,
         "options_skew": options_skew,
