@@ -95,22 +95,6 @@ def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=
     elif vol_state == "PRICED_MOVE_COMPRESSION":
         reasons.append("options_priced_move_before_break")
 
-    # Options skew/OI are hedging/crowding clues, not price direction.
-    options_skew = str(options.get("skew") or "UNKNOWN").upper()
-    options_oi = str(options.get("oi_state") or "UNKNOWN").upper()
-    if options_skew == "DOWNSIDE_HEDGE_BID":
-        long_risk += 1
-        reasons.append("options_downside_hedge_bid")
-    elif options_skew == "UPSIDE_CALL_BID":
-        short_risk += 1
-        reasons.append("options_upside_call_bid")
-    if options_oi == "PUT_HEAVY":
-        long_risk += 1
-        reasons.append("options_put_oi_heavy")
-    elif options_oi == "CALL_HEAVY":
-        short_risk += 1
-        reasons.append("options_call_oi_heavy")
-
     # Structure is context, not a trigger.
     if h4_bias == "DOWN":
         long_risk += 1
