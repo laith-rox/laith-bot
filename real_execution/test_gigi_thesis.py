@@ -80,6 +80,19 @@ class GigiThesisTests(unittest.TestCase):
         self.assertNotIn("external_context_low_quality",out["conflicts"])
 
 
+    def test_wide_broker_spread_is_uncertainty_not_direction(self):
+        out=gigi_thesis.audit(
+            {"side":"BUY","risk_distance":3.0},
+            {"h4_bias":"UP"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+            execution_quality={"quality":"WIDE"},
+        )
+        self.assertIn("broker_spread_wide",out["uncertainty"])
+        self.assertNotIn("broker_spread_wide",out["conflicts"])
+
+
 
 if __name__=="__main__":
     unittest.main()
