@@ -137,6 +137,25 @@ class RealSignalMirrorTests(unittest.TestCase):
         self.assertEqual(worker.engine.same_entry_copies(signal, health), 1)
 
 
+    def test_reopen_gap_requires_three_closed_m5_bars(self):
+        from datetime import datetime, timezone, timedelta
+        start = datetime(2026, 10, 2, 20, 0, tzinfo=timezone.utc)
+        rows = []
+        for i in range(27):
+            t = start + timedelta(minutes=5*i)
+            rows.append({"datetime": t.isoformat(), "open": 1, "high": 2, "low": 0, "close": 1})
+        # Simulate a daily/weekend closure, then only two completed M5 bars.
+        reopen = start + timedelta(hours=10)
+        for i in range(2):
+            t = reopen + timedelta(minutes=5*i)
+            rows.append({"datetime": t.isoformat(), "open": 1, "high": 2, "low": 0, "close": 1})
+        self.assertEqual(worker.engine._rows_after_last_gap(rows, 5 * 60), 2)
+
+    def test_native_h4_aggregation_is_forbidden(self):
+        with self.assertRaisesRegex(RuntimeError, "native_mt5_h4_required"):
+            worker.engine.aggregate_h4([])
+
+
 
 if __name__ == "__main__":
     unittest.main()
