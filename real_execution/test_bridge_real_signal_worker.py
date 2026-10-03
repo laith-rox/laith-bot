@@ -288,6 +288,14 @@ class RealSignalMirrorTests(unittest.TestCase):
             worker.PUBLISH_TOKEN = original_token
 
 
+    def test_worker_attaches_lbma_benchmark_context(self):
+        signal = {"bar": "2026-10-02T09:20:00Z"}
+        out = worker.attach_benchmark_context(signal)
+        self.assertEqual(out["benchmark"]["nearest_auction"], "LBMA_AM")
+        self.assertEqual(out["benchmark"]["phase"], "PRE_AUCTION")
+        self.assertFalse(out["benchmark"]["directional_signal"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
