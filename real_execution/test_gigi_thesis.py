@@ -67,6 +67,19 @@ class GigiThesisTests(unittest.TestCase):
         self.assertEqual(out["state"],"UNPROVEN")
 
 
+    def test_low_external_data_quality_is_uncertainty_not_direction(self):
+        out=gigi_thesis.audit(
+            {"side":"BUY","risk_distance":3.0},
+            {"h4_bias":"UP"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+            quality={"quality":"LOW"},
+        )
+        self.assertIn("external_context_low_quality",out["uncertainty"])
+        self.assertNotIn("external_context_low_quality",out["conflicts"])
+
+
 
 if __name__=="__main__":
     unittest.main()
