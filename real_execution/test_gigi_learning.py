@@ -60,6 +60,13 @@ class GigiLearningTests(unittest.TestCase):
         gigi_learning.record(state, self.observation(1, strength="S7"))
         self.assertEqual(gigi_learning.report(state)["note"], "shadow_learning_only_not_probability")
 
+    def test_data_quality_is_a_learning_dimension(self):
+        state = gigi_learning.new_state()
+        obs = self.observation(99, data_quality="HIGH")
+        gigi_learning.record(state, obs)
+        self.assertEqual(state["buckets"]["data_quality:HIGH"]["n"], 1)
+
+
 
 if __name__ == "__main__":
     unittest.main()
