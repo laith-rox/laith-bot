@@ -89,3 +89,25 @@ risk -> shadow learning.
 - Elevated implied + elevated realised is tagged STRESS_EXPANSION.
 - Volatility context may change execution quality, stop behaviour and expected
   noise, but never chooses BUY or SELL by itself.
+
+
+### World Gold Council weekly ETF flow snapshot — 2026-09-25
+- Global weekly USD flow: about +US$134.2m.
+- Four-week cumulative USD flow: about +US$9.61bn.
+- Total holdings in the public weekly table: about 4,248.92t.
+- North America: about -US$610.3m.
+- Europe: about +US$614.5m.
+- Asia: about +US$101.5m.
+- Other: about +US$28.5m.
+- Weekly holdings change from the flow table: about -1.64t.
+- Shadow classification: MIXED_INFLOW, because the headline global inflow masks
+  a large North American outflow offset by European and Asian inflows.
+- Lesson: aggregate ETF flow alone can hide important regional rotation; Gigi
+  therefore tracks breadth and does not label this as BROAD_INFLOW.
+
+## ETF-flow reasoning added
+
+- Broad inflow/outflow requires agreement across North America, Europe and Asia.
+- Mixed regional rotation is recorded but does not become a directional trigger.
+- ETF flow remains a slow H4/D1 context layer, never an M5 entry signal.
+- The learning layer records ETF regime and regional breadth separately.
