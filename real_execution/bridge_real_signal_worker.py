@@ -38,6 +38,7 @@ import gigi_readiness
 import gigi_event_response
 import gigi_clock
 import gigi_session_profile
+import gigi_benchmark
 import gigi_price_prior
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
@@ -258,6 +259,7 @@ def preview_payload(signal):
         "thesis": signal.get("thesis") or {},
         "readiness": signal.get("readiness") or {},
         "session_profile": signal.get("session_profile") or {},
+        "benchmark": signal.get("benchmark") or {},
         "gigi_context": signal.get("gigi_context") or {},
         "price_prior": signal.get("price_prior") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
@@ -485,6 +487,7 @@ def run_forever():
                 signal.get("yields"),
                 signal.get("event_response"),
                 signal.get("session_profile"),
+                signal.get("benchmark"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
