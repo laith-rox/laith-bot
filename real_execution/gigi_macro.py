@@ -166,6 +166,30 @@ def context(at_timestamp=None, events=None, error=None):
     active = near_high[0] if near_high else (near_medium[0] if near_medium else None)
     next_event = future[0] if future else None
 
+    # Gold often receives several USD releases at the same timestamp (for
+    # example payrolls, unemployment and earnings). Treat that as one event
+    # bundle rather than three independent confirmations. FOMC statement /
+    # press-conference sequences can also keep price discovery unstable.
+    event_bundle=[]
+    if active is not None:
+        active_time=float(active["time"])
+        event_bundle=[
+            dict(event)
+            for event in (events or [])
+            if abs(float(event["time"])-active_time) <= 2*60
+            and str(event.get("impact") or "").upper() in ("HIGH","MEDIUM")
+        ]
+    high_bundle=sum(str(e.get("impact") or "").upper()=="HIGH" for e in event_bundle)
+    bundle_classes=sorted({str(e.get("event_class") or "UNKNOWN") for e in event_bundle})
+    if len(event_bundle)>=2 and high_bundle>=2:
+        bundle_state="MULTI_HIGH_RELEASE"
+    elif len(event_bundle)>=2:
+        bundle_state="MULTI_RELEASE"
+    elif len(event_bundle)==1:
+        bundle_state="SINGLE_RELEASE"
+    else:
+        bundle_state="NONE"
+
     return {
         "regime": regime,
         "phase": phase,
@@ -177,6 +201,11 @@ def context(at_timestamp=None, events=None, error=None):
         "near_high": near_high[:5],
         "near_medium": near_medium[:5],
         "next_events": future[:5],
+        "event_bundle_state": bundle_state,
+        "event_bundle_size": len(event_bundle),
+        "event_bundle_high_count": int(high_bundle),
+        "event_bundle_classes": bundle_classes,
+        "event_bundle": event_bundle[:6],
         "calendar_error": error,
         "method": "weekly_usd_event_calendar",
     }
