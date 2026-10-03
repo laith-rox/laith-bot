@@ -195,6 +195,26 @@ class GigiContextTests(unittest.TestCase):
         self.assertIn("flow_family_mixed",out["reasons"])
 
 
+    def test_event_reversal_is_exposed_without_fake_direction_score(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {"real_yield_regime":"STABLE_REAL_YIELD","policy_regime":"STABLE_FRONT_END"},
+            {"state":"SHOCK_REVERSED","impulse":"BULLISH"},
+        )
+        self.assertEqual(out["event_response_state"],"SHOCK_REVERSED")
+        self.assertIn("event_shock_reversed",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
