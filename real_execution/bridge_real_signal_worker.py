@@ -529,6 +529,9 @@ def run_forever():
                 signal.get("stop_geometry"),
                 signal.get("exposure"),
                 signal.get("gigi_context"),
+                signal.get("target_geometry"),
+                signal.get("price_prior"),
+                signal.get("benchmark"),
             )
 
             if _preview_enabled:
