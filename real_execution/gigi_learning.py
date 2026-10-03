@@ -131,15 +131,23 @@ def shadow_weight(state, dimension, value):
     return round(max(-MAX_SHADOW_WEIGHT, min(MAX_SHADOW_WEIGHT, mean_r / 4.0)), 4)
 
 
-def validated_shadow_weight(state, validation_report, dimension, value):
-    """Return a shadow weight only after chronological stability is confirmed.
+def validated_shadow_weight(state, validation_report, dimension, value, drift_report=None):
+    """Return a shadow weight only after stability and drift checks pass.
 
     This never changes execution. It prevents an in-sample average from being
-    treated as learned when the later out-of-sample segment flips sign.
+    treated as learned when the later out-of-sample segment flips sign, and
+    can additionally suppress a previously stable bucket whose recent regime
+    has drifted.
     """
     key=_bucket_key(dimension,value)
     validation=(validation_report or {}).get("buckets",{}).get(key,{})
     status=str(validation.get("status") or "")
     if status not in ("STABLE_POSITIVE","STABLE_NEGATIVE"):
         return 0.0
+    if drift_report is not None:
+        drift=(drift_report or {}).get("buckets",{}).get(key,{})
+        if str(drift.get("status") or "") != "STABLE":
+            return 0.0
+        if drift.get("shadow_trust") is not True:
+            return 0.0
     return shadow_weight(state,dimension,value)
