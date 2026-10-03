@@ -46,6 +46,8 @@ def parse(flows_payload, holdings_payload):
     four_week_usd = sum(_weekly_total(usd, -i) for i in range(1, 5))
     positive_regions = sum(v > 0 for v in latest_usd.values())
     negative_regions = sum(v < 0 for v in latest_usd.values())
+    major_positive = all(latest_usd[name] > 0 for name in ("North America","Europe","Asia"))
+    major_negative = all(latest_usd[name] < 0 for name in ("North America","Europe","Asia"))
     western = latest_usd["North America"] + latest_usd["Europe"]
     asia = latest_usd["Asia"]
 
@@ -57,9 +59,9 @@ def parse(flows_payload, holdings_payload):
         raise ValueError("etf_holdings_regions_missing")
     holdings_t = sum(float(row[col[name]] or 0.0) for name in REGIONS)
 
-    if total_usd > 0 and positive_regions >= 3 and four_week_usd > 0:
+    if total_usd > 0 and major_positive and four_week_usd > 0:
         regime = "BROAD_INFLOW"
-    elif total_usd < 0 and negative_regions >= 3 and four_week_usd < 0:
+    elif total_usd < 0 and major_negative and four_week_usd < 0:
         regime = "BROAD_OUTFLOW"
     elif four_week_usd > 0 and total_usd > 0:
         regime = "MIXED_INFLOW"
