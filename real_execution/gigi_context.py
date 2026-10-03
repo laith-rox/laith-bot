@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -22,6 +22,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     event_response=event_response or {}
     session_profile=session_profile or {}
     benchmark=benchmark or {}
+    target_geometry=target_geometry or {}
 
     score=0
     reasons=[]
@@ -236,6 +237,17 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif benchmark_phase=="AUCTION_OR_IMMEDIATE_POST":
         reasons.append("lbma_benchmark_auction_window")
 
+    target_geometry_state=str(target_geometry.get("state") or "UNKNOWN").upper()
+    target_implied_relation=str(target_geometry.get("implied_move_relation") or "UNKNOWN").upper()
+    if target_geometry_state=="AMBITION_HIGH":
+        reasons.append("target_ambition_high")
+    elif target_geometry_state=="AMBITION_ELEVATED":
+        reasons.append("target_ambition_elevated")
+    elif target_geometry_state=="SHORT_HORIZON":
+        reasons.append("target_short_horizon")
+    if target_implied_relation=="FAR_BEYOND_1D_PROXY":
+        reasons.append("target_far_beyond_options_1d_proxy")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -270,6 +282,8 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "session_range_event": session_range_event,
         "benchmark_phase": benchmark_phase,
         "nearest_benchmark": nearest_benchmark,
+        "target_geometry_state": target_geometry_state,
+        "target_implied_relation": target_implied_relation,
         "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
