@@ -52,10 +52,26 @@ class GigiCrowdingTests(unittest.TestCase):
             {"h4_bias":"NEUTRAL"},
             {"skew":"DOWNSIDE_HEDGE_BID","oi_state":"PUT_HEAVY"},
         )
-        self.assertEqual(out["long_liquidation_score"], 4)
+        self.assertEqual(out["long_liquidation_score"], 3)
         self.assertFalse(out["directional_signal"])
         self.assertIn("options_downside_hedge_bid", out["reasons"])
+        self.assertIn("options_downside_hedge_confirms_existing_long_risk", out["reasons"])
+        self.assertIn("options_put_oi_heavy_unsigned", out["reasons"])
 
+
+    def test_unsigned_option_oi_cannot_create_directional_risk(self):
+        out=gigi_crowding.analyze(
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"MIXED"},
+            {"h4_bias":"NEUTRAL"},
+            {"skew":"BALANCED","oi_state":"CALL_HEAVY"},
+        )
+        self.assertEqual(out["long_liquidation_score"],0)
+        self.assertEqual(out["short_squeeze_score"],0)
+        self.assertEqual(out["dominant_risk"],"BALANCED")
+        self.assertIn("options_call_oi_heavy_unsigned",out["reasons"])
 
     def test_options_can_amplify_but_not_create_high_state_without_speed(self):
         out=gigi_crowding.analyze(
