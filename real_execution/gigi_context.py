@@ -72,9 +72,16 @@ def evaluate(side, regime, intermarket, macro, liquidity=None):
         reasons.append("liquidity_event:"+liquidity_event.lower())
 
     macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
+    macro_phase=str(macro.get("phase") or "NORMAL").upper()
     if macro_regime=="HIGH_IMPACT_WINDOW":
         score-=2
         reasons.append("high_impact_usd_window")
+        if macro_phase=="HIGH_EVENT_SHOCK_0_5M":
+            reasons.append("first_spike_untrusted")
+        elif macro_phase=="HIGH_EVENT_DIGESTION_5_15M":
+            reasons.append("post_event_price_discovery")
+        elif macro_phase=="PRE_HIGH_EVENT":
+            reasons.append("pre_event_positioning")
         market_state="EVENT_DRIVEN"
     elif macro_regime=="MEDIUM_IMPACT_WINDOW":
         score-=1
