@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -23,6 +23,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     session_profile=session_profile or {}
     benchmark=benchmark or {}
     target_geometry=target_geometry or {}
+    local_premium=local_premium or {}
 
     score=0
     reasons=[]
@@ -256,6 +257,21 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     if target_implied_relation=="FAR_BEYOND_1D_PROXY":
         reasons.append("target_far_beyond_options_1d_proxy")
 
+    china_premium_state=str((local_premium.get("china") or {}).get("state") or "UNKNOWN").upper()
+    india_premium_state=str((local_premium.get("india") or {}).get("state") or "UNKNOWN").upper()
+    if china_premium_state=="STRONG_PREMIUM":
+        reasons.append("china_local_premium_strong")
+    elif china_premium_state=="PREMIUM":
+        reasons.append("china_local_premium_positive")
+    elif china_premium_state=="STRONG_DISCOUNT":
+        reasons.append("china_local_discount_strong")
+    elif china_premium_state=="DISCOUNT":
+        reasons.append("china_local_discount")
+    if india_premium_state=="STRONG_PREMIUM":
+        reasons.append("india_local_premium_strong")
+    elif india_premium_state=="STRONG_DISCOUNT":
+        reasons.append("india_local_discount_strong")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -294,6 +310,8 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "nearest_benchmark": nearest_benchmark,
         "target_geometry_state": target_geometry_state,
         "target_implied_relation": target_implied_relation,
+        "china_local_premium_state": china_premium_state,
+        "india_local_premium_state": india_premium_state,
         "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
