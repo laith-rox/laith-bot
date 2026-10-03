@@ -48,6 +48,20 @@ class GigiQualityTests(unittest.TestCase):
         self.assertLess(out["ages_days"]["gvz"],2)
         self.assertLess(out["ages_days"]["yields"],2)
 
+    def test_exhausted_macro_horizon_is_not_counted_as_available(self):
+        out=gigi_quality.assess(
+            {"report_date":"September 29, 2026"},
+            {"as_of":"2026-09-25"},
+            {"gvz_date":"10/02/2026"},
+            {"as_of":"2026-10-03 03:43:53"},
+            {"as_of":"2026-10-02"},
+            {"regime":"HORIZON_EXHAUSTED","calendar_horizon":"EXHAUSTED","calendar_error":None},
+            now=NOW,
+        )
+        self.assertIn("macro",out["missing_sources"])
+        self.assertNotIn("macro",out["available_sources"])
+
+
 
 if __name__=="__main__":
     unittest.main()
