@@ -1,12 +1,12 @@
 """Historical price-only research prior for Gigi shadow analysis.
 
 Derived from three non-overlapping 60-day MT5 walk-forward windows using the
-current price/structure engine, historical broker spreads, no external slow
-feeds, and conservative same-bar stop-first resolution.
+current price/structure engine, historical broker spreads, and the current
+candidate profit-protection policy replayed conservatively from the next bar.
 
-This module is descriptive only. It does not block or promote live execution.
-Its purpose is to make prior evidence visible and to test whether it persists
-in fresh forward observations.
+External slow feeds (news, CFTC, ETF, options and yields) are excluded because
+historical values were not reconstructed. This module is descriptive only. It
+never blocks or promotes live execution.
 """
 from __future__ import annotations
 
@@ -14,49 +14,57 @@ BASELINE = {
     "fast_primary_2of3": {
         "status":"STABLE_NEGATIVE",
         "windows":[
-            {"n":254,"mean_r":-0.2390},
-            {"n":285,"mean_r":-0.2834},
-            {"n":238,"mean_r":-0.3139},
+            {"n":254,"mean_r":-0.1818},
+            {"n":285,"mean_r":-0.2744},
+            {"n":238,"mean_r":-0.2880},
+        ],
+    },
+    "m15_resistance_break_retest": {
+        "status":"STABLE_NEGATIVE",
+        "windows":[
+            {"n":45,"mean_r":-0.0181},
+            {"n":31,"mean_r":-0.0626},
+            {"n":33,"mean_r":-0.4090},
         ],
     },
     "m15_support_break_retest": {
         "status":"STABLE_POSITIVE",
         "windows":[
-            {"n":44,"mean_r":0.3144},
-            {"n":59,"mean_r":0.1035},
-            {"n":56,"mean_r":0.2091},
+            {"n":44,"mean_r":0.3229},
+            {"n":59,"mean_r":0.0988},
+            {"n":56,"mean_r":0.0180},
         ],
     },
     "mtf_countertrend_medium": {
         "status":"STABLE_NEGATIVE",
         "windows":[
-            {"n":108,"mean_r":-0.2665},
-            {"n":79,"mean_r":-0.1865},
-            {"n":53,"mean_r":-0.2534},
+            {"n":108,"mean_r":-0.1907},
+            {"n":79,"mean_r":-0.1489},
+            {"n":53,"mean_r":-0.1887},
         ],
     },
     "mtf_medium_continuation": {
         "status":"STABLE_NEGATIVE",
         "windows":[
-            {"n":304,"mean_r":-0.1336},
-            {"n":278,"mean_r":-0.1346},
-            {"n":281,"mean_r":-0.2515},
+            {"n":304,"mean_r":-0.0798},
+            {"n":278,"mean_r":-0.0490},
+            {"n":280,"mean_r":-0.1604},
         ],
     },
     "sniper_strength_stop_cap": {
         "status":"STABLE_NEGATIVE",
         "windows":[
-            {"n":1082,"mean_r":-0.0862},
-            {"n":986,"mean_r":-0.0524},
-            {"n":1238,"mean_r":-0.0742},
+            {"n":1082,"mean_r":-0.0123},
+            {"n":986,"mean_r":-0.0612},
+            {"n":1239,"mean_r":-0.0304},
         ],
     },
     "technical_medium_local_invalidation": {
         "status":"STABLE_NEGATIVE",
         "windows":[
-            {"n":330,"mean_r":-0.3870},
-            {"n":349,"mean_r":-0.4073},
-            {"n":388,"mean_r":-0.5415},
+            {"n":330,"mean_r":-0.3838},
+            {"n":349,"mean_r":-0.4015},
+            {"n":388,"mean_r":-0.5378},
         ],
     },
     "technical_medium_recovered": {
@@ -69,7 +77,7 @@ BASELINE = {
     },
 }
 
-SOURCE = "three_non_overlapping_60d_mt5_price_only_walkforward"
+SOURCE = "three_non_overlapping_60d_mt5_price_only_walkforward_with_profit_protection"
 MIN_PER_WINDOW = 20
 WINDOW_COUNT = 3
 
