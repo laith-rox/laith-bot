@@ -17,6 +17,7 @@ DIMENSIONS = (
     "macro_regime",
     "macro_phase",
     "macro_event_class",
+    "macro_event_bundle",
     "event_response_state",
     "event_impulse",
     "intermarket_bias",
