@@ -40,6 +40,17 @@ class GigiMacroTests(unittest.TestCase):
         out = gigi_macro.context(0, [], "calendar_unavailable")
         self.assertEqual(out["regime"], "UNKNOWN")
 
+    def test_high_event_shock_phase_is_distinct_from_pre_event(self):
+        event_time = datetime(2026,10,5,12,30,tzinfo=timezone.utc).timestamp()
+        events = [{"title":"NFP","impact":"HIGH","time":event_time}]
+        pre = gigi_macro.context(event_time - 10*60, events, None)
+        shock = gigi_macro.context(event_time + 2*60, events, None)
+        digest = gigi_macro.context(event_time + 10*60, events, None)
+        self.assertEqual(pre["phase"], "PRE_HIGH_EVENT")
+        self.assertEqual(shock["phase"], "HIGH_EVENT_SHOCK_0_5M")
+        self.assertEqual(digest["phase"], "HIGH_EVENT_DIGESTION_5_15M")
+
+
 
 if __name__ == "__main__":
     unittest.main()
