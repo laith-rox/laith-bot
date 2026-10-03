@@ -38,6 +38,7 @@ DIMENSIONS = (
     "spread_atr_bucket",
     "exposure_stacking",
     "exposure_book",
+    "behavior_state",
     "session",
     "strength",
 )
