@@ -91,8 +91,12 @@ def bridge_health():
 
 
 PALESTINE_OFFSET = timedelta(hours=3)
-MAIN_START_MINUTE = 4 * 60 + 30
-MAIN_END_MINUTE = 7 * 60
+# 04:30-07:00 is now preparation / map-building only.
+# MAIN execution is concentrated in the higher-liquidity London and US windows.
+MAIN_LONDON_START_MINUTE = 10 * 60
+MAIN_LONDON_END_MINUTE = 13 * 60
+MAIN_US_START_MINUTE = 15 * 60 + 20
+MAIN_US_END_MINUTE = 18 * 60
 SNIPER_START_MINUTE = 19 * 60
 SNIPER_END_MINUTE = 4 * 60 + 30
 
@@ -109,12 +113,20 @@ def signal_local_minute(signal):
     return local.hour * 60 + local.minute
 
 
+def main_session_name(minute):
+    if MAIN_LONDON_START_MINUTE <= minute < MAIN_LONDON_END_MINUTE:
+        return "LONDON_MAIN"
+    if MAIN_US_START_MINUTE <= minute < MAIN_US_END_MINUTE:
+        return "US_MAIN"
+    return None
+
+
 def session_block_reason(signal):
     """Fail closed when a signal mode is outside its approved session."""
     mode = "MAIN" if str(signal.get("mode") or "").upper() == "MAIN" else "SNIPER"
     minute = signal_local_minute(signal)
     if mode == "MAIN":
-        return None if MAIN_START_MINUTE <= minute < MAIN_END_MINUTE else "main_session_closed"
+        return None if main_session_name(minute) else "main_session_closed"
     return None if (minute >= SNIPER_START_MINUTE or minute < SNIPER_END_MINUTE) else "sniper_session_closed"
 
 
@@ -192,6 +204,7 @@ def preview_payload(signal):
         "h4": (signal.get("mtf") or {}).get("h4_bias"),
         "native_h4_reopen_ready": bool(signal.get("native_h4_reopen_ready", True)),
         "regime": signal.get("regime") or {},
+        "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
         "updated_at": time.time(),
