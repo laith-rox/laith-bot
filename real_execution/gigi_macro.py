@@ -12,6 +12,11 @@ import json
 import time
 import urllib.request
 
+try:
+    import requests
+except Exception:
+    requests = None
+
 FEED = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 CACHE_SECONDS = 1800
 PRE_EVENT_SECONDS = 30 * 60
@@ -57,14 +62,20 @@ def fetch_events(now=None, opener=None):
     if _cache["events"] and now - float(_cache["fetched_at"] or 0) <= CACHE_SECONDS:
         return list(_cache["events"]), _cache["error"]
 
-    opener = opener or urllib.request.urlopen
     try:
-        req = urllib.request.Request(
-            FEED,
-            headers={"User-Agent": "Laith-Gigi-Macro/1.0", "Accept": "application/json"},
-        )
-        with opener(req, timeout=8) as res:
-            raw = res.read().decode("utf-8")
+        headers={"User-Agent": "Laith-Gigi-Macro/1.0", "Accept": "application/json"}
+        if opener is not None:
+            req = urllib.request.Request(FEED, headers=headers)
+            with opener(req, timeout=8) as res:
+                raw = res.read().decode("utf-8")
+        elif requests is not None:
+            res = requests.get(FEED, timeout=8, headers=headers)
+            res.raise_for_status()
+            raw = res.text
+        else:
+            req = urllib.request.Request(FEED, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as res:
+                raw = res.read().decode("utf-8")
         events = parse_events(json.loads(raw))
         _cache.update({"fetched_at": now, "events": events, "error": None})
         return list(events), None
