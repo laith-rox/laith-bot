@@ -42,6 +42,10 @@ DIMENSIONS = (
     "exposure_stacking",
     "exposure_book",
     "behavior_state",
+    "session_vwap_relation",
+    "session_extension",
+    "session_range_event",
+    "session_profile_quality",
     "session",
     "strength",
 )
