@@ -28,6 +28,38 @@ def payload(rr=0.01, put_oi=100, call_oi=100):
     return {"timestamp":ts,"data":{"current_price":spot,"iv30":20.5,"options":opts}}
 
 
+def term_payload(near_iv=0.30, far_iv=0.20):
+    base = payload()
+    spot = base["data"]["current_price"]
+    options = []
+    for expiry, iv in [
+        (datetime(2026,10,16,tzinfo=timezone.utc), near_iv),
+        (datetime(2026,11,20,tzinfo=timezone.utc), far_iv),
+    ]:
+        code = expiry.strftime("%y%m%d")
+        for strike in (360,370,380,390,400):
+            for cp, delta in (("C",0.5),("P",-0.5)):
+                options.append({
+                    "option":f"GLD{code}{cp}{int(strike*1000):08d}",
+                    "iv":iv,
+                    "delta":delta,
+                    "open_interest":100,
+                    "volume":10,
+                    "gamma":0.02,
+                })
+        options.append({
+            "option":f"GLD{code}C{int(397*1000):08d}",
+            "iv":iv,"delta":0.25,"open_interest":100,"volume":10,"gamma":0.02,
+        })
+        options.append({
+            "option":f"GLD{code}P{int(367*1000):08d}",
+            "iv":iv,"delta":-0.25,"open_interest":100,"volume":10,"gamma":0.02,
+        })
+    base["data"]["options"] = options
+    base["data"]["current_price"] = spot
+    return base
+
+
 class GigiOptionsTests(unittest.TestCase):
     def test_downside_skew_detected(self):
         out=gigi_options.parse(payload(rr=0.05))
@@ -89,6 +121,23 @@ class GigiOptionsTests(unittest.TestCase):
         out=gigi_options.parse(data)
         self.assertEqual(out["as_of"],"2026-10-02T15:59:59")
         self.assertEqual(out["snapshot_time"],"2026-10-03 03:43:53")
+
+
+    def test_term_structure_backwardation_detected(self):
+        out=gigi_options.parse(term_payload(near_iv=0.34,far_iv=0.20))
+        self.assertEqual(out["term_structure"],"BACKWARDATION")
+        self.assertGreater(out["term_iv_diff"],0.03)
+
+    def test_term_structure_contango_detected(self):
+        out=gigi_options.parse(term_payload(near_iv=0.18,far_iv=0.25))
+        self.assertEqual(out["term_structure"],"CONTANGO")
+        self.assertLess(out["term_iv_diff"],-0.03)
+
+    def test_iv30_expected_move_is_non_directional(self):
+        out=gigi_options.parse(payload())
+        self.assertGreater(out["expected_move_1d_pct"],0)
+        self.assertGreater(out["expected_move_5d_pct"],out["expected_move_1d_pct"])
+        self.assertFalse(out["directional_signal"])
 
 
 
