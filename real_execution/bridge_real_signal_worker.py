@@ -20,6 +20,7 @@ import real_analysis_engine as engine
 import gigi_regime
 import gigi_intermarket
 import gigi_macro
+import gigi_context
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -227,6 +228,7 @@ def preview_payload(signal):
         "regime": signal.get("regime") or {},
         "intermarket": signal.get("intermarket") or {},
         "macro": signal.get("macro") or {},
+        "gigi_context": signal.get("gigi_context") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
@@ -391,6 +393,12 @@ def run_forever():
                 feeds.get("intermarket") or {},
             )
             signal["macro"] = gigi_macro.context(time.time())
+            signal["gigi_context"] = gigi_context.evaluate(
+                signal.get("side"),
+                signal.get("regime"),
+                signal.get("intermarket"),
+                signal.get("macro"),
+            )
 
             if _preview_enabled:
                 _latest_preview = preview_payload(signal)
