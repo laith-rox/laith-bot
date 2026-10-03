@@ -63,21 +63,25 @@ def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=
         short_risk += 1
         reasons.append("mixed_etf_inflow")
 
-    # Options skew / OI are proxy context, not direction by themselves.
+    # Options proxy cannot reveal customer/dealer sign. Skew may only
+    # amplify a directional risk that already exists from independent evidence;
+    # OI imbalance is recorded as context but never creates direction by itself.
     options_skew = str(options.get("skew") or "UNKNOWN").upper()
     options_oi = str(options.get("oi_state") or "UNKNOWN").upper()
     if options_skew == "DOWNSIDE_HEDGE_BID":
-        long_risk += 1
         reasons.append("options_downside_hedge_bid")
+        if long_risk >= 2:
+            long_risk += 1
+            reasons.append("options_downside_hedge_confirms_existing_long_risk")
     elif options_skew == "UPSIDE_CALL_BID":
-        short_risk += 1
         reasons.append("options_upside_call_bid")
+        if short_risk >= 2:
+            short_risk += 1
+            reasons.append("options_upside_call_confirms_existing_short_risk")
     if options_oi == "PUT_HEAVY":
-        long_risk += 1
-        reasons.append("options_put_oi_heavy")
+        reasons.append("options_put_oi_heavy_unsigned")
     elif options_oi == "CALL_HEAVY":
-        short_risk += 1
-        reasons.append("options_call_oi_heavy")
+        reasons.append("options_call_oi_heavy_unsigned")
 
     # Live trigger-like context: liquidity rejection and volatility expansion.
     if liq_event == "BUY_SIDE_SWEEP" or liq_pressure == "BEARISH":
