@@ -135,6 +135,12 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         self.assertFalse(s["preflight_ok"])
         self.assertTrue(isinstance(s["readiness_blockers"], list))
 
+    def test_restart_is_emergency_latched(self):
+        self.assertTrue(bridge._restart_latched)
+        self.assertTrue(bridge._emergency_stop)
+        self.assertTrue(bridge._status()["restart_latched"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
