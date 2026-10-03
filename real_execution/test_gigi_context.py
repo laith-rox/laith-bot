@@ -307,6 +307,21 @@ class GigiContextTests(unittest.TestCase):
         self.assertIn("target_far_beyond_options_1d_proxy",out["reasons"])
 
 
+    def test_options_skew_is_visible_but_not_directional_score(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},{"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},{"regime":"MIXED"},{"dominant_risk":"BALANCED"},
+            {"skew":"DOWNSIDE_HEDGE_BID","oi_state":"PUT_HEAVY"},
+        )
+        self.assertEqual(out["options_skew"],"DOWNSIDE_HEDGE_BID")
+        self.assertIn("options_downside_hedge_bid",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
