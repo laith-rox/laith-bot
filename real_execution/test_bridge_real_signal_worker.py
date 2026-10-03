@@ -159,20 +159,18 @@ class RealSignalMirrorTests(unittest.TestCase):
 
     def test_session_windows_are_fail_closed(self):
         # Bar timestamps are UTC; Palestine is UTC+3 in this strategy clock.
-        prep_only = {"mode": "MAIN", "bar": "2026-10-03T01:30:00Z"}      # 04:30 Palestine
-        london_ok = {"mode": "MAIN", "bar": "2026-10-03T07:00:00Z"}      # 10:00 Palestine
-        us_ok = {"mode": "MAIN", "bar": "2026-10-03T12:20:00Z"}          # 15:20 Palestine
-        main_closed = {"mode": "MAIN", "bar": "2026-10-03T10:00:00Z"}    # 13:00 Palestine
-        sniper_ok = {"mode": "SNIPER", "bar": "2026-10-03T16:00:00Z"}    # 19:00 Palestine
-        sniper_closed = {"mode": "SNIPER", "bar": "2026-10-03T10:00:00Z"}
-        self.assertEqual(worker.session_block_reason(prep_only), "main_session_closed")
-        self.assertIsNone(worker.session_block_reason(london_ok))
-        self.assertEqual(worker.main_session_name(worker.signal_local_minute(london_ok)), "LONDON_MAIN")
-        self.assertIsNone(worker.session_block_reason(us_ok))
-        self.assertEqual(worker.main_session_name(worker.signal_local_minute(us_ok)), "US_MAIN")
-        self.assertEqual(worker.session_block_reason(main_closed), "main_session_closed")
-        self.assertIsNone(worker.session_block_reason(sniper_ok))
-        self.assertEqual(worker.session_block_reason(sniper_closed), "sniper_session_closed")
+        before_open = {"mode": "MAIN", "bar": "2026-10-03T01:59:00Z"}     # 04:59 Palestine
+        day_main = {"mode": "MAIN", "bar": "2026-10-03T02:00:00Z"}        # 05:00 Palestine
+        day_sniper = {"mode": "SNIPER", "bar": "2026-10-03T08:00:00Z"}   # 11:00 Palestine
+        london = {"mode": "MAIN", "bar": "2026-10-03T07:00:00Z"}         # 10:00 Palestine
+        us = {"mode": "MAIN", "bar": "2026-10-03T12:20:00Z"}             # 15:20 Palestine
+        after_close = {"mode": "SNIPER", "bar": "2026-10-03T17:00:00Z"}  # 20:00 Palestine
+        self.assertEqual(worker.session_block_reason(before_open), "main_session_closed")
+        self.assertIsNone(worker.session_block_reason(day_main))
+        self.assertIsNone(worker.session_block_reason(day_sniper))
+        self.assertEqual(worker.main_session_name(worker.signal_local_minute(london)), "LONDON_MAIN")
+        self.assertEqual(worker.main_session_name(worker.signal_local_minute(us)), "US_MAIN")
+        self.assertEqual(worker.session_block_reason(after_close), "sniper_session_closed")
 
     def test_main_publish_requires_fresh_closed_h4_after_reopen(self):
         signal = {
@@ -205,6 +203,39 @@ class RealSignalMirrorTests(unittest.TestCase):
             "open": 1, "high": 2, "low": 0, "close": 1
         }]
         self.assertTrue(worker.engine.native_h4_reopen_ready(one_closed_plus_active))
+
+
+    def test_open_main_does_not_block_sniper_when_mode_risk_is_available(self):
+        signal = {
+            "mode": "SNIPER",
+            "side": "BUY",
+            "risk_distance": 2.5,
+            "checks": {"BUY": [True, True, True, True, False, False, False]},
+        }
+        health = {
+            "strong_risk_budget_usd": 15.0,
+            "effective_risk_budget_usd": 3.0,
+            "total_position_risk_usd": 8.0,
+            "main_position_risk_usd": 8.0,
+            "sniper_position_risk_usd": 0.0,
+        }
+        self.assertEqual(worker.engine.same_entry_copies(signal, health), 1)
+
+    def test_open_sniper_does_not_block_main_when_mode_risk_is_available(self):
+        signal = {
+            "mode": "MAIN",
+            "side": "BUY",
+            "risk_distance": 5.0,
+            "checks": {"BUY": [True, True, True, True, True, True, False]},
+        }
+        health = {
+            "strong_risk_budget_usd": 15.0,
+            "effective_risk_budget_usd": 3.0,
+            "total_position_risk_usd": 3.0,
+            "main_position_risk_usd": 0.0,
+            "sniper_position_risk_usd": 3.0,
+        }
+        self.assertEqual(worker.engine.same_entry_copies(signal, health), 1)
 
 
 
