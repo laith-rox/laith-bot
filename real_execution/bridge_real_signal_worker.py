@@ -33,6 +33,7 @@ import gigi_stop_geometry
 import gigi_quality
 import gigi_execution_quality
 import gigi_exposure
+import gigi_behavior
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -251,6 +252,7 @@ def preview_payload(signal):
         "data_quality": signal.get("data_quality") or {},
         "execution_quality": signal.get("execution_quality") or {},
         "exposure": signal.get("exposure") or {},
+        "behavior": signal.get("behavior") or {},
         "thesis": signal.get("thesis") or {},
         "gigi_context": signal.get("gigi_context") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
@@ -483,6 +485,13 @@ def run_forever():
                 signal.get("data_quality"),
                 signal.get("execution_quality"),
                 signal.get("exposure"),
+            )
+            signal["behavior"] = gigi_behavior.assess(
+                signal,
+                signal.get("gigi_context"),
+                signal.get("thesis"),
+                signal.get("exposure"),
+                signal.get("stop_geometry"),
             )
 
             if _preview_enabled:
