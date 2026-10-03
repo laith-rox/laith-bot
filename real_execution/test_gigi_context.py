@@ -344,6 +344,22 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["reasons"].count("options_put_oi_heavy"),1)
 
 
+    def test_local_premium_is_visible_but_not_directional_score(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            local_premium={
+                "china":{"state":"STRONG_PREMIUM"},
+                "india":{"state":"DISCOUNT"},
+            },
+        )
+        self.assertEqual(out["china_local_premium_state"],"STRONG_PREMIUM")
+        self.assertIn("china_local_premium_strong",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
