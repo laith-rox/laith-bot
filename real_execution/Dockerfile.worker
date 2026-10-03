@@ -32,6 +32,7 @@ COPY gigi_event_response.py test_gigi_event_response.py ./
 COPY gigi_clock.py test_gigi_clock.py ./
 COPY gigi_drift.py test_gigi_drift.py ./
 COPY gigi_session_profile.py test_gigi_session_profile.py ./
+COPY gigi_benchmark.py test_gigi_benchmark.py ./
 COPY gigi_walkforward.py test_gigi_walkforward.py ./
 COPY gigi_price_prior.py test_gigi_price_prior.py ./
 
@@ -64,6 +65,7 @@ RUN python -m unittest -v \
     test_gigi_clock.py \
     test_gigi_drift.py \
     test_gigi_session_profile.py \
+    test_gigi_benchmark.py \
     test_gigi_walkforward.py \
     test_gigi_price_prior.py
 
