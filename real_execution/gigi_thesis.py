@@ -82,6 +82,12 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     elif macro_regime=="UNKNOWN":
         uncertainty.append("macro_unknown")
 
+    macro_bundle=str(macro.get("event_bundle_state") or "NONE").upper()
+    if macro_bundle=="MULTI_HIGH_RELEASE":
+        uncertainty.append("macro_multi_high_release_bundle")
+    elif macro_bundle=="MULTI_RELEASE":
+        uncertainty.append("macro_multi_release_bundle")
+
     if inter_relationship=="FLIPPING_PRESENT":
         uncertainty.append("intermarket_relationship_flipping")
     elif inter_relationship=="SHORT_ONLY_PRESENT":
