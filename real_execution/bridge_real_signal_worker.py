@@ -30,6 +30,7 @@ import gigi_options
 import gigi_thesis
 import gigi_yields
 import gigi_stop_geometry
+import gigi_target_geometry
 import gigi_quality
 import gigi_execution_quality
 import gigi_exposure
@@ -252,6 +253,7 @@ def preview_payload(signal):
         "options": signal.get("options") or {},
         "yields": signal.get("yields") or {},
         "stop_geometry": signal.get("stop_geometry") or {},
+        "target_geometry": signal.get("target_geometry") or {},
         "data_quality": signal.get("data_quality") or {},
         "execution_quality": signal.get("execution_quality") or {},
         "exposure": signal.get("exposure") or {},
@@ -450,6 +452,11 @@ def run_forever():
                 engine.normalize_rows(feeds["15m"]),
                 signal.get("volatility"),
             )
+            signal["target_geometry"] = gigi_target_geometry.analyze(
+                signal,
+                engine.normalize_rows(feeds["15m"]),
+                signal.get("options"),
+            )
             signal["data_quality"] = gigi_quality.assess(
                 signal.get("positioning"),
                 signal.get("etf"),
@@ -488,6 +495,7 @@ def run_forever():
                 signal.get("event_response"),
                 signal.get("session_profile"),
                 signal.get("benchmark"),
+                signal.get("target_geometry"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
