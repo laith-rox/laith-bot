@@ -177,7 +177,7 @@ class RealSignalMirrorTests(unittest.TestCase):
     def test_main_publish_requires_fresh_closed_h4_after_reopen(self):
         signal = {
             "side": "BUY",
-            "bar": "2026-10-03T01:30:00Z",
+            "bar": "2026-10-03T07:00:00Z",
             "mode": "MAIN",
             "risk_distance": 1.0,
             "target_r": 2.0,
