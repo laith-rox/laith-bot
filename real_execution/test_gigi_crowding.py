@@ -43,6 +43,20 @@ class GigiCrowdingTests(unittest.TestCase):
         self.assertFalse(out["directional_signal"])
         self.assertEqual(out["note"], "crowding_risk_context_not_entry_signal")
 
+    def test_options_hedging_adds_crowding_context_not_signal(self):
+        out = gigi_crowding.analyze(
+            {"regime":"LONG_BIASED_DELEVERAGING","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"MIXED"},
+            {"h4_bias":"NEUTRAL"},
+            {"skew":"DOWNSIDE_HEDGE_BID","oi_state":"PUT_HEAVY"},
+        )
+        self.assertGreaterEqual(out["long_liquidation_score"], 4)
+        self.assertFalse(out["directional_signal"])
+        self.assertIn("options_downside_hedge_bid", out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
