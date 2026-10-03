@@ -352,3 +352,49 @@ Research lesson:
 - This fixed a wiring gap where the module existed and was previewed but the
   live shadow worker had not populated the benchmark field.
 - Duplicate options-module import was removed.
+
+
+## China / India local-premium layer — added 2026-10-04
+
+World Gold Council's local gold premium/discount series is now tracked as slow
+physical-demand context. WGC explicitly describes the series as an indicative
+directional gauge, not a trading metric, so Gigi does not turn it into an
+intraday BUY/SELL score.
+
+Current public snapshot (data to 2026-09-25):
+- China theoretical local premium: about +US$20.84/oz.
+- China 1-year percentile in the public series: about 81% -> STRONG_PREMIUM.
+- China 5-session change: about -US$3.49/oz; 20-session change: +US$14.62/oz.
+- India theoretical local premium/discount: about -US$6.30/oz -> DISCOUNT.
+
+Interpretation:
+- China's premium is evidence of relatively firm local pricing versus the
+  international benchmark, but it is not an M5 timing signal.
+- A high premium can reflect local demand/supply tightness, import constraints
+  and regional conditions; it must not be mistaken for a guaranteed global
+  gold rally.
+- Gigi records China and India states separately so future forward learning can
+  test whether local premium regimes add useful information after controlling
+  for trend, liquidity, yields and ETF flows.
+
+## Options-sign correction — added 2026-10-04
+
+Public GLD option-chain open interest is unsigned. A CALL_HEAVY or PUT_HEAVY
+chain does not reveal whether customers or dealers are net long/short those
+contracts. Gigi therefore no longer allows option OI imbalance to create a
+directional squeeze/liquidation score by itself.
+
+- OI imbalance is recorded as context only.
+- 25-delta skew may amplify an already-existing liquidation/squeeze risk from
+  independent evidence, but cannot create that risk from zero.
+- Gross gamma*OI remains unsigned and is never labelled dealer gamma.
+- This correction prevents a common options-analysis error: inferring dealer
+  positioning from public open interest without trade-side inventory data.
+
+## Structural demand remains slow context
+
+World Gold Council Q2 2026 data showed central-bank net purchases rebounded to
+about 289t, while H1 demand remained uneven. Its 2026 reserve-manager survey
+also showed strong intentions to keep/increase gold holdings. Gigi treats this
+as structural background only, not a timing signal: quarterly/official-reserve
+demand cannot justify an intraday entry against fresh price structure.
