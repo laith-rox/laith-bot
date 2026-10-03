@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -17,6 +17,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     volatility=volatility or {}
     etf=etf or {}
     crowding=crowding or {}
+    options=options or {}
 
     score=0
     reasons=[]
@@ -140,6 +141,17 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif volatility_state=="REALIZED_COMPRESSION":
         reasons.append("realized_vol_compressed")
 
+    options_skew=str(options.get("skew") or "UNKNOWN").upper()
+    options_oi=str(options.get("oi_state") or "UNKNOWN").upper()
+    if options_skew=="DOWNSIDE_HEDGE_BID":
+        reasons.append("options_downside_hedge_bid")
+    elif options_skew=="UPSIDE_CALL_BID":
+        reasons.append("options_upside_call_bid")
+    if options_oi=="PUT_HEAVY":
+        reasons.append("options_put_oi_heavy")
+    elif options_oi=="CALL_HEAVY":
+        reasons.append("options_call_oi_heavy")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -163,6 +175,8 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "market_state": market_state,
         "volatility_state": volatility_state,
         "crowding_risk": crowding_risk,
+        "options_skew": options_skew,
+        "options_oi_state": options_oi,
         "reasons": reasons,
         "note": "alignment_score_not_probability",
     }
