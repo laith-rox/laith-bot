@@ -107,6 +107,11 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
 
     macro_regime=str(macro.get("regime") or "UNKNOWN").upper()
     macro_phase=str(macro.get("phase") or "NORMAL").upper()
+    macro_bundle=str(macro.get("event_bundle_state") or "NONE").upper()
+    if macro_bundle=="MULTI_HIGH_RELEASE":
+        reasons.append("macro_multi_high_release_bundle")
+    elif macro_bundle=="MULTI_RELEASE":
+        reasons.append("macro_multi_release_bundle")
     if macro_regime=="HIGH_IMPACT_WINDOW":
         score-=2
         reasons.append("high_impact_usd_window")
@@ -248,17 +253,6 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     if target_implied_relation=="FAR_BEYOND_1D_PROXY":
         reasons.append("target_far_beyond_options_1d_proxy")
 
-    options_skew=str(options.get("skew") or "UNKNOWN").upper()
-    options_oi=str(options.get("oi_state") or "UNKNOWN").upper()
-    if options_skew=="DOWNSIDE_HEDGE_BID":
-        reasons.append("options_downside_hedge_bid")
-    elif options_skew=="UPSIDE_CALL_BID":
-        reasons.append("options_upside_call_bid")
-    if options_oi=="PUT_HEAVY":
-        reasons.append("options_put_oi_heavy")
-    elif options_oi=="CALL_HEAVY":
-        reasons.append("options_call_oi_heavy")
-
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -280,6 +274,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "alignment": alignment,
         "score": int(score),
         "market_state": market_state,
+        "macro_event_bundle": macro_bundle,
         "volatility_state": volatility_state,
         "crowding_risk": crowding_risk,
         "options_skew": options_skew,
