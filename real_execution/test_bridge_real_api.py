@@ -48,6 +48,8 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         rows = [{"datetime": "2026.10.03 00:00:00"} for _ in range(30)]
         return {
             "source_timestamp": source_timestamp,
+            "source_clock": "UTC_EPOCH",
+            "h4_source": "MT5_NATIVE_TIMEFRAME_H4",
             "m5": list(rows),
             "m15": list(rows),
             "h1": list(rows),
@@ -77,6 +79,21 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         ok, reason = bridge._validate_market_payload(payload, now=2_000_000_000)
         self.assertFalse(ok)
         self.assertEqual(reason, "market_source_timestamp_required")
+
+    def test_market_rejects_non_native_h4(self):
+        payload = self._market_payload(1_999_999_940)
+        payload["h4_source"] = "AGGREGATED_H1"
+        ok, reason = bridge._validate_market_payload(payload, now=2_000_000_000)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "native_h4_required")
+
+    def test_market_requires_utc_epoch_clock(self):
+        payload = self._market_payload(1_999_999_940)
+        payload["source_clock"] = "LOCALTIME"
+        ok, reason = bridge._validate_market_payload(payload, now=2_000_000_000)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "utc_source_clock_required")
+
 
     def test_preflight_lists_fail_closed_blockers(self):
         bridge.REAL_ARMED = False
