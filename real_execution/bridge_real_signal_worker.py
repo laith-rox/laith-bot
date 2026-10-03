@@ -494,6 +494,7 @@ def run_forever():
                 signal.get("data_quality"),
                 signal.get("execution_quality"),
                 signal.get("exposure"),
+                signal.get("event_response"),
             )
             signal["behavior"] = gigi_behavior.assess(
                 signal,
