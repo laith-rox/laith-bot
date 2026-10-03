@@ -68,6 +68,32 @@ class GigiYieldTests(unittest.TestCase):
         self.assertIsNone(out["nominal_2y_change_5d_bps"])
 
 
+    def test_year_csv_provides_real_five_session_context(self):
+        nominal = """Date,2 Yr,10 Yr
+09/25/2026,4.60,5.10
+09/28/2026,4.62,5.12
+09/29/2026,4.65,5.13
+09/30/2026,4.69,5.15
+10/01/2026,4.78,5.24
+10/02/2026,4.83,5.28
+"""
+        real = """Date,5 YR,7 YR,10 YR,20 YR,30 YR
+09/25/2026,2.64,2.73,2.83,3.08,3.22
+09/28/2026,2.73,2.80,2.90,3.14,3.28
+09/29/2026,2.72,2.80,2.91,3.15,3.29
+09/30/2026,2.73,2.82,2.93,3.18,3.33
+10/01/2026,2.65,2.76,2.88,3.16,3.31
+10/02/2026,2.69,2.80,2.92,3.19,3.34
+"""
+        now=datetime(2026,10,3,tzinfo=timezone.utc).timestamp()
+        out=gigi_yields.parse_csv(nominal,real,now=now)
+        self.assertEqual(out["real_history_sessions"],6)
+        self.assertEqual(out["nominal_history_sessions"],6)
+        self.assertEqual(out["real_yield_regime"],"STABLE_REAL_YIELD")
+        self.assertEqual(out["policy_regime"],"RISING_FRONT_END")
+        self.assertAlmostEqual(out["nominal_2y_change_5d_bps"],23.0)
+
+
 
 if __name__=="__main__":
     unittest.main()
