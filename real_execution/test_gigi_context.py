@@ -62,6 +62,18 @@ class GigiContextTests(unittest.TestCase):
         self.assertIn("first_spike_untrusted",out["reasons"])
 
 
+    def test_positioning_deleveraging_supports_sell_caution(self):
+        out=gigi_context.evaluate(
+            "SELL",
+            {"name":"TREND_DOWN","h4_bias":"DOWN","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"LONG_BIASED_DELEVERAGING","crowding":"NORMAL"},
+        )
+        self.assertIn("positioning_supports_sell",out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
