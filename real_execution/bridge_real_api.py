@@ -197,7 +197,12 @@ def _status():
         "price": state.get("price", 0),
         "position_open": bool(state.get("position_open")),
         "position_owned": bool(state.get("position_owned")),
+        "position_risk_usd": state.get("position_risk_usd", 0),
         "total_position_risk_usd": state.get("total_position_risk_usd", 0),
+        "effective_risk_budget_usd": state.get("effective_risk_budget_usd"),
+        "strong_risk_budget_usd": state.get("strong_risk_budget_usd"),
+        "profit_risk_budget_usd": state.get("profit_risk_budget_usd"),
+        "owned_position_count": state.get("owned_position_count", 0),
     }
 
 
