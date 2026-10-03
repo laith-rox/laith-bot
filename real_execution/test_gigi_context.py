@@ -121,6 +121,24 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_options_skew_is_exposed_without_direct_score_change(self):
+        out=gigi_context.evaluate(
+            "SELL",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"DOWNSIDE_HEDGE_BID","oi_state":"PUT_HEAVY"},
+        )
+        self.assertEqual(out["options_skew"],"DOWNSIDE_HEDGE_BID")
+        self.assertIn("options_downside_hedge_bid",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
