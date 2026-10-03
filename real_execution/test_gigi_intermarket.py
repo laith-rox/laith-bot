@@ -57,11 +57,11 @@ class GigiIntermarketTests(unittest.TestCase):
     def test_flipping_relationship_does_not_vote(self):
         gold=[100.0]
         other=[50.0]
-        # 64 returns: first 40 move together, last 24 move opposite.
+        # 64 returns: first 41 move together, last 23 move opposite.
         for i in range(64):
             r=0.01 if i%2==0 else -0.008
             gold.append(gold[-1]*(1+r))
-            other_r=r if i<40 else -r
+            other_r=r if i<41 else -r
             other.append(other[-1]*(1+other_r))
         out=gigi_intermarket.analyze(series(gold),{"WTI":series(other)})
         detail=out["details"]["WTI"]
