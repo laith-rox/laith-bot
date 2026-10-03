@@ -48,6 +48,7 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         rows = [{"datetime": "2026.10.03 00:00:00"} for _ in range(30)]
         return {
             "source_timestamp": source_timestamp,
+            "tick_timestamp": source_timestamp,
             "source_clock": "UTC_EPOCH",
             "h4_source": "MT5_NATIVE_TIMEFRAME_H4",
             "m5": list(rows),
@@ -72,6 +73,21 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         )
         self.assertFalse(ok)
         self.assertEqual(reason, "market_source_stale")
+
+    def test_stale_tick_is_rejected_quickly(self):
+        payload = self._market_payload(1_999_999_990)
+        payload["tick_timestamp"] = 2_000_000_000 - bridge.MARKET_TICK_FRESH_SECONDS - 1
+        ok, reason = bridge._validate_market_payload(payload, now=2_000_000_000)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "market_tick_stale")
+
+    def test_tick_timestamp_is_required(self):
+        payload = self._market_payload(1_999_999_990)
+        payload.pop("tick_timestamp")
+        ok, reason = bridge._validate_market_payload(payload, now=2_000_000_000)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "market_tick_timestamp_required")
+
 
     def test_market_source_timestamp_is_required(self):
         payload = self._market_payload(1_999_999_940)
