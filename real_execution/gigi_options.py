@@ -7,8 +7,10 @@ and never an entry trigger.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import math
 import time
+import urllib.request
 
 try:
     import requests
@@ -179,17 +181,27 @@ def parse(payload):
     }
 
 
+def _get_json(url, headers, session=None):
+    if session is not None:
+        r = session.get(url, timeout=15, headers=headers)
+        r.raise_for_status()
+        return r.json()
+    if requests is not None:
+        r = requests.get(url, timeout=15, headers=headers)
+        r.raise_for_status()
+        return r.json()
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=15) as res:
+        return json.loads(res.read().decode("utf-8"))
+
+
 def fetch(now=None, session=None):
     now = time.time() if now is None else float(now)
     if _cache["value"] is not None and now - float(_cache["fetched_at"] or 0) <= CACHE_SECONDS:
         return dict(_cache["value"])
-    if requests is None and session is None:
-        return {"skew":"UNKNOWN","oi_state":"UNKNOWN","error":"requests_unavailable","source":"CBOE_DELAYED_GLD_OPTIONS_PROXY"}
-    session = session or requests
     try:
-        r = session.get(URL, timeout=15, headers={"User-Agent":"Laith-Gigi-Options/1.0"})
-        r.raise_for_status()
-        value = parse(r.json())
+        payload = _get_json(URL, {"User-Agent":"Laith-Gigi-Options/1.0"}, session=session)
+        value = parse(payload)
         value["error"] = None
         _cache.update({"fetched_at": now, "value": value})
         return dict(value)
