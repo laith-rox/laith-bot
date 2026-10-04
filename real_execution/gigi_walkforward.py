@@ -391,6 +391,39 @@ def report(observations):
             str(k):_net_summary([x for x in rows if int(x.get("strength") or 0)==k])
             for k in sorted({int(x.get("strength") or 0) for x in rows})
         },
+        "by_mode_session":{
+            f"{mode}|{session}":_net_summary([
+                x for x in rows
+                if str(x.get("mode") or "UNKNOWN").upper()==mode
+                and str(x.get("session_bucket") or "UNKNOWN").upper()==session
+            ])
+            for mode,session in sorted({
+                (str(x.get("mode") or "UNKNOWN").upper(),str(x.get("session_bucket") or "UNKNOWN").upper())
+                for x in rows
+            })
+        },
+        "by_mode_strength":{
+            f"{mode}|{strength}":_net_summary([
+                x for x in rows
+                if str(x.get("mode") or "UNKNOWN").upper()==mode
+                and int(x.get("strength") or 0)==strength
+            ])
+            for mode,strength in sorted({
+                (str(x.get("mode") or "UNKNOWN").upper(),int(x.get("strength") or 0))
+                for x in rows
+            })
+        },
+        "by_mode_h4_alignment":{
+            f"{mode}|{alignment}":_net_summary([
+                x for x in rows
+                if str(x.get("mode") or "UNKNOWN").upper()==mode
+                and str(x.get("h4_alignment") or "NEUTRAL").upper()==alignment
+            ])
+            for mode,alignment in sorted({
+                (str(x.get("mode") or "UNKNOWN").upper(),str(x.get("h4_alignment") or "NEUTRAL").upper())
+                for x in rows
+            })
+        },
         "by_reason_h4":{
             f"{reason}|{bias}":_net_summary([
                 x for x in rows
