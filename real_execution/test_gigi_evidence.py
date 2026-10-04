@@ -44,6 +44,21 @@ class GigiEvidenceTests(unittest.TestCase):
         self.assertGreaterEqual(out["independent_support_count"],2)
         self.assertGreaterEqual(out["independent_conflict_count"],2)
 
+    def test_raw_options_oi_is_unsigned_not_directional(self):
+        buy=gigi_evidence.audit(
+            "BUY",
+            options={"skew":"BALANCED","oi_state":"CALL_HEAVY"},
+            volatility={"state":"NORMAL"},
+        )
+        sell=gigi_evidence.audit(
+            "SELL",
+            options={"skew":"BALANCED","oi_state":"PUT_HEAVY"},
+            volatility={"state":"NORMAL"},
+        )
+        self.assertEqual(buy["families"]["OPTIONS_VOLATILITY"],0)
+        self.assertEqual(sell["families"]["OPTIONS_VOLATILITY"],0)
+
+
     def test_audit_is_not_entry_signal(self):
         out=gigi_evidence.audit("BUY")
         self.assertTrue(out["correlated_inputs_collapsed"])
