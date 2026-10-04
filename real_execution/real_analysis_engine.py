@@ -235,10 +235,12 @@ def compute_signal(values):
         close=close, recent_high=recent_high, recent_low=recent_low, momentum=momentum, hour_local=hour_local)
     side=d.side
     guard_reason = None
-    # Night sniper window: 19:00-04:29 Palestine local time. Keep 0.01 lot
-    # and existing EA risk gate; only tighten the signal stop distance.
+    # User-approved entry window for both MAIN and SNIPER: 05:00-19:59
+    # Palestine local time. The worker enforces the same window again at
+    # publish time; keeping this aligned prevents a legacy night-only branch
+    # from silently disabling daytime sniper opportunities.
     minute_local = hour_local * 60 + datetime.fromisoformat(last["datetime"]).minute
-    night_sniper = minute_local >= 19*60 or minute_local < 4*60+30
+    sniper_window = 5*60 <= minute_local < 20*60
     # Do not confuse a short pullback with a new trend. The 21/55 EMA regime
     # represents roughly 30-60 minutes of structure on these five-minute bars.
     lookback = min(7, len(ema21)-1)
@@ -264,7 +266,7 @@ def compute_signal(values):
         elif (close >= recent_high-0.15*atr or rsi >= 72.0) and not held_break_up:
             # Fast DEMO scalp exception: a strong 6/7+ impulse may test nearby
             # resistance with a tight stop; weaker setups still wait.
-            if not (night_sniper and buy_score >= 6 and momentum > 0 and close > open_ and rsi < 70.0):
+            if not (sniper_window and buy_score >= 6 and momentum > 0 and close > open_ and rsi < 70.0):
                 guard_reason = "resistance_not_confirmed"
         elif upper_wick > max(1.25*body, 0.45*atr):
             guard_reason = "upper_wick_rejection"
@@ -273,7 +275,7 @@ def compute_signal(values):
             guard_reason = "sell_is_correction_in_uptrend"
         elif (close <= recent_low+0.15*atr or rsi <= 28.0) and not held_break_down:
             # Symmetric fast DEMO scalp exception for a strong 6/7+ sell impulse.
-            if not (night_sniper and sell_score >= 6 and momentum < 0 and close < open_ and rsi > 30.0):
+            if not (sniper_window and sell_score >= 6 and momentum < 0 and close < open_ and rsi > 30.0):
                 guard_reason = "support_not_confirmed"
         elif lower_wick > max(1.25*body, 0.45*atr):
             guard_reason = "lower_wick_rejection"
@@ -338,9 +340,9 @@ def compute_signal(values):
         d = type(d)("REBOUND", "BUY", 8, 0.60, 0.0, 1.25, "selloff_exhaustion_rebound")
 
     # Fast DEMO edge override: when the adaptive engine says no_edge but one
-    # side has a clear 5/7 vs <=1/7 advantage, allow a confirmed night scalp.
+    # side has a clear 5/7 vs <=1/7 advantage, allow a confirmed sniper scalp.
     # Balanced/ambiguous readings (for example 3/7 vs 3/7) remain blocked.
-    if side is None and night_sniper and d.reason == "no_edge":
+    if side is None and sniper_window and d.reason == "no_edge":
         fast_buy = (
             buy_score >= 5 and sell_score <= 1 and not macro_down
             and close > ema8[-1] and momentum > 0 and close > open_
@@ -354,12 +356,12 @@ def compute_signal(values):
         if fast_buy or fast_sell:
             side = "BUY" if fast_buy else "SELL"
             guard_reason = None
-            d = type(d)("NIGHT_SNIPER", side, 7, 0.45, 0.0, 1.25, "fast_5v1_edge")
+            d = type(d)("SNIPER", side, 7, 0.45, 0.0, 1.25, "fast_5v1_edge")
 
-    # Night-only scout: during the approved 19:00-04:29 window, accept
+    # Sniper scout: during the approved 05:00-19:59 window, accept
     # a clean 4/7 micro-edge only when price action confirms it. This raises
     # opportunity count without allowing coin-flip entries.
-    if side is None and night_sniper:
+    if side is None and sniper_window:
         bullish_confirm = close > open_ and close >= rows[-2]["close"] and body >= 0.18*atr
         bearish_confirm = close < open_ and close <= rows[-2]["close"] and body >= 0.18*atr
         scout_buy = (
@@ -380,7 +382,7 @@ def compute_signal(values):
             side = "BUY" if scout_buy else "SELL"
             guard_reason = None
             scout_score = max(buy_score, sell_score)
-            d = type(d)("NIGHT_SNIPER", side, 6 if scout_score <= 4 else 7,
+            d = type(d)("SNIPER", side, 6 if scout_score <= 4 else 7,
                         0.40 if scout_score == 3 else (0.45 if scout_score == 4 else 0.50), 0.0,
                         1.10 if scout_score <= 4 else 1.20,
                         "night_3of7_fast" if scout_score == 3 else ("night_4of7_micro" if scout_score == 4 else "night_5of7_scout"))
@@ -390,7 +392,7 @@ def compute_signal(values):
     # Instead cap the stop by the user-approved strength ladder; the EA still
     # verifies the exact USD loss with OrderCalcProfit before DEMO execution.
     strength = max(buy_score, sell_score)
-    sniper_mode = d.mode in ("SNIPER", "NIGHT_SNIPER", "REJECTION_SCALP", "CORRECTION_SCALP")
+    sniper_mode = d.mode in ("SNIPER", "SNIPER", "REJECTION_SCALP", "CORRECTION_SCALP")
     sniper_cap = 3.00 if strength <= 4 else (5.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
     if sniper_mode:
         risk_cap = sniper_cap
@@ -434,12 +436,12 @@ def compute_signal(values):
             risk_distance = 0.0
     else:
         risk_distance = max(0.80, structural_risk) if side else 0.0
-    if night_sniper and side and d.mode != "REBOUND":
-        # Use the same strength ladder through the entire sniper window.
+    if sniper_window and side and d.mode != "REBOUND":
+        # Use the same strength ladder through the approved sniper window.
         strength = max(buy_score, sell_score)
         cap = 3.00 if strength <= 4 else (5.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
         risk_distance = min(risk_distance, cap)
-        d = type(d)("NIGHT_SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
+        d = type(d)("SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
     elif side=="SELL": sl,tp=close+risk_distance,close-risk_distance*d.target_r
     else: sl=tp=None
@@ -742,7 +744,7 @@ def sniper_budget_usd(signal):
     This is a ceiling, not a forced stop: structure can choose a tighter stop.
     """
     mode=str(signal.get("mode") or "").upper()
-    if mode not in ("SNIPER","NIGHT_SNIPER","REJECTION_SCALP","CORRECTION_SCALP"):
+    if mode not in ("SNIPER","SNIPER","REJECTION_SCALP","CORRECTION_SCALP"):
         return None
     strength=signal_strength(signal)
     if strength<=4:
@@ -757,7 +759,7 @@ def sniper_budget_usd(signal):
 def sniper_chase_block_reason(signal,last_side,last_score,last_bar):
     side=signal.get("side")
     mode=str(signal.get("mode") or "").upper()
-    if side not in ("BUY","SELL") or mode not in ("SNIPER","NIGHT_SNIPER","REJECTION_SCALP","CORRECTION_SCALP"):
+    if side not in ("BUY","SELL") or mode not in ("SNIPER","SNIPER","REJECTION_SCALP","CORRECTION_SCALP"):
         return None
     if side!=last_side or not last_bar:
         return None
@@ -1051,7 +1053,7 @@ def run_forever():
     validate_config()
     print(
         f"bridge_signal_worker_started version={WORKER_VERSION} symbol={SYMBOL} interval=5m "
-        f"adaptive_modes=SNIPER,MAIN,REBOUND,NIGHT_SNIPER,WAIT volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
+        f"adaptive_modes=SNIPER,MAIN,REBOUND,SNIPER,WAIT volume={VOLUME:.2f} max_publish_per_hour={MAX_PUBLISH_PER_HOUR} "
         f"allow_stale_mt5_state={ALLOW_STALE_MT5_STATE}",
         flush=True,
     )
