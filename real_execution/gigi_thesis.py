@@ -9,7 +9,7 @@ from __future__ import annotations
 def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
           positioning=None, etf=None, crowding=None, options=None, yields=None,
           quality=None, execution_quality=None, exposure=None, event_response=None,
-          usd_basket=None):
+          usd_basket=None, macro_surprise=None):
     signal=signal or {}
     regime=regime or {}
     intermarket=intermarket or {}
@@ -25,6 +25,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     exposure=exposure or {}
     event_response=event_response or {}
     usd_basket=usd_basket or {}
+    macro_surprise=macro_surprise or {}
 
     side=str(signal.get("side") or "WAIT").upper()
     support=[]
@@ -78,6 +79,17 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
         uncertainty.append("event_shock_partially_retraced")
     elif event_state=="SHOCK_CONFIRMED":
         uncertainty.append("event_shock_confirmed_"+event_impulse.lower())
+
+    surprise_bundle=str(macro_surprise.get("bundle_surprise") or "UNKNOWN").upper()
+    surprise_relation=str(macro_surprise.get("price_relation") or "UNRESOLVED").upper()
+    if surprise_bundle=="MIXED":
+        uncertainty.append("macro_surprise_bundle_mixed")
+    if surprise_relation.startswith("GOLD_REJECTED_"):
+        uncertainty.append("macro_price_rejected_textbook_direction")
+    elif surprise_relation=="SURPRISE_MUTED_IN_GOLD":
+        uncertainty.append("macro_surprise_muted_in_gold")
+    elif surprise_relation=="TEXTBOOK_CONFIRMED":
+        uncertainty.append("macro_textbook_reaction_confirmed")
 
     if macro_regime=="HIGH_IMPACT_WINDOW":
         uncertainty.append("high_impact_event_window")
