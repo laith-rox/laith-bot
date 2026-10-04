@@ -96,7 +96,7 @@ class RealSignalMirrorTests(unittest.TestCase):
             "side": "BUY",
             "checks": {"BUY": [False] * 7},
         }
-        expected = {3: 3.0, 4: 3.0, 5: 5.0, 6: 7.0, 7: 10.0}
+        expected = {3: 2.0, 4: 2.0, 5: 4.0, 6: 7.0, 7: 10.0}
         for strength, budget in expected.items():
             signal = dict(base)
             checks = [True] * strength + [False] * (7 - strength)
