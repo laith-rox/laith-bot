@@ -45,6 +45,7 @@ import gigi_session_profile
 import gigi_benchmark
 import gigi_price_prior
 import gigi_market_proof
+import gigi_release_gate
 import gigi_setup
 import gigi_evidence
 import gigi_trade_mode
@@ -281,6 +282,7 @@ def preview_payload(signal):
         "gigi_context": signal.get("gigi_context") or {},
         "price_prior": signal.get("price_prior") or {},
         "market_proof": signal.get("market_proof") or {},
+        "research_release": signal.get("research_release") or {},
         "setup": signal.get("setup") or {},
         "evidence": signal.get("evidence") or {},
         "trade_mode_request": signal.get("trade_mode_request") or {},
@@ -479,6 +481,9 @@ def run_forever():
             signal["price_prior"] = gigi_price_prior.assess(signal.get("reason"))
             signal["market_proof"] = gigi_market_proof.assess(
                 signal.get("mode"), signal.get("reason")
+            )
+            signal["research_release"] = gigi_release_gate.assess(
+                signal.get("market_proof")
             )
             signal["stop_geometry"] = gigi_stop_geometry.analyze(
                 signal,
