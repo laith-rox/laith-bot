@@ -187,6 +187,8 @@ def _readiness_blockers(now=None):
         blockers.append("mt5_state_stale")
     elif (_client_state or {}).get("terminal_trade_allowed") is not True:
         blockers.append("terminal_autotrading_off")
+    if not bool((_client_state or {}).get("account_hard_risk_cap_configured")):
+        blockers.append("account_hard_risk_cap_unset")
     p_age = _client_poll_age(now)
     if p_age is None or p_age > 10:
         blockers.append("executor_not_connected")
@@ -248,6 +250,8 @@ def _status():
         "terminal_trade_allowed": state.get("terminal_trade_allowed"),
         "account_trade_allowed": state.get("account_trade_allowed"),
         "account_trade_expert": state.get("account_trade_expert"),
+        "account_hard_risk_cap_configured": bool(state.get("account_hard_risk_cap_configured")),
+        "account_hard_risk_cap_usd": state.get("account_hard_risk_cap_usd"),
         "position_open": bool(state.get("position_open")),
         "position_owned": bool(state.get("position_owned")),
         "position_risk_usd": state.get("position_risk_usd", 0),
@@ -284,6 +288,8 @@ def _validate_publish(data: dict):
         return False, "real_state_stale"
     if (_client_state or {}).get("terminal_trade_allowed") is not True:
         return False, "terminal_autotrading_off"
+    if not bool((_client_state or {}).get("account_hard_risk_cap_configured")):
+        return False, "account_hard_risk_cap_unset"
     m_age = _market_age()
     if m_age is None or m_age > MARKET_FRESH_SECONDS:
         return False, "real_market_stale"
