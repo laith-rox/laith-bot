@@ -196,6 +196,13 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
 
     usd_state=str(usd_basket.get("state") or "UNKNOWN").upper()
     usd_breadth=float(usd_basket.get("breadth") or 0.0)
+    usd_relationship=str((usd_basket.get("gold_relationship") or {}).get("state") or "UNKNOWN").upper()
+    if usd_relationship=="RELATIONSHIP_FLIP":
+        reasons.append("gold_usd_relationship_flip")
+    elif usd_relationship=="DECOUPLED_POSITIVE":
+        reasons.append("gold_usd_positive_decoupling")
+    elif usd_relationship=="CLASSIC_INVERSE":
+        reasons.append("gold_usd_classic_inverse")
     if usd_state=="USD_STRONG_IMPULSE":
         reasons.append("synthetic_usd_strong_impulse")
     elif usd_state=="USD_FIRM":
@@ -328,6 +335,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "india_local_premium_state": india_premium_state,
         "synthetic_usd_state": usd_state,
         "synthetic_usd_breadth": round(usd_breadth,3),
+        "synthetic_usd_relationship": usd_relationship,
         "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
