@@ -94,6 +94,16 @@ def summarize(observations):
     ordered=sorted(vals)
     n=len(vals)
     median=(ordered[n//2] if n%2 else (ordered[n//2-1]+ordered[n//2])/2.0)
+    wins=[v for v in vals if v>0]
+    losses=[v for v in vals if v<0]
+    avg_win=(sum(wins)/len(wins)) if wins else 0.0
+    avg_loss=(sum(losses)/len(losses)) if losses else 0.0
+    loss_abs=abs(avg_loss)
+    payoff=(avg_win/loss_abs) if avg_win>0 and loss_abs>0 else None
+    gross_profit=sum(wins)
+    gross_loss=abs(sum(losses))
+    profit_factor=(gross_profit/gross_loss) if gross_loss>0 else None
+    breakeven_win_rate=(loss_abs/(avg_win+loss_abs)) if avg_win>0 and loss_abs>0 else None
     equity=0.0; peak=0.0; max_dd=0.0
     for v in vals:
         equity+=v
@@ -104,6 +114,11 @@ def summarize(observations):
         "mean_r":round(sum(vals)/n,4),
         "median_r":round(median,4),
         "win_rate":round(sum(v>0 for v in vals)/n,4),
+        "avg_win_r":round(avg_win,4),
+        "avg_loss_r":round(avg_loss,4),
+        "payoff_ratio":None if payoff is None else round(payoff,4),
+        "profit_factor":None if profit_factor is None else round(profit_factor,4),
+        "breakeven_win_rate":None if breakeven_win_rate is None else round(breakeven_win_rate,4),
         "target_rate":round(sum(x.get("outcome")=="TARGET" for x in rows)/n,4),
         "stop_rate":round(sum(x.get("outcome")=="STOP" for x in rows)/n,4),
         "max_drawdown_r":round(max_dd,4),
