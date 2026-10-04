@@ -39,10 +39,10 @@ def decide(*, buy_score:int, sell_score:int, rsi:float, atr:float,
     rsi_up = rsi >= 52
     rsi_dn = rsi <= 48
 
-    # Day session (04:00-19:59 local): establish the selective MAIN trade
+    # Approved entry session (05:00-19:59 Palestine local): establish the selective MAIN trade
     # before considering fast sniper entries. The overlay worker may later add
     # one SNIPER while a MAIN is already open, but execution risk remains gated.
-    day_main = 4 <= hour_local < 20
+    day_main = 5 <= hour_local < 20
     if day_main and buy_score >= 6 and trend_up and mom_up:
         return Decision("MAIN", "BUY", min(10,buy_score+2), 1.0, 1.35, 2.0, "day_trend_structure")
     if day_main and sell_score >= 6 and trend_dn and mom_dn:
