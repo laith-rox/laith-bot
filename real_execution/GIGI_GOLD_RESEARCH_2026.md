@@ -494,3 +494,41 @@ only n357. Above 0.20R of risk, the combined sample deteriorated to -0.6720R and
 PF 0.2528. This is a research clue, not a live threshold: spread/risk geometry
 may be more important than raw spread alone and must be validated prospectively
 before becoming any execution rule.
+
+
+## Evidence independence upgrade — 2026-10-04
+
+A major analytical error is false confluence: counting several correlated
+signals as if they were independent evidence. Examples:
+- DXY proxy + front-end yields + hot macro surprise can all be one macro shock.
+- CFTC positioning + ETF flows + crowding can all describe the same flow family.
+- WTI + Brent are closely related and should not count as two independent votes.
+- Options skew + put/call OI + implied volatility are one options family, and
+  implied volatility is not directional by itself.
+
+Gigi now audits five independent evidence families:
+1. PRICE_STRUCTURE
+2. MACRO_POLICY
+3. FLOWS_POSITIONING
+4. OPTIONS_VOLATILITY
+5. CROSS_MARKET_PHYSICAL
+
+Each family contributes at most one shadow vote. The audit reports broad support,
+broad conflict, thin evidence, mixed evidence, or major contradiction. It is
+explicitly not a probability and not an entry trigger.
+
+### Slow context snapshot used for shadow research
+- CFTC report 2026-09-29: Managed Money net +120,318 contracts, weekly net
+  change -7,071; classified LONG_BIASED_DELEVERAGING.
+- WGC ETF week 2026-09-25: global +US$134.2m but regionally mixed, with North
+  America about -US$610.3m and Europe about +US$614.5m; classified MIXED_INFLOW.
+- Cboe GVZ 2026-10-02: 23.23, about the 15th percentile of the trailing year;
+  classified LOW relative implied-volatility regime.
+- Delayed Cboe GLD options 2026-10-02: 27-DTE skew BALANCED, call-heavy OI proxy,
+  put/call OI ratio about 0.629, put/call volume ratio about 0.289, and moderate
+  near-spot convexity context.
+
+The important conclusion is not 'bullish' or 'bearish'. The slow layers are
+currently mixed: long positioning is still large but deleveraging, ETF demand is
+positive on aggregate but regionally rotated, and options do not show a strong
+downside-skew panic. Price structure and liquidity must still decide the trade.
