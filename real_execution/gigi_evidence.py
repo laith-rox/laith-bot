@@ -65,19 +65,23 @@ def _flow_vote(side, positioning, etf, crowding):
 
 
 def _options_vote(side, options, volatility):
+    """Directional vote from *skew only*; raw OI is deliberately unsigned.
+
+    Call-heavy or put-heavy open interest does not reveal whether customers are
+    net long or short those options, nor dealer hedge direction. Treating raw OI
+    as bullish/bearish would manufacture independent evidence. Skew is retained
+    as a weak preference proxy; gamma/OI/term structure remain context only.
+    """
     side=str(side or "WAIT").upper()
     skew=str((options or {}).get("skew") or "UNKNOWN").upper()
     oi=str((options or {}).get("oi_state") or "UNKNOWN").upper()
     vol_state=str((volatility or {}).get("state") or "UNKNOWN").upper()
     gold_opt=0
     if skew=="UPSIDE_CALL_BID":
-        gold_opt+=1
+        gold_opt=1
     elif skew=="DOWNSIDE_HEDGE_BID":
-        gold_opt-=1
-    if oi=="CALL_HEAVY":
-        gold_opt+=1
-    elif oi=="PUT_HEAVY":
-        gold_opt-=1
+        gold_opt=-1
+    # Intentionally do not vote on CALL_HEAVY / PUT_HEAVY OI.
     if vol_state=="UNKNOWN" and skew=="UNKNOWN" and oi=="UNKNOWN":
         return 0
     return _vote(gold_opt if side=="BUY" else (-gold_opt if side=="SELL" else 0))
