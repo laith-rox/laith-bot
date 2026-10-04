@@ -12,6 +12,7 @@ MAX_SHADOW_WEIGHT = 0.25
 
 DIMENSIONS = (
     "mode",
+    "requested_mode",
     "regime",
     "alignment",
     "context_score_bucket",
