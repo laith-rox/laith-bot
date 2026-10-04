@@ -360,6 +360,19 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_synthetic_usd_is_visible_without_direct_score(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            usd_basket={"state":"USD_STRONG_IMPULSE","breadth":0.82},
+        )
+        self.assertEqual(out["synthetic_usd_state"],"USD_STRONG_IMPULSE")
+        self.assertIn("synthetic_usd_strong_impulse",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
