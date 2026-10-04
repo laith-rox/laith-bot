@@ -135,6 +135,20 @@ class GigiThesisTests(unittest.TestCase):
         self.assertNotIn("options_call_oi_heavy",out["conflicts"])
 
 
+    def test_synthetic_usd_headwind_is_uncertainty_not_hard_conflict(self):
+        out=gigi_thesis.audit(
+            {"side":"BUY","risk_distance":3.0},
+            {"h4_bias":"UP"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+            usd_basket={"state":"USD_STRONG_IMPULSE","breadth":0.80},
+        )
+        self.assertIn("synthetic_usd_headwind",out["uncertainty"])
+        self.assertIn("synthetic_usd_broad_impulse",out["uncertainty"])
+        self.assertNotIn("synthetic_usd_headwind",out["conflicts"])
+
+
 
 if __name__=="__main__":
     unittest.main()
