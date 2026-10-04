@@ -80,8 +80,10 @@ def audit(signal=None, quality=None, execution_quality=None, thesis=None,
     if target_implied=="FAR_BEYOND_1D_PROXY":
         warnings.append("target_far_beyond_options_proxy")
 
-    if prior_state=="STABLE_NEGATIVE":
+    historical_quarantine = prior_state=="STABLE_NEGATIVE"
+    if historical_quarantine:
         warnings.append("historical_price_prior_negative")
+        warnings.append("historical_reason_shadow_quarantine")
     elif prior_state=="UNQUALIFIED_OR_UNKNOWN":
         warnings.append("historical_price_prior_unqualified")
 
@@ -92,6 +94,8 @@ def audit(signal=None, quality=None, execution_quality=None, thesis=None,
 
     if blockers:
         state="SHADOW_BLOCKED"
+    elif historical_quarantine:
+        state="SHADOW_QUARANTINED"
     elif len(warnings)>=3:
         state="SHADOW_CAUTION"
     elif warnings:
@@ -110,6 +114,7 @@ def audit(signal=None, quality=None, execution_quality=None, thesis=None,
         "alignment":alignment,
         "target_geometry_state":target_state,
         "price_prior_state":prior_state,
+        "historical_quarantine":historical_quarantine,
         "benchmark_phase":benchmark_phase,
         "directional_signal":False,
         "execution_gate":False,
