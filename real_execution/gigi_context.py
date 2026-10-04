@@ -178,6 +178,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     options_oi=str(options.get("oi_state") or "UNKNOWN").upper()
     options_gamma=str(options.get("gross_gamma_oi_context") or "UNKNOWN").upper()
     options_term=str(options.get("term_structure") or "UNKNOWN").upper()
+    options_expiry_pin=str(options.get("near_expiry_pin_state") or "UNKNOWN").upper()
     if options_skew=="DOWNSIDE_HEDGE_BID":
         reasons.append("options_downside_hedge_bid")
     elif options_skew=="UPSIDE_CALL_BID":
@@ -194,6 +195,12 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         reasons.append("options_near_term_vol_premium")
     elif options_term=="CONTANGO":
         reasons.append("options_far_term_vol_premium")
+    if options_expiry_pin=="NEAR_EXPIRY_OI_CLUSTER_AT_SPOT":
+        reasons.append("options_near_expiry_oi_cluster_at_spot")
+    elif options_expiry_pin=="NEAR_EXPIRY_OI_CLUSTER_NEAR_SPOT":
+        reasons.append("options_near_expiry_oi_cluster_near_spot")
+    elif options_expiry_pin=="NEAR_EXPIRY":
+        reasons.append("options_near_expiry")
 
     usd_state=str(usd_basket.get("state") or "UNKNOWN").upper()
     usd_breadth=float(usd_basket.get("breadth") or 0.0)
@@ -342,6 +349,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "options_oi_state": options_oi,
         "options_gamma_context": options_gamma,
         "options_term_structure": options_term,
+        "options_expiry_pin_state": options_expiry_pin,
         "event_response_state": event_state,
         "event_impulse": event_impulse,
         "macro_surprise_bundle": surprise_bundle,
