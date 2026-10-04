@@ -19,6 +19,7 @@ from urllib.error import HTTPError, URLError
 import real_analysis_engine as engine
 import gigi_regime
 import gigi_intermarket
+import gigi_usd_basket
 import gigi_macro
 import gigi_context
 import gigi_liquidity
@@ -250,6 +251,7 @@ def preview_payload(signal):
         "native_h4_reopen_ready": bool(signal.get("native_h4_reopen_ready", True)),
         "regime": signal.get("regime") or {},
         "intermarket": signal.get("intermarket") or {},
+        "usd_basket": signal.get("usd_basket") or {},
         "macro": signal.get("macro") or {},
         "event_response": signal.get("event_response") or {},
         "liquidity": signal.get("liquidity") or {},
@@ -435,6 +437,9 @@ def run_forever():
                 engine.normalize_rows(feeds["15m"]),
                 feeds.get("intermarket") or {},
             )
+            signal["usd_basket"] = gigi_usd_basket.analyze(
+                feeds.get("intermarket") or {}
+            )
             signal["macro"] = gigi_macro.context(time.time())
             signal["event_response"] = gigi_event_response.analyze(
                 engine.normalize_rows(feeds["5m"]),
@@ -508,6 +513,7 @@ def run_forever():
                 signal.get("benchmark"),
                 signal.get("target_geometry"),
                 signal.get("local_premium"),
+                signal.get("usd_basket"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
@@ -524,6 +530,7 @@ def run_forever():
                 signal.get("execution_quality"),
                 signal.get("exposure"),
                 signal.get("event_response"),
+                signal.get("usd_basket"),
             )
             signal["behavior"] = gigi_behavior.assess(
                 signal,
