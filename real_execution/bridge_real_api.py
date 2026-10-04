@@ -58,6 +58,7 @@ def _ready() -> bool:
     return bool(
         REAL_ARMED and EXECUTION_ENABLED and _configured() and not _emergency_stop
         and s_age is not None and s_age <= STATE_FRESH_SECONDS
+        and bool((_client_state or {}).get("terminal_trade_allowed")) is True
         and m_age is not None and m_age <= MARKET_FRESH_SECONDS
         and p_age is not None and p_age <= 10
     )
@@ -161,6 +162,8 @@ def _readiness_blockers(now=None):
         blockers.append("emergency_stop")
     if s_age is None or s_age > STATE_FRESH_SECONDS:
         blockers.append("mt5_state_stale")
+    elif not bool((_client_state or {}).get("terminal_trade_allowed")):
+        blockers.append("mt5_autotrading_off")
     p_age = _client_poll_age(now)
     if p_age is None or p_age > 10:
         blockers.append("executor_not_connected")
@@ -200,6 +203,7 @@ def _status():
         "position_risk_usd": state.get("position_risk_usd", 0),
         "client_state_fresh": s_age is not None and s_age <= STATE_FRESH_SECONDS,
         "client_state_age": s_age,
+        "terminal_trade_allowed": bool(state.get("terminal_trade_allowed")),
         "executor_poll_fresh": poll_age is not None and poll_age <= 10,
         "executor_poll_age": poll_age,
         "market_fresh": (
@@ -235,6 +239,8 @@ def _validate_publish(data: dict):
     s_age = _state_age()
     if s_age is None or s_age > STATE_FRESH_SECONDS:
         return False, "real_state_stale"
+    if not bool((_client_state or {}).get("terminal_trade_allowed")):
+        return False, "real_mt5_autotrading_off"
     m_age = _market_age()
     if m_age is None or m_age > MARKET_FRESH_SECONDS:
         return False, "real_market_stale"
