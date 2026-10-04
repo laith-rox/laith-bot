@@ -53,7 +53,7 @@ External slow-data layers are context only. None is a standalone BUY/SELL trigge
 
 ## Validation performed before freeze
 
-- Full local candidate discovery suite: **260 tests passed** (latest verification on 2026-10-04).
+- Full local candidate discovery suite: **267 tests passed** (latest verification on 2026-10-04).
 - All candidate Python modules plus VPS candidate executor, relay and learning
   observer compile successfully.
 - Live external source smoke tests returned usable CFTC, WGC ETF, Cboe options,
@@ -69,7 +69,7 @@ does not place or submit a real order.
 
 ## Latest verification — 2026-10-04
 
-- Python discovery suite: **260/260 passed**.
+- Python discovery suite: **267/267 passed**.
 - All candidate Python modules plus the VPS candidate executor, relay and
   learning observer compiled successfully.
 - Live slow-source smoke checks succeeded:
@@ -81,3 +81,18 @@ does not place or submit a real order.
 - Options expiry/OI, gamma-OI and skew remain explicitly unsigned/context-only;
   no dealer-position sign is inferred.
 - No production execution state was changed during this verification.
+
+
+## Final freeze note
+
+- Final candidate recheck on 2026-10-04: **267/267 tests passed**.
+- CFTC, WGC ETF, Cboe GLD options and GVZ smoke checks all returned usable data.
+- Latest delayed GLD options snapshot remained context-only: balanced 25-delta
+  skew, call-heavy unsigned OI proxy, moderate near-spot convexity, and no
+  dealer-sign inference.
+- No additional strategy feature should be promoted into execution merely to
+  increase complexity. New research stays SHADOW until it has enough resolved
+  observations and out-of-sample evidence.
+- Known data limitation: the current options layer is a delayed GLD proxy, not
+  a signed COMEX dealer-position feed. The system must keep that limitation
+  explicit rather than pretending to know dealer direction.
