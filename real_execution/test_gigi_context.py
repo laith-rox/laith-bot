@@ -373,6 +373,23 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_gold_usd_relationship_flip_is_visible_without_score_change(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            usd_basket={
+                "state":"USD_MIXED",
+                "breadth":0.70,
+                "gold_relationship":{"state":"RELATIONSHIP_FLIP"},
+            },
+        )
+        self.assertEqual(out["synthetic_usd_relationship"],"RELATIONSHIP_FLIP")
+        self.assertIn("gold_usd_relationship_flip",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
