@@ -457,3 +457,40 @@ Do not solve a negative price-only base by adding more correlated indicators.
 Use the external layers (liquidity, macro, options, ETF, positioning, yields)
 to form testable subsets, then validate those subsets out of sample before any
 promotion.
+
+
+## Broker-native expectancy research — 240d through 2026-10-02
+
+A price-only JustMarkets MT5 walk-forward was run on native M5/M15/H4 bars with
+historical broker spread and conservative next-bar profit-protection replay.
+Historical CFTC/ETF/options/yields/news states were deliberately excluded.
+
+Overall sample (n=9,539) remained negative after spread: mean -0.1307R,
+profit factor 0.7366. Raw win rate was 54.97%, but the average win was only
++0.6648R versus an average loss of -1.1020R. Given that payoff, breakeven
+required about 62.37% wins. This is a concrete reminder that win rate alone is
+not edge.
+
+Mode split:
+- MAIN: n769, +0.0512R mean, PF 1.1279.
+- SNIPER: n8770, -0.1466R mean, PF 0.7094.
+
+Palestine-time MAIN sample:
+- 05:00-10:00: +0.1903R, PF 1.5656.
+- 10:00-13:00: +0.1998R, PF 1.5387.
+- 13:00-15:20: -0.0076R, PF 0.9799.
+- 15:20-18:00: -0.2339R, PF 0.5941.
+- 18:00-20:00: -0.1108R, PF 0.7474.
+
+This contradicts the earlier intuition that the US window should automatically
+be the strongest MAIN window. The historical sample says early/London MAIN was
+better. Time therefore remains context, not a hard gate, until forward evidence
+confirms the pattern.
+
+Execution-cost geometry was highly informative. When historical spread cost was
+<=0.05R of planned risk, the combined sample was +0.0834R with PF 1.2374. The
+SNIPER subset in that narrow low-cost bucket was +0.1585R with PF 1.6361, but
+only n357. Above 0.20R of risk, the combined sample deteriorated to -0.6720R and
+PF 0.2528. This is a research clue, not a live threshold: spread/risk geometry
+may be more important than raw spread alone and must be validated prospectively
+before becoming any execution rule.
