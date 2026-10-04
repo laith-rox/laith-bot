@@ -40,6 +40,7 @@ COPY gigi_benchmark.py test_gigi_benchmark.py ./
 COPY gigi_walkforward.py test_gigi_walkforward.py ./
 COPY gigi_price_prior.py test_gigi_price_prior.py ./
 COPY gigi_market_proof.py test_gigi_market_proof.py ./
+COPY gigi_release_gate.py test_gigi_release_gate.py ./
 COPY gigi_calibration.py test_gigi_calibration.py ./
 COPY gigi_setup.py test_gigi_setup.py ./
 COPY gigi_evidence.py test_gigi_evidence.py ./
@@ -85,6 +86,7 @@ RUN python -m unittest -v \
     test_gigi_walkforward.py \
     test_gigi_price_prior.py \
     test_gigi_market_proof.py \
+    test_gigi_release_gate.py \
     test_gigi_calibration.py \
     test_gigi_setup.py \
     test_gigi_evidence.py \
