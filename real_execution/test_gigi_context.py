@@ -390,6 +390,24 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_near_expiry_oi_cluster_is_context_only(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"near_expiry_pin_state":"NEAR_EXPIRY_OI_CLUSTER_AT_SPOT"},
+        )
+        self.assertEqual(out["options_expiry_pin_state"],"NEAR_EXPIRY_OI_CLUSTER_AT_SPOT")
+        self.assertIn("options_near_expiry_oi_cluster_at_spot",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
