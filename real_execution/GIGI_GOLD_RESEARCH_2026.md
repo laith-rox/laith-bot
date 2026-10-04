@@ -562,3 +562,22 @@ downside-skew panic. Price structure and liquidity must still decide the trade.
   evidence remains WATCH.
 - Raw options OI is unsigned and cannot create a liquidation direction by
   itself.
+
+
+## Gigi strength-aware trade-mode request
+
+Gigi now separates *what the market evidence deserves* from a fixed clock label.
+
+- MAIN is requested only when the setup has enough technical alignment, H4 agrees
+  with the side, contextual evidence supports the thesis, and the setup is not
+  inside a pre-event / first-shock macro gate.
+- SNIPER is requested for a valid but more tactical setup that does not earn the
+  structural MAIN threshold.
+- NO_TRADE is requested when evidence is too weak or the event phase makes the
+  first move unreliable.
+- Adverse squeeze/liquidation risk can demote a would-be MAIN setup.
+- Volatility stress can reduce MAIN quality, but volatility alone never chooses
+  BUY or SELL.
+- The requested mode is recorded separately from the legacy engine mode so its
+  results can be calibrated out-of-sample before it is trusted.
+- This selector is analytical only and does not authorize or place an order.
