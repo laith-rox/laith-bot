@@ -581,3 +581,24 @@ Gigi now separates *what the market evidence deserves* from a fixed clock label.
 - The requested mode is recorded separately from the legacy engine mode so its
   results can be calibrated out-of-sample before it is trusted.
 - This selector is analytical only and does not authorize or place an order.
+
+
+## Proof-before-promotion checkpoint
+
+Tool count is no longer treated as progress by itself. The candidate now has a
+research promotion gate based on chronological broker-price walk-forward proof.
+
+Current six-window price-only proof:
+- MAIN: 1,394 observations across six non-overlapping 60-day windows; weighted
+  mean about +0.063R, but one window is negative. Classification:
+  PROMISING_UNSTABLE -> SHADOW_ONLY.
+- SNIPER: 13,818 observations; every one of the six windows is negative;
+  weighted mean about -0.121R. Classification:
+  STABLE_NEGATIVE -> RESEARCH_HOLD.
+
+Consequence:
+- More context layers do not excuse a negative price-only base.
+- SNIPER must be redesigned/retested rather than promoted because of tool count.
+- MAIN must prove stability across independent windows/setup reasons before it
+  can become an evidence candidate.
+- Unit-test success proves software consistency, not trading edge.
