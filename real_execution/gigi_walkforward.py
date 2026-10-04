@@ -51,6 +51,16 @@ def session_bucket(bar_datetime):
     return "LATE_18_20"
 
 
+def h4_alignment(side, h4_bias):
+    side=str(side or "").upper()
+    bias=str(h4_bias or "NEUTRAL").upper()
+    if bias=="NEUTRAL" or side not in ("BUY","SELL"):
+        return "NEUTRAL"
+    if (side=="BUY" and bias=="UP") or (side=="SELL" and bias=="DOWN"):
+        return "ALIGNED"
+    return "COUNTER"
+
+
 def _slice_through(rows, epochs, cutoff, count):
     idx=bisect_right(epochs, cutoff)-1
     if idx < 0:
@@ -285,6 +295,7 @@ def walk_forward(m5_rows, m15_rows, h4_rows, point=0.01, max_signals_per_hour=6,
             "score":int(signal.get("score") or 0),
             "strength":int(engine.signal_strength(signal)),
             "h4_bias":str((signal.get("mtf") or {}).get("h4_bias") or "NEUTRAL").upper(),
+            "h4_alignment":h4_alignment(side,(signal.get("mtf") or {}).get("h4_bias")),
             "session_bucket":session_bucket(bar),
             "entry":entry,
             "risk_distance":risk,
@@ -387,6 +398,16 @@ def report(observations):
             ])
             for reason,bias in sorted({
                 (str(x.get("reason") or ""),str(x.get("h4_bias") or "NEUTRAL"))
+                for x in rows
+            })
+        },
+        "by_reason_h4_alignment":{
+            f"{reason}|{alignment}":_net_summary([
+                x for x in rows
+                if x.get("reason")==reason and x.get("h4_alignment")==alignment
+            ])
+            for reason,alignment in sorted({
+                (str(x.get("reason") or ""),str(x.get("h4_alignment") or "NEUTRAL"))
                 for x in rows
             })
         },
