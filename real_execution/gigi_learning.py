@@ -22,6 +22,8 @@ DIMENSIONS = (
     "macro_calendar_horizon",
     "event_response_state",
     "event_impulse",
+    "macro_surprise_bundle",
+    "macro_surprise_price_relation",
     "intermarket_bias",
     "intermarket_relationship_state",
     "usd_basket_state",
