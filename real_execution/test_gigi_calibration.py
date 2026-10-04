@@ -34,6 +34,34 @@ class GigiCalibrationTests(unittest.TestCase):
         self.assertIn("alignment:SUPPORT",out["buckets"])
         self.assertNotIn("mode:MAIN",out["buckets"])
 
+    def test_expectancy_ci_requires_variance_data(self):
+        out=gigi_calibration.calibrate_bucket({"n":100,"wins":60,"sum_r":20.0})
+        self.assertEqual(out["expectancy_status"],"INSUFFICIENT_EXPECTANCY_CONFIDENCE")
+        self.assertIsNone(out["mean_r_ci_low"])
+
+    def test_positive_expectancy_ci_can_be_confirmed(self):
+        # 100 observations tightly clustered around +0.20R.
+        out=gigi_calibration.calibrate_bucket({
+            "n":100,
+            "wins":100,
+            "sum_r":20.0,
+            "sum_r2":4.10,
+        })
+        self.assertEqual(out["expectancy_status"],"POSITIVE_EXPECTANCY_CI")
+        self.assertGreater(out["mean_r_ci_low"],0)
+
+    def test_noisy_mean_stays_uncertain(self):
+        out=gigi_calibration.calibrate_bucket({
+            "n":100,
+            "wins":55,
+            "sum_r":5.0,
+            "sum_r2":100.0,
+        })
+        self.assertEqual(out["expectancy_status"],"EXPECTANCY_UNCERTAIN")
+        self.assertLessEqual(out["mean_r_ci_low"],0)
+        self.assertGreaterEqual(out["mean_r_ci_high"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
