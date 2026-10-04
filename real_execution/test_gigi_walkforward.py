@@ -86,6 +86,29 @@ class GigiWalkForwardTests(unittest.TestCase):
         self.assertGreater(out["close_r"],0)
 
 
+    def test_session_bucket_distinguishes_london_and_us(self):
+        self.assertEqual(gigi_walkforward.session_bucket("2026-10-03T07:00:00Z"),"LONDON_10_13")
+        self.assertEqual(gigi_walkforward.session_bucket("2026-10-03T12:20:00Z"),"US_1520_18")
+
+    def test_report_groups_strength_and_h4_bias(self):
+        rows=[
+            {
+                "time":1,"resolved":True,"close_r":1.0,"net_close_r":0.9,
+                "outcome":"TARGET","mode":"SNIPER","reason":"fast_primary_2of3",
+                "strength":5,"h4_bias":"UP","session_bucket":"LONDON_10_13",
+            },
+            {
+                "time":2,"resolved":True,"close_r":-1.0,"net_close_r":-1.1,
+                "outcome":"STOP","mode":"SNIPER","reason":"fast_primary_2of3",
+                "strength":4,"h4_bias":"DOWN","session_bucket":"US_1520_18",
+            },
+        ]
+        out=gigi_walkforward.report(rows)
+        self.assertIn("5",out["by_strength"])
+        self.assertIn("fast_primary_2of3|UP",out["by_reason_h4"])
+        self.assertIn("LONDON_10_13",out["by_session"])
+
+
 
 if __name__=="__main__":
     unittest.main()
