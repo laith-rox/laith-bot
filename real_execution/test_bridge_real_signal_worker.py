@@ -296,6 +296,15 @@ class RealSignalMirrorTests(unittest.TestCase):
         self.assertFalse(out["benchmark"]["directional_signal"])
 
 
+    def test_setup_is_classified_after_crowding_is_built(self):
+        import inspect
+        source=inspect.getsource(worker.run_forever)
+        crowding_pos=source.find('signal["crowding"] = gigi_crowding.analyze')
+        setup_pos=source.find('signal["setup"] = gigi_setup.classify')
+        self.assertGreaterEqual(crowding_pos,0)
+        self.assertGreater(setup_pos,crowding_pos)
+
+
 
 if __name__ == "__main__":
     unittest.main()
