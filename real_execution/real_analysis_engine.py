@@ -1,13 +1,14 @@
-"""Independent DEMO-only signal publisher for the Laith execution bridge.
+"""Candidate REAL gold analysis engine.
 
-This worker is intentionally isolated from V4 and the legacy Laith bot. It reads
-XAU/USD 5-minute candles directly, evaluates seven mirrored conditions, and
-publishes 5/7-or-better BUY/SELL setups for the fast DEMO mode to the DEMO bridge.
+The entry logic originated from the DEMO mirror, but REAL candidate analysis now
+uses broker-native MT5 M5/M15/H4 feeds with fail-closed freshness checks. This
+module computes analysis only; execution safety remains outside this engine.
 """
 from __future__ import annotations
 
 from collections import deque
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import json
 import math
 import os
@@ -228,8 +229,14 @@ def compute_signal(values):
     sell = [ema8[-1] < ema21[-1], minus_di > plus_di, adx_ok, rsi <= 48.0,
             momentum < 0, volume_ok, close < recent_low]
     buy_score, sell_score = sum(map(bool,buy)), sum(map(bool,sell))
-    try: hour_local = (datetime.fromisoformat(last["datetime"]).hour + 3) % 24
-    except Exception: hour_local = (datetime.now(timezone.utc).hour + 3) % 24
+    try:
+        bar_dt = datetime.fromisoformat(str(last["datetime"]).replace("Z", "+00:00"))
+        if bar_dt.tzinfo is None:
+            bar_dt = bar_dt.replace(tzinfo=timezone.utc)
+        palestine_dt = bar_dt.astimezone(ZoneInfo("Asia/Gaza"))
+    except Exception:
+        palestine_dt = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Gaza"))
+    hour_local = palestine_dt.hour
     d = decide(buy_score=buy_score, sell_score=sell_score, rsi=rsi, atr=atr,
         atr_baseline=atr_baseline or atr or 1.0, ema_fast=ema8[-1], ema_slow=ema21[-1],
         close=close, recent_high=recent_high, recent_low=recent_low, momentum=momentum, hour_local=hour_local)
@@ -239,7 +246,7 @@ def compute_signal(values):
     # Palestine local time. The worker enforces the same window again at
     # publish time; keeping this aligned prevents a legacy night-only branch
     # from silently disabling daytime sniper opportunities.
-    minute_local = hour_local * 60 + datetime.fromisoformat(last["datetime"]).minute
+    minute_local = hour_local * 60 + palestine_dt.minute
     sniper_window = 5*60 <= minute_local < 20*60
     # Do not confuse a short pullback with a new trend. The 21/55 EMA regime
     # represents roughly 30-60 minutes of structure on these five-minute bars.
@@ -392,7 +399,7 @@ def compute_signal(values):
     # Instead cap the stop by the user-approved strength ladder; the EA still
     # verifies the exact USD loss with OrderCalcProfit before DEMO execution.
     strength = max(buy_score, sell_score)
-    sniper_mode = d.mode in ("SNIPER", "SNIPER", "REJECTION_SCALP", "CORRECTION_SCALP")
+    sniper_mode = d.mode in ("SNIPER", "REJECTION_SCALP", "CORRECTION_SCALP")
     sniper_cap = 3.00 if strength <= 4 else (5.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
     if sniper_mode:
         risk_cap = sniper_cap
