@@ -44,6 +44,7 @@ import gigi_clock
 import gigi_session_profile
 import gigi_benchmark
 import gigi_price_prior
+import gigi_setup
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -276,6 +277,7 @@ def preview_payload(signal):
         "benchmark": signal.get("benchmark") or {},
         "gigi_context": signal.get("gigi_context") or {},
         "price_prior": signal.get("price_prior") or {},
+        "setup": signal.get("setup") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
@@ -469,6 +471,17 @@ def run_forever():
             )
             signal = attach_benchmark_context(signal)
             signal["price_prior"] = gigi_price_prior.assess(signal.get("reason"))
+            signal["setup"] = gigi_setup.classify(
+                signal,
+                signal.get("regime"),
+                signal.get("liquidity"),
+                signal.get("macro"),
+                signal.get("event_response"),
+                signal.get("crowding"),
+                signal.get("session_profile"),
+                signal.get("options"),
+                signal.get("price_prior"),
+            )
             signal["stop_geometry"] = gigi_stop_geometry.analyze(
                 signal,
                 engine.normalize_rows(feeds["15m"]),
