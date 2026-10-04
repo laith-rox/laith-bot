@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None, usd_basket=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -24,6 +24,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     benchmark=benchmark or {}
     target_geometry=target_geometry or {}
     local_premium=local_premium or {}
+    usd_basket=usd_basket or {}
 
     score=0
     reasons=[]
@@ -193,6 +194,19 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif options_term=="CONTANGO":
         reasons.append("options_far_term_vol_premium")
 
+    usd_state=str(usd_basket.get("state") or "UNKNOWN").upper()
+    usd_breadth=float(usd_basket.get("breadth") or 0.0)
+    if usd_state=="USD_STRONG_IMPULSE":
+        reasons.append("synthetic_usd_strong_impulse")
+    elif usd_state=="USD_FIRM":
+        reasons.append("synthetic_usd_firm")
+    elif usd_state=="USD_WEAK_IMPULSE":
+        reasons.append("synthetic_usd_weak_impulse")
+    elif usd_state=="USD_SOFT":
+        reasons.append("synthetic_usd_soft")
+    elif usd_state=="INSUFFICIENT_COVERAGE":
+        reasons.append("synthetic_usd_insufficient_coverage")
+
     real_yield_regime=str(yields.get("real_yield_regime") or "UNKNOWN").upper()
     policy_regime=str(yields.get("policy_regime") or "UNKNOWN").upper()
     if real_yield_regime=="RISING_REAL_YIELD":
@@ -312,6 +326,8 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "target_implied_relation": target_implied_relation,
         "china_local_premium_state": china_premium_state,
         "india_local_premium_state": india_premium_state,
+        "synthetic_usd_state": usd_state,
+        "synthetic_usd_breadth": round(usd_breadth,3),
         "flow_family_score": int(flow_family_score),
         "reasons": reasons,
         "note": "alignment_score_not_probability",
