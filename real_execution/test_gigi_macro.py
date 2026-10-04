@@ -102,6 +102,18 @@ class GigiMacroTests(unittest.TestCase):
         self.assertEqual(out["phase"], "OUT_OF_HORIZON")
 
 
+    def test_parse_preserves_actual_forecast_previous(self):
+        payload = [{
+            "country":"USD","impact":"High","title":"CPI m/m",
+            "date":"2026-10-05T12:30:00+00:00",
+            "actual":"0.4%","forecast":"0.3%","previous":"0.2%",
+        }]
+        event = gigi_macro.parse_events(payload)[0]
+        self.assertEqual(event["actual"], "0.4%")
+        self.assertEqual(event["forecast"], "0.3%")
+        self.assertEqual(event["previous"], "0.2%")
+
+
 
 if __name__ == "__main__":
     unittest.main()
