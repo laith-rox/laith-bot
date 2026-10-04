@@ -532,3 +532,33 @@ The important conclusion is not 'bullish' or 'bearish'. The slow layers are
 currently mixed: long positioning is still large but deleveraging, ETF demand is
 positive on aggregate but regionally rotated, and options do not show a strong
 downside-skew panic. Price structure and liquidity must still decide the trade.
+
+
+### Cboe delayed GLD options proxy — snapshot captured 2026-10-03
+- Underlying snapshot: GLD 380.14, underlying last trade 2026-10-02 15:59:59.
+- Selected ~27-day expiry: 2026-10-30.
+- 25-delta call IV: 20.70%; 25-delta put IV: 21.18%.
+- 25-delta put-minus-call skew: +0.48 vol points -> BALANCED.
+- Put/call OI ratio in the +/-20% spot band: ~0.629 -> CALL_HEAVY by the
+  unsigned OI classification.
+- Put/call volume ratio: ~0.289.
+- IV30: ~20.63%; simple non-directional expected-move proxies: ~1.30% for one
+  day and ~2.91% for five days.
+- Near-expiry largest OI strike: 405, about 6.54% above spot; this is recorded
+  as an unsigned concentration, not support/resistance and not dealer gamma.
+- Gross gamma/OI proxy is explicitly unsigned because public chain data does
+  not reveal dealer/customer position sign.
+- Lesson: options skew/OI/convexity can describe hedging pressure, crowding and
+  movement risk, but cannot be promoted into a directional BUY/SELL vote
+  without independent price/liquidity evidence.
+
+## Crowding and liquidation reasoning added
+
+- Long-liquidation risk combines long crowding/deleveraging, ETF outflow,
+  bearish liquidity rejection and volatility expansion.
+- Short-squeeze risk combines short crowding/covering, ETF inflow, bullish
+  liquidity rejection and volatility expansion.
+- A HIGH cascade state requires the volatility speed gate; otherwise the same
+  evidence remains WATCH.
+- Raw options OI is unsigned and cannot create a liquidation direction by
+  itself.
