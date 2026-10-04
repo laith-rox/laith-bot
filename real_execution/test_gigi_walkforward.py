@@ -109,6 +109,14 @@ class GigiWalkForwardTests(unittest.TestCase):
         self.assertIn("LONDON_10_13",out["by_session"])
 
 
+    def test_h4_alignment_is_side_aware(self):
+        self.assertEqual(gigi_walkforward.h4_alignment("BUY","UP"),"ALIGNED")
+        self.assertEqual(gigi_walkforward.h4_alignment("SELL","DOWN"),"ALIGNED")
+        self.assertEqual(gigi_walkforward.h4_alignment("BUY","DOWN"),"COUNTER")
+        self.assertEqual(gigi_walkforward.h4_alignment("SELL","UP"),"COUNTER")
+        self.assertEqual(gigi_walkforward.h4_alignment("BUY","NEUTRAL"),"NEUTRAL")
+
+
 
 if __name__=="__main__":
     unittest.main()
