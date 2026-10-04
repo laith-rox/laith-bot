@@ -448,6 +448,10 @@ def run_forever():
                 engine.normalize_rows(feeds["5m"]),
                 signal.get("macro"),
             )
+            signal["macro_surprise"] = gigi_macro_surprise.analyze(
+                signal.get("macro"),
+                signal.get("event_response"),
+            )
             signal["liquidity"] = gigi_liquidity.analyze(
                 engine.normalize_rows(feeds["5m"]),
                 engine.normalize_rows(feeds["15m"]),
