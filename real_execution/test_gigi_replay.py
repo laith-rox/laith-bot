@@ -41,6 +41,30 @@ class GigiReplayTests(unittest.TestCase):
         self.assertEqual(len(split["train"]),2)
         self.assertEqual(len(split["holdout"]),2)
 
+    def test_summary_exposes_expectancy_math(self):
+        obs=[
+            {"resolved":True,"close_r":1.0,"outcome":"TARGET","mfe_r":1.2,"mae_r":-0.2},
+            {"resolved":True,"close_r":1.0,"outcome":"TARGET","mfe_r":1.1,"mae_r":-0.1},
+            {"resolved":True,"close_r":-1.0,"outcome":"STOP","mfe_r":0.2,"mae_r":-1.0},
+        ]
+        s=gigi_replay.summarize(obs)
+        self.assertAlmostEqual(s["avg_win_r"],1.0,places=4)
+        self.assertAlmostEqual(s["avg_loss_r"],-1.0,places=4)
+        self.assertAlmostEqual(s["payoff_ratio"],1.0,places=4)
+        self.assertAlmostEqual(s["profit_factor"],2.0,places=4)
+        self.assertAlmostEqual(s["breakeven_win_rate"],0.5,places=4)
+
+    def test_high_win_rate_can_still_have_negative_expectancy(self):
+        obs=[
+            *[{"resolved":True,"close_r":0.2,"outcome":"HORIZON","mfe_r":0.4,"mae_r":-0.2} for _ in range(6)],
+            *[{"resolved":True,"close_r":-1.0,"outcome":"STOP","mfe_r":0.1,"mae_r":-1.0} for _ in range(4)],
+        ]
+        s=gigi_replay.summarize(obs)
+        self.assertEqual(s["win_rate"],0.6)
+        self.assertLess(s["mean_r"],0.0)
+        self.assertLess(s["payoff_ratio"],1.0)
+
+
 
 if __name__=="__main__":
     unittest.main()
