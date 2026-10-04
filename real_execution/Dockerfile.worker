@@ -40,6 +40,7 @@ COPY gigi_benchmark.py test_gigi_benchmark.py ./
 COPY gigi_walkforward.py test_gigi_walkforward.py ./
 COPY gigi_price_prior.py test_gigi_price_prior.py ./
 COPY gigi_calibration.py test_gigi_calibration.py ./
+COPY gigi_setup.py test_gigi_setup.py ./
 
 RUN python -m unittest -v \
     test_bridge_real_signal_worker.py \
@@ -78,7 +79,8 @@ RUN python -m unittest -v \
     test_gigi_benchmark.py \
     test_gigi_walkforward.py \
     test_gigi_price_prior.py \
-    test_gigi_calibration.py
+    test_gigi_calibration.py \
+    test_gigi_setup.py
 
 EXPOSE 8080
 CMD ["python","-u","bridge_real_signal_worker.py"]
