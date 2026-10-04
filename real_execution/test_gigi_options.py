@@ -140,6 +140,37 @@ class GigiOptionsTests(unittest.TestCase):
         self.assertFalse(out["directional_signal"])
 
 
+    def test_near_expiry_oi_cluster_is_unsigned_context(self):
+        data=payload()
+        data["timestamp"]="2026-10-27 12:00:00"
+        code="261030"
+        opts=[]
+        for strike,oi in [(379,100),(380,1000),(381,120),(390,50)]:
+            for cp,delta in (("C",0.5),("P",-0.5)):
+                opts.append({
+                    "option":f"GLD{code}{cp}{int(strike*1000):08d}",
+                    "iv":0.21,
+                    "delta":delta,
+                    "open_interest":oi,
+                    "volume":10,
+                    "gamma":0.02,
+                })
+        opts.append({
+            "option":f"GLD{code}C{int(397*1000):08d}",
+            "iv":0.20,"delta":0.25,"open_interest":20,"volume":5,"gamma":0.01,
+        })
+        opts.append({
+            "option":f"GLD{code}P{int(367*1000):08d}",
+            "iv":0.21,"delta":-0.25,"open_interest":20,"volume":5,"gamma":0.01,
+        })
+        data["data"]["options"]=opts
+        out=gigi_options.parse(data)
+        self.assertIn(out["near_expiry_pin_state"],(
+            "NEAR_EXPIRY_OI_CLUSTER_AT_SPOT","NEAR_EXPIRY_OI_CLUSTER_NEAR_SPOT"
+        ))
+        self.assertIn("not_directional",out["near_expiry_note"])
+
+
 
 if __name__=="__main__":
     unittest.main()
