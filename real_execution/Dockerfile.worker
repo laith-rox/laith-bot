@@ -8,6 +8,7 @@ COPY real_analysis_engine.py adaptive_sniper_engine.py multi_timeframe_structure
 COPY gigi_profit_protection.py test_gigi_profit_protection.py ./
 COPY gigi_regime.py test_gigi_regime.py ./
 COPY gigi_intermarket.py test_gigi_intermarket.py ./
+COPY gigi_usd_basket.py test_gigi_usd_basket.py ./
 COPY gigi_macro.py test_gigi_macro.py ./
 COPY gigi_context.py test_gigi_context.py ./
 COPY gigi_learning.py test_gigi_learning.py ./
@@ -44,6 +45,7 @@ RUN python -m unittest -v \
     test_gigi_profit_protection.py \
     test_gigi_regime.py \
     test_gigi_intermarket.py \
+    test_gigi_usd_basket.py \
     test_gigi_macro.py \
     test_gigi_context.py \
     test_gigi_learning.py \
