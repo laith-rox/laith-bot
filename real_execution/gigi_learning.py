@@ -63,6 +63,8 @@ DIMENSIONS = (
     "target_geometry_state",
     "target_implied_relation",
     "price_prior_status",
+    "setup_archetype",
+    "setup_mixed",
     "china_premium_state",
     "india_premium_state",
     "session",
