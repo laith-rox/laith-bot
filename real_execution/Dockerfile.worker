@@ -2,8 +2,8 @@ FROM python:3.12-slim
 WORKDIR /app
 RUN pip install --no-cache-dir tzdata requests
 
-COPY bridge_real_signal_worker.py test_bridge_real_signal_worker.py ./
-COPY real_analysis_engine.py adaptive_sniper_engine.py multi_timeframe_structure.py technical_confirmation.py ./
+COPY bridge_real_signal_worker.py test_bridge_real_signal_worker.py test_gigi_trade_notice.py ./
+COPY real_analysis_engine.py adaptive_sniper_engine.py multi_timeframe_structure.py technical_confirmation.py gigi_trade_notice.py ./
 
 COPY gigi_profit_protection.py test_gigi_profit_protection.py ./
 COPY gigi_regime.py test_gigi_regime.py ./
@@ -49,7 +49,7 @@ COPY gigi_risk_guard.py test_gigi_risk_guard.py ./
 COPY gigi_uncertainty.py test_gigi_uncertainty.py ./
 COPY test_gigi_session_alignment.py ./
 
-RUN python -m unittest -v \
+RUN python -m unittest -v \ test_gigi_trade_notice.py
     test_bridge_real_signal_worker.py \
     test_gigi_profit_protection.py \
     test_gigi_regime.py \
