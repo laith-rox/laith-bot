@@ -41,6 +41,7 @@ DIMENSIONS = (
     "options_oi_state",
     "options_gamma_context",
     "options_term_structure",
+    "options_expiry_pin_state",
     "real_yield_regime",
     "policy_regime",
     "stop_geometry",
