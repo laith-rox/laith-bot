@@ -255,6 +255,7 @@ def preview_payload(signal):
         "usd_basket": signal.get("usd_basket") or {},
         "macro": signal.get("macro") or {},
         "event_response": signal.get("event_response") or {},
+        "macro_surprise": signal.get("macro_surprise") or {},
         "liquidity": signal.get("liquidity") or {},
         "positioning": signal.get("positioning") or {},
         "volatility": signal.get("volatility") or {},
