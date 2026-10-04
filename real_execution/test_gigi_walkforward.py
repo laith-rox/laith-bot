@@ -117,6 +117,21 @@ class GigiWalkForwardTests(unittest.TestCase):
         self.assertEqual(gigi_walkforward.h4_alignment("BUY","NEUTRAL"),"NEUTRAL")
 
 
+    def test_report_exposes_mode_condition_slices(self):
+        rows=[
+            {"resolved":True,"close_r":0.5,"net_close_r":0.4,"static_close_r":0.5,
+             "mode":"MAIN","session_bucket":"LONDON_10_13","strength":6,
+             "h4_alignment":"ALIGNED","reason":"x","mfe_r":1.0,"mae_r":-0.2},
+            {"resolved":True,"close_r":-1.0,"net_close_r":-1.1,"static_close_r":-1.0,
+             "mode":"SNIPER","session_bucket":"US_1520_18","strength":4,
+             "h4_alignment":"COUNTER","reason":"y","mfe_r":0.3,"mae_r":-1.0},
+        ]
+        out=gigi_walkforward.report(rows)
+        self.assertIn("MAIN|LONDON_10_13",out["by_mode_session"])
+        self.assertIn("MAIN|6",out["by_mode_strength"])
+        self.assertIn("SNIPER|COUNTER",out["by_mode_h4_alignment"])
+
+
 
 if __name__=="__main__":
     unittest.main()
