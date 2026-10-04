@@ -50,6 +50,7 @@ import gigi_setup
 import gigi_evidence
 import gigi_trade_mode
 import gigi_uncertainty
+import gigi_trade_notice
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -237,6 +238,23 @@ def publish_signal(signal, spot_override=None, copy_index=1):
         headers={"X-Publish-Token": PUBLISH_TOKEN},
     )
     return status, response, payload["key"]
+
+
+def notify_trade_idea(signal, health, outcome, reject_reason=None):
+    """Best-effort Telegram notice; notification failure never changes trading gates."""
+    if str(signal.get("side") or "").upper() not in ("BUY", "SELL"):
+        return
+    try:
+        result = gigi_trade_notice.send(
+            signal,
+            float((health or {}).get("price") or signal.get("reference_close") or 0),
+            outcome,
+            reject_reason,
+        )
+        if not result.get("ok") and result.get("reason") != "decision_relay_not_configured":
+            print(f"gigi_notice_skip reason={result.get('reason','unknown')}", flush=True)
+    except Exception as exc:
+        print(f"gigi_notice_error type={type(exc).__name__} detail={exc}", flush=True)
 
 
 def preview_payload(signal):
@@ -633,6 +651,7 @@ def run_forever():
             last_bar = signal["bar"]
 
             if not REAL_SIGNAL_ENABLED or not REAL_LIVE_HANDOFF_ENABLED:
+                notify_trade_idea(signal, health, "ANALYSIS_ONLY", "live_handoff_disabled")
                 print(
                     f"real_signal_preview bar={signal['bar']} side={signal.get('side') or 'WAIT'} "
                     f"buy={signal['buy_score']}/7 sell={signal['sell_score']}/7 "
@@ -644,17 +663,20 @@ def run_forever():
 
             reason = config_reason()
             if reason:
+                notify_trade_idea(signal, health, "REJECTED", reason)
                 print(f"real_signal_skip reason={reason}", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
 
             block_reason = execution_block_reason(health)
             if block_reason:
+                notify_trade_idea(signal, health, "REJECTED", block_reason)
                 print(f"real_signal_skip reason={block_reason}", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
 
             if MAX_PUBLISH_PER_HOUR > 0 and len(publishes) >= MAX_PUBLISH_PER_HOUR:
+                notify_trade_idea(signal, health, "REJECTED", "hourly_publish_cap")
                 print("real_signal_skip reason=hourly_publish_cap", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
@@ -671,6 +693,7 @@ def run_forever():
                 continue
 
             if str(signal.get("mode") or "").upper() == "MAIN" and not signal.get("native_h4_reopen_ready"):
+                notify_trade_idea(signal, health, "REJECTED", "main_native_h4_reopen_warmup")
                 print(
                     f"real_signal_skip reason=main_native_h4_reopen_warmup "
                     f"bar={signal.get('bar')}",
@@ -681,6 +704,7 @@ def run_forever():
 
             session_reason = session_block_reason(signal)
             if session_reason:
+                notify_trade_idea(signal, health, "REJECTED", session_reason)
                 print(
                     f"real_signal_skip reason={session_reason} "
                     f"mode={signal.get('mode')} bar={signal.get('bar')}",
@@ -693,6 +717,7 @@ def run_forever():
                 signal, last_sniper_side, last_sniper_score, last_sniper_bar
             )
             if chase_reason:
+                notify_trade_idea(signal, health, "REJECTED", chase_reason)
                 print(
                     f"real_signal_skip reason={chase_reason} side={signal.get('side')} "
                     f"score={engine.signal_strength(signal)}",
@@ -704,6 +729,7 @@ def run_forever():
             mt5_spot = float(health.get("price") or 0)
             copies = engine.same_entry_copies(signal, health)
             if copies <= 0:
+                notify_trade_idea(signal, health, "REJECTED", "aggregate_risk_budget")
                 print(
                     f"real_signal_skip reason=aggregate_risk_budget "
                     f"budget={health.get('effective_risk_budget_usd')} "
@@ -738,7 +764,13 @@ def run_forever():
                         f"risk_distance={signal['risk_distance']:.2f}",
                         flush=True,
                     )
+                    if copy_index == 1:
+                        notify_trade_idea(signal, health, "PUBLISHED")
                 else:
+                    notify_trade_idea(
+                        signal, health, "REJECTED",
+                        "bridge_publish:" + str(response.get("reason","unknown"))
+                    )
                     print(
                         f"real_signal_publish_rejected status={status} "
                         f"reason={response.get('reason','unknown')}",
