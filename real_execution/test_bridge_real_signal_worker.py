@@ -125,7 +125,7 @@ class RealSignalMirrorTests(unittest.TestCase):
         signal = {
             "mode": "SNIPER",
             "side": "BUY",
-            "risk_distance": 4.5,
+            "risk_distance": 3.5,
             "checks": {"BUY": [True, True, True, True, True, False, False]},
         }
         health = {
@@ -213,7 +213,7 @@ class RealSignalMirrorTests(unittest.TestCase):
         signal = {
             "mode": "SNIPER",
             "side": "BUY",
-            "risk_distance": 2.5,
+            "risk_distance": 1.8,
             "checks": {"BUY": [True, True, True, True, False, False, False]},
         }
         health = {
