@@ -49,6 +49,7 @@ import gigi_release_gate
 import gigi_setup
 import gigi_evidence
 import gigi_trade_mode
+import gigi_uncertainty
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -280,6 +281,7 @@ def preview_payload(signal):
         "session_profile": signal.get("session_profile") or {},
         "benchmark": signal.get("benchmark") or {},
         "gigi_context": signal.get("gigi_context") or {},
+        "uncertainty": signal.get("uncertainty") or {},
         "price_prior": signal.get("price_prior") or {},
         "market_proof": signal.get("market_proof") or {},
         "research_release": signal.get("research_release") or {},
@@ -567,6 +569,14 @@ def run_forever():
                 signal.get("local_premium"),
                 signal.get("usd_basket"),
                 signal.get("macro_surprise"),
+            )
+            signal["uncertainty"] = gigi_uncertainty.assess(
+                signal,
+                signal.get("gigi_context"),
+                signal.get("evidence"),
+                signal.get("data_quality"),
+                signal.get("macro"),
+                signal.get("regime"),
             )
             signal["trade_mode_request"] = gigi_trade_mode.choose(
                 signal,
