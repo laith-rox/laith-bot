@@ -398,3 +398,62 @@ about 289t, while H1 demand remained uneven. Its 2026 reserve-manager survey
 also showed strong intentions to keep/increase gold holdings. Gigi treats this
 as structural background only, not a timing signal: quarterly/official-reserve
 demand cannot justify an intraday entry against fresh price structure.
+
+
+## Recent broker-price walk-forward checkpoint — 2026-07-20 to 2026-10-02
+
+A fresh price-only walk-forward was run on the broker's own XAUUSD history using
+three non-overlapping blocks of 5,000 M5 bars. Historical broker spreads and the
+candidate profit-protection replay were included. External slow feeds were
+excluded to avoid look-ahead.
+
+### Portfolio result after spread
+- Window 1: mean R = -0.1228
+- Window 2: mean R = -0.1235
+- Window 3: mean R = -0.0878
+
+This means the current technical engine as a whole is not yet validated as a
+positive-expectancy system after spread.
+
+### MAIN versus SNIPER
+MAIN:
+- +0.2425R
+- -0.0514R
+- +0.1420R
+
+SNIPER:
+- -0.1648R
+- -0.1294R
+- -0.1085R
+
+The important finding is that the current SNIPER population was negative in all
+three recent windows. MAIN was materially better but not stable-positive in all
+three windows, so it also cannot be called proven.
+
+### Strength score is not monotonic edge
+The recent walk-forward did not show a simple rule that a higher 7-condition
+score means higher expectancy. In particular, strength-6 observations were
+strongly negative in all three windows, while strength-7 was positive in two
+windows and negative in one. This reinforces the rule that 7/7 is alignment,
+not a calibrated win probability.
+
+### Stable-negative reason quarantine study
+The existing long-window price prior marks several reasons stable-negative:
+fast_primary_2of3, m15_resistance_break_retest, mtf_countertrend_medium,
+mtf_medium_continuation, sniper_strength_stop_cap,
+technical_medium_local_invalidation and technical_medium_recovered.
+
+A research-only exclusion of those reasons improved the three recent windows:
+- +0.1467R
+- -0.0262R
+- +0.0438R
+
+That is a large improvement, but still not three-for-three positive. Therefore
+the correct action is not to declare a new edge. These reasons should remain
+high-attention/shadow candidates while better subsets are studied.
+
+### Implication
+Do not solve a negative price-only base by adding more correlated indicators.
+Use the external layers (liquidity, macro, options, ETF, positioning, yields)
+to form testable subsets, then validate those subsets out of sample before any
+promotion.
