@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None, usd_basket=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None, usd_basket=None, macro_surprise=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -25,6 +25,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     target_geometry=target_geometry or {}
     local_premium=local_premium or {}
     usd_basket=usd_basket or {}
+    macro_surprise=macro_surprise or {}
 
     score=0
     reasons=[]
@@ -231,6 +232,21 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif policy_regime=="FALLING_FRONT_END":
         reasons.append("front_end_yields_falling")
 
+    surprise_bundle=str(macro_surprise.get("bundle_surprise") or "UNKNOWN").upper()
+    surprise_relation=str(macro_surprise.get("price_relation") or "UNRESOLVED").upper()
+    if surprise_bundle=="USD_POSITIVE":
+        reasons.append("macro_surprise_usd_positive")
+    elif surprise_bundle=="USD_NEGATIVE":
+        reasons.append("macro_surprise_usd_negative")
+    elif surprise_bundle=="MIXED":
+        reasons.append("macro_surprise_mixed")
+    if surprise_relation=="TEXTBOOK_CONFIRMED":
+        reasons.append("macro_price_textbook_confirmed")
+    elif surprise_relation.startswith("GOLD_REJECTED_"):
+        reasons.append("macro_price_rejected_textbook_direction")
+    elif surprise_relation=="SURPRISE_MUTED_IN_GOLD":
+        reasons.append("macro_surprise_muted_in_gold")
+
     event_state=str(event_response.get("state") or "NO_ACTIVE_HIGH_EVENT").upper()
     event_impulse=str(event_response.get("impulse") or "NONE").upper()
     if event_state=="FIRST_SPIKE_UNTRUSTED":
@@ -328,6 +344,8 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "options_term_structure": options_term,
         "event_response_state": event_state,
         "event_impulse": event_impulse,
+        "macro_surprise_bundle": surprise_bundle,
+        "macro_surprise_price_relation": surprise_relation,
         "session_vwap_relation": session_vwap,
         "session_extension": session_extension,
         "session_range_event": session_range_event,
