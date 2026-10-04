@@ -10,6 +10,7 @@ COPY gigi_regime.py test_gigi_regime.py ./
 COPY gigi_intermarket.py test_gigi_intermarket.py ./
 COPY gigi_usd_basket.py test_gigi_usd_basket.py ./
 COPY gigi_macro.py test_gigi_macro.py ./
+COPY gigi_macro_surprise.py test_gigi_macro_surprise.py test_gigi_macro_surprise_integration.py ./
 COPY gigi_context.py test_gigi_context.py ./
 COPY gigi_learning.py test_gigi_learning.py ./
 COPY gigi_liquidity.py test_gigi_liquidity.py ./
@@ -47,6 +48,8 @@ RUN python -m unittest -v \
     test_gigi_intermarket.py \
     test_gigi_usd_basket.py \
     test_gigi_macro.py \
+    test_gigi_macro_surprise.py \
+    test_gigi_macro_surprise_integration.py \
     test_gigi_context.py \
     test_gigi_learning.py \
     test_gigi_liquidity.py \
