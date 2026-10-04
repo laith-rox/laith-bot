@@ -43,12 +43,13 @@ class GigiReadinessTests(unittest.TestCase):
         self.assertEqual(out["state"],"SHADOW_BLOCKED")
         self.assertIn("no_directional_setup",out["blockers"])
 
-    def test_negative_historical_prior_is_review_warning(self):
+    def test_negative_historical_prior_is_quarantined_warning(self):
         args=self.base()
         args["price_prior"]={"status":"STABLE_NEGATIVE"}
         out=gigi_readiness.audit(**args)
-        self.assertEqual(out["state"],"SHADOW_REVIEW")
+        self.assertEqual(out["state"],"SHADOW_QUARANTINED")
         self.assertIn("historical_price_prior_negative",out["warnings"])
+        self.assertIn("historical_reason_shadow_quarantine",out["warnings"])
 
     def test_ambitious_target_and_lbma_window_raise_caution(self):
         args=self.base()
