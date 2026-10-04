@@ -128,6 +128,7 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         self.assertIn("execution_disabled", blockers)
         self.assertIn("emergency_stop", blockers)
         self.assertIn("mt5_state_stale", blockers)
+        self.assertIn("account_hard_risk_cap_unset", blockers)
         self.assertIn("market_closed_or_stale", blockers)
 
     def test_status_reports_preflight_false_while_locked(self):
@@ -181,6 +182,20 @@ class RealBridgeFailClosedTests(unittest.TestCase):
             self.assertTrue(bridge._ready())
         finally:
             bridge._readiness_blockers = original
+
+
+    def test_explicit_account_hard_cap_is_required_for_readiness(self):
+        now = 2_000_000_000
+        bridge._client_state = {
+            "received_at": now - 1,
+            "terminal_trade_allowed": True,
+            "account_hard_risk_cap_configured": False,
+        }
+        blockers = bridge._readiness_blockers(now=now)
+        self.assertIn("account_hard_risk_cap_unset", blockers)
+        bridge._client_state["account_hard_risk_cap_configured"] = True
+        blockers = bridge._readiness_blockers(now=now)
+        self.assertNotIn("account_hard_risk_cap_unset", blockers)
 
 
 
