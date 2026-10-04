@@ -51,6 +51,27 @@ class GigiUSDBasketTests(unittest.TestCase):
         self.assertFalse(out["official_dxy"])
         self.assertEqual(out["source"],"BROKER_NATIVE_DXY_STYLE_SYNTHETIC")
 
+    def test_gold_usd_relationship_can_detect_classic_inverse(self):
+        usd_returns=[0.0007 if i%3==0 else (-0.0005 if i%3==1 else 0.0002) for i in range(75)]
+        feeds={}
+        for pair,(_,orientation) in gigi_usd_basket.PAIR_SPECS.items():
+            feeds[pair]=rows(1.0,[orientation*x for x in usd_returns])
+        gold=rows(4000.0,[-1.5*x for x in usd_returns])
+        out=gigi_usd_basket.analyze(feeds,gold)
+        self.assertEqual(out["gold_relationship"]["state"],"CLASSIC_INVERSE")
+        self.assertLess(out["gold_relationship"]["corr_short"],-0.8)
+
+    def test_gold_usd_relationship_can_detect_positive_decoupling(self):
+        usd_returns=[0.0006 if i%2==0 else -0.00035 for i in range(75)]
+        feeds={}
+        for pair,(_,orientation) in gigi_usd_basket.PAIR_SPECS.items():
+            feeds[pair]=rows(1.0,[orientation*x for x in usd_returns])
+        gold=rows(4000.0,[1.2*x for x in usd_returns])
+        out=gigi_usd_basket.analyze(feeds,gold)
+        self.assertEqual(out["gold_relationship"]["state"],"DECOUPLED_POSITIVE")
+        self.assertGreater(out["gold_relationship"]["corr_short"],0.8)
+
+
 
 if __name__=="__main__":
     unittest.main()
