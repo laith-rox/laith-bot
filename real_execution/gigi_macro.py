@@ -84,6 +84,9 @@ def parse_events(payload):
                 "event_class": event_class(title),
                 "impact": impact.upper(),
                 "time": _parse_timestamp(row.get("date")),
+                "actual": str(row.get("actual") or "").strip(),
+                "forecast": str(row.get("forecast") or "").strip(),
+                "previous": str(row.get("previous") or "").strip(),
             })
         except (ValueError, TypeError):
             continue
