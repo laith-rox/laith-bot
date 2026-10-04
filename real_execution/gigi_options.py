@@ -122,6 +122,62 @@ def _term_structure(options, now_dt, spot):
     }
 
 
+def _near_expiry_oi_context(options, now_dt, spot):
+    """Unsigned near-expiry OI concentration context.
+
+    Public option-chain OI does not reveal dealer/customer sign. This therefore
+    flags potential pin/hedging sensitivity only; it never infers support,
+    resistance, or direction from OI alone.
+    """
+    groups=_expiry_groups(options,now_dt)
+    future=[e for e in sorted(groups) if (e.date()-now_dt.date()).days >= 0]
+    if not future:
+        return {
+            "near_expiry":None,
+            "near_expiry_dte":None,
+            "near_expiry_top_oi_strike":None,
+            "near_expiry_top_oi":0.0,
+            "near_expiry_top_oi_distance_pct":None,
+            "near_expiry_pin_state":"UNKNOWN",
+        }
+    expiry=future[0]
+    dte=(expiry.date()-now_dt.date()).days
+    by_strike={}
+    total=0.0
+    for item in groups[expiry]:
+        try:
+            oi=float(item.get("open_interest") or 0.0)
+            strike=float(item.get("_strike"))
+        except Exception:
+            continue
+        by_strike[strike]=by_strike.get(strike,0.0)+oi
+        total+=oi
+    if not by_strike or total <= 0:
+        state="UNKNOWN"; top_strike=None; top_oi=0.0; distance=None; share=0.0
+    else:
+        top_strike,top_oi=max(by_strike.items(),key=lambda kv:kv[1])
+        distance=abs(top_strike/spot-1.0)*100.0
+        share=top_oi/total
+        if dte <= 3 and distance <= 1.0 and share >= 0.08:
+            state="NEAR_EXPIRY_OI_CLUSTER_AT_SPOT"
+        elif dte <= 3 and distance <= 2.0:
+            state="NEAR_EXPIRY_OI_CLUSTER_NEAR_SPOT"
+        elif dte <= 3:
+            state="NEAR_EXPIRY"
+        else:
+            state="NORMAL"
+    return {
+        "near_expiry":expiry.date().isoformat(),
+        "near_expiry_dte":int(dte),
+        "near_expiry_top_oi_strike":None if top_strike is None else round(float(top_strike),3),
+        "near_expiry_top_oi":round(float(top_oi),3),
+        "near_expiry_top_oi_share":round(float(share),4),
+        "near_expiry_top_oi_distance_pct":None if distance is None else round(float(distance),3),
+        "near_expiry_pin_state":state,
+        "near_expiry_note":"unsigned_oi_concentration_not_directional_support_or_resistance",
+    }
+
+
 def _closest_delta(items, target):
     good = []
     for item in items:
@@ -219,6 +275,7 @@ def parse(payload):
         skew = "BALANCED"
 
     term = _term_structure(options, now_dt, spot)
+    near_expiry = _near_expiry_oi_context(options, now_dt, spot)
     iv30_value = data.get("iv30")
     try:
         iv30_decimal = float(iv30_value) / 100.0
@@ -258,6 +315,7 @@ def parse(payload):
         "expected_move_1d_pct": None if expected_move_1d_pct is None else round(expected_move_1d_pct,3),
         "expected_move_5d_pct": None if expected_move_5d_pct is None else round(expected_move_5d_pct,3),
         **term,
+        **near_expiry,
         "gross_gamma_oi_context": gamma_context,
         "near_spot_gamma_share": round(near_gamma_share, 3),
         "top_gamma_strike": None if top_gamma_strike is None else round(float(top_gamma_strike), 3),
