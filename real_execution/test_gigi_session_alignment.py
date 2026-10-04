@@ -10,6 +10,8 @@ class GigiSessionAlignmentTests(unittest.TestCase):
         source = inspect.getsource(real_analysis_engine.compute_signal)
         self.assertIn("sniper_window = 5*60 <= minute_local < 20*60", source)
         self.assertNotIn("night_sniper =", source)
+        self.assertIn('ZoneInfo("Asia/Gaza")', source)
+        self.assertNotIn("hour + 3", source)
 
     def test_adaptive_main_clock_starts_at_five(self):
         source = inspect.getsource(adaptive_sniper_engine.decide)
