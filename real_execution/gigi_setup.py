@@ -94,7 +94,9 @@ def classify(
 
     # Squeeze/liquidation is a special acceleration archetype.
     if crowd in ("HIGH_LONG_LIQUIDATION", "HIGH_SHORT_SQUEEZE"):
-        scores["SQUEEZE_LIQUIDATION"] += 4
+        # A confirmed high unwind state is structurally different from an
+        # ordinary trend continuation, so it must outrank a plain trend label.
+        scores["SQUEEZE_LIQUIDATION"] += 5
         evidence["SQUEEZE_LIQUIDATION"].append("high_crowding_unwind_risk")
     elif crowd in ("WATCH_LONG_LIQUIDATION", "WATCH_SHORT_SQUEEZE", "LONG_LIQUIDATION_BIAS", "SHORT_SQUEEZE_BIAS"):
         scores["SQUEEZE_LIQUIDATION"] += 2
