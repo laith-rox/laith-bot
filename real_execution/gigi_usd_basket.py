@@ -52,7 +52,65 @@ def _zscore(current, history):
     return 0.0 if sd <= 1e-12 else (current-mean)/sd
 
 
-def analyze(intermarket):
+def _corr(a,b):
+    n=min(len(a),len(b))
+    if n < 12:
+        return 0.0
+    a=a[-n:]; b=b[-n:]
+    ma=sum(a)/n; mb=sum(b)/n
+    va=sum((x-ma)**2 for x in a); vb=sum((x-mb)**2 for x in b)
+    if va <= 1e-18 or vb <= 1e-18:
+        return 0.0
+    return sum((x-ma)*(y-mb) for x,y in zip(a,b))/math.sqrt(va*vb)
+
+
+def _gold_relationship(gold_rows, intermarket):
+    gold_map={str(r.get('datetime') or ''):float(r['close']) for r in (gold_rows or []) if r.get('datetime') and r.get('close')}
+    pair_maps={}
+    for label,(_,orientation) in PAIR_SPECS.items():
+        rows=intermarket.get(label) or []
+        mp={str(r.get('datetime') or ''):float(r['close']) for r in rows if r.get('datetime') and r.get('close')}
+        if mp:
+            pair_maps[label]=(orientation,mp)
+    if not gold_map or len(pair_maps) < 4:
+        return {'state':'INSUFFICIENT','corr_short':0.0,'corr_long':0.0}
+    common=set(gold_map)
+    for _,mp in pair_maps.values():
+        common &= set(mp)
+    times=sorted(common)
+    if len(times) < 50:
+        return {'state':'INSUFFICIENT','corr_short':0.0,'corr_long':0.0}
+
+    gold_ret=[]; usd_ret=[]
+    for prev,cur in zip(times[:-1],times[1:]):
+        gp=gold_map[prev]; gc=gold_map[cur]
+        if gp<=0 or gc<=0: continue
+        gr=math.log(gc/gp)
+        wr=0.0; wsum=0.0
+        for label,(orientation,mp) in pair_maps.items():
+            a=mp[prev]; b=mp[cur]
+            if a<=0 or b<=0: continue
+            weight=PAIR_SPECS[label][0]
+            wr += weight*orientation*math.log(b/a)
+            wsum += weight
+        if wsum > 0:
+            gold_ret.append(gr); usd_ret.append(wr/wsum)
+    if len(gold_ret) < 40:
+        return {'state':'INSUFFICIENT','corr_short':0.0,'corr_long':0.0}
+    short=_corr(gold_ret[-20:],usd_ret[-20:])
+    long=_corr(gold_ret[-48:],usd_ret[-48:])
+    if short*long < 0 and abs(short)>=0.25 and abs(long)>=0.25:
+        state='RELATIONSHIP_FLIP'
+    elif short <= -0.35:
+        state='CLASSIC_INVERSE'
+    elif short >= 0.25:
+        state='DECOUPLED_POSITIVE'
+    else:
+        state='WEAK_OR_DECOUPLED'
+    return {'state':state,'corr_short':round(short,3),'corr_long':round(long,3)}
+
+
+def analyze(intermarket, gold_m15=None):
     intermarket=intermarket or {}
     components={}
     available_weight=0.0
@@ -76,6 +134,7 @@ def analyze(intermarket):
     if available_weight < MIN_COVERAGE:
         return {
             "state":"INSUFFICIENT_COVERAGE",
+            "gold_relationship":_gold_relationship(gold_m15,intermarket),
             "coverage":round(available_weight,3),
             "basket_z":0.0,
             "breadth":0.0,
@@ -115,6 +174,7 @@ def analyze(intermarket):
         "basket_z":round(weighted_z,3),
         "basket_4bar_bps":round(weighted_return*10000.0,2),
         "breadth":round(agreeing,3),
+        "gold_relationship":_gold_relationship(gold_m15,intermarket),
         "components":{
             k:{
                 "weight":v["weight"],
