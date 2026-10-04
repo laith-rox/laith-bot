@@ -8,7 +8,8 @@ from __future__ import annotations
 
 def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
           positioning=None, etf=None, crowding=None, options=None, yields=None,
-          quality=None, execution_quality=None, exposure=None, event_response=None):
+          quality=None, execution_quality=None, exposure=None, event_response=None,
+          usd_basket=None):
     signal=signal or {}
     regime=regime or {}
     intermarket=intermarket or {}
@@ -23,6 +24,7 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
     execution_quality=execution_quality or {}
     exposure=exposure or {}
     event_response=event_response or {}
+    usd_basket=usd_basket or {}
 
     side=str(signal.get("side") or "WAIT").upper()
     support=[]
@@ -98,6 +100,15 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
 
     if etf_regime.startswith("MIXED"):
         uncertainty.append("etf_regional_rotation")
+
+    usd_state=str(usd_basket.get("state") or "UNKNOWN").upper()
+    usd_breadth=float(usd_basket.get("breadth") or 0.0)
+    if side=="BUY" and usd_state in ("USD_STRONG_IMPULSE","USD_FIRM"):
+        uncertainty.append("synthetic_usd_headwind")
+    elif side=="SELL" and usd_state in ("USD_WEAK_IMPULSE","USD_SOFT"):
+        uncertainty.append("synthetic_usd_tailwind_against_sell")
+    if usd_state in ("USD_STRONG_IMPULSE","USD_WEAK_IMPULSE") and usd_breadth >= 0.65:
+        uncertainty.append("synthetic_usd_broad_impulse")
 
     real_yield_regime=str(yields.get("real_yield_regime") or "UNKNOWN").upper()
     if side=="BUY" and real_yield_regime=="RISING_REAL_YIELD":
