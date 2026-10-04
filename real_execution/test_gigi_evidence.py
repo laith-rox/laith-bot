@@ -64,6 +64,44 @@ class GigiEvidenceTests(unittest.TestCase):
         self.assertTrue(out["correlated_inputs_collapsed"])
         self.assertIn("not_probability_or_entry_signal",out["note"])
 
+    def test_many_correlated_inputs_cannot_fake_many_independent_votes(self):
+        out=gigi_evidence.audit(
+            "BUY",
+            positioning={"regime":"LONG_BIASED_ADDING"},
+            etf={"regime":"BROAD_INFLOW"},
+            crowding={"dominant_risk":"HIGH_SHORT_SQUEEZE"},
+            options={"skew":"BALANCED","oi_state":"CALL_HEAVY"},
+            volatility={"state":"STRESS_EXPANSION"},
+        )
+        self.assertEqual(out["families"]["FLOWS_POSITIONING"],1)
+        self.assertEqual(out["families"]["OPTIONS_VOLATILITY"],0)
+        self.assertEqual(out["independent_support_count"],1)
+
+    def test_all_families_are_hard_capped_at_five(self):
+        out=gigi_evidence.audit(
+            "BUY",
+            regime={"h4_bias":"UP"},
+            liquidity={"pressure":"BULLISH"},
+            session_profile={"vwap_relation":"ABOVE_ACCEPTANCE"},
+            yields={"real_yield_regime":"FALLING_REAL_YIELD"},
+            usd_basket={"state":"USD_SOFT"},
+            macro_surprise={"bundle_surprise":"USD_NEGATIVE"},
+            positioning={"regime":"LONG_BIASED_ADDING"},
+            etf={"regime":"BROAD_INFLOW"},
+            crowding={"dominant_risk":"HIGH_SHORT_SQUEEZE"},
+            options={"skew":"UPSIDE_CALL_BID","oi_state":"CALL_HEAVY"},
+            volatility={"state":"STRESS_EXPANSION"},
+            intermarket={"bias":"BULLISH_GOLD"},
+            local_premium={"china":{"state":"PREMIUM"},"india":{"state":"PREMIUM"}},
+        )
+        self.assertEqual(set(out["families"]),{
+            "PRICE_STRUCTURE","MACRO_POLICY","FLOWS_POSITIONING",
+            "OPTIONS_VOLATILITY","CROSS_MARKET_PHYSICAL",
+        })
+        self.assertLessEqual(out["independent_support_count"],5)
+        self.assertLessEqual(out["active_family_count"],5)
+
+
 
 if __name__=="__main__":
     unittest.main()
