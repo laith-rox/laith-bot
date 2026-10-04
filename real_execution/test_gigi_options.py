@@ -163,6 +163,27 @@ class GigiOptionsTests(unittest.TestCase):
             "option":f"GLD{code}P{int(367*1000):08d}",
             "iv":0.21,"delta":-0.25,"open_interest":20,"volume":5,"gamma":0.01,
         })
+        # Keep a separate ~30D expiry so the main skew parser and the
+        # near-expiry pin context can coexist.
+        far_code="261120"
+        for strike in (360,370,380,390,400):
+            for cp,delta in (("C",0.5),("P",-0.5)):
+                opts.append({
+                    "option":f"GLD{far_code}{cp}{int(strike*1000):08d}",
+                    "iv":0.21,
+                    "delta":delta,
+                    "open_interest":50,
+                    "volume":5,
+                    "gamma":0.01,
+                })
+        opts.append({
+            "option":f"GLD{far_code}C{int(397*1000):08d}",
+            "iv":0.20,"delta":0.25,"open_interest":20,"volume":5,"gamma":0.01,
+        })
+        opts.append({
+            "option":f"GLD{far_code}P{int(367*1000):08d}",
+            "iv":0.21,"delta":-0.25,"open_interest":20,"volume":5,"gamma":0.01,
+        })
         data["data"]["options"]=opts
         out=gigi_options.parse(data)
         self.assertIn(out["near_expiry_pin_state"],(
