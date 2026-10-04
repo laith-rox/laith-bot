@@ -149,6 +149,23 @@ class GigiThesisTests(unittest.TestCase):
         self.assertNotIn("synthetic_usd_headwind",out["conflicts"])
 
 
+    def test_gold_usd_relationship_flip_is_explicit_uncertainty(self):
+        out=gigi_thesis.audit(
+            {"side":"SELL","risk_distance":3.0},
+            {"h4_bias":"DOWN"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"pressure":"NEUTRAL"},
+            usd_basket={
+                "state":"USD_MIXED",
+                "breadth":0.70,
+                "gold_relationship":{"state":"RELATIONSHIP_FLIP"},
+            },
+        )
+        self.assertIn("gold_usd_relationship_flip",out["uncertainty"])
+        self.assertNotIn("gold_usd_relationship_flip",out["conflicts"])
+
+
 
 if __name__=="__main__":
     unittest.main()
