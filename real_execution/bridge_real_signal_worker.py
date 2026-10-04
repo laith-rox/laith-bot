@@ -45,6 +45,7 @@ import gigi_session_profile
 import gigi_benchmark
 import gigi_price_prior
 import gigi_setup
+import gigi_evidence
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -278,6 +279,7 @@ def preview_payload(signal):
         "gigi_context": signal.get("gigi_context") or {},
         "price_prior": signal.get("price_prior") or {},
         "setup": signal.get("setup") or {},
+        "evidence": signal.get("evidence") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
@@ -515,6 +517,22 @@ def run_forever():
                 signal.get("etf"),
                 signal.get("regime"),
                 signal.get("options"),
+            )
+            signal["evidence"] = gigi_evidence.audit(
+                signal.get("side"),
+                signal.get("regime"),
+                signal.get("liquidity"),
+                signal.get("session_profile"),
+                signal.get("yields"),
+                signal.get("usd_basket"),
+                signal.get("macro_surprise"),
+                signal.get("positioning"),
+                signal.get("etf"),
+                signal.get("crowding"),
+                signal.get("options"),
+                signal.get("volatility"),
+                signal.get("intermarket"),
+                signal.get("local_premium"),
             )
             signal["gigi_context"] = gigi_context.evaluate(
                 signal.get("side"),
