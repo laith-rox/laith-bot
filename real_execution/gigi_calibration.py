@@ -30,10 +30,24 @@ def calibrate_bucket(bucket):
     n = int(bucket.get("n") or 0)
     wins = int(bucket.get("wins") or 0)
     sum_r = float(bucket.get("sum_r") or 0.0)
+    sum_r2 = bucket.get("sum_r2")
+    try:
+        sum_r2 = None if sum_r2 is None else float(sum_r2)
+    except Exception:
+        sum_r2 = None
     low, high = wilson_interval(wins, n)
     width = high - low
     empirical = (wins / n) if n else None
     mean_r = (sum_r / n) if n else None
+
+    mean_r_se = None
+    mean_r_ci_low = None
+    mean_r_ci_high = None
+    if n >= 2 and sum_r2 is not None:
+        sample_var = max(0.0, (sum_r2 - (sum_r * sum_r) / n) / (n - 1))
+        mean_r_se = math.sqrt(sample_var / n)
+        mean_r_ci_low = mean_r - 1.96 * mean_r_se
+        mean_r_ci_high = mean_r + 1.96 * mean_r_se
 
     if n < MIN_CALIBRATION_SAMPLES:
         status = "INSUFFICIENT_SAMPLE"
@@ -41,6 +55,15 @@ def calibrate_bucket(bucket):
         status = "WIDE_UNCERTAINTY"
     else:
         status = "CALIBRATED_EMPIRICAL"
+
+    if n < MIN_CALIBRATION_SAMPLES or mean_r_ci_low is None or mean_r_ci_high is None:
+        expectancy_status = "INSUFFICIENT_EXPECTANCY_CONFIDENCE"
+    elif mean_r_ci_low > 0:
+        expectancy_status = "POSITIVE_EXPECTANCY_CI"
+    elif mean_r_ci_high < 0:
+        expectancy_status = "NEGATIVE_EXPECTANCY_CI"
+    else:
+        expectancy_status = "EXPECTANCY_UNCERTAIN"
 
     return {
         "n": n,
@@ -50,6 +73,10 @@ def calibrate_bucket(bucket):
         "wilson_high": round(high, 4),
         "wilson_width": round(width, 4),
         "mean_r": None if mean_r is None else round(mean_r, 4),
+        "mean_r_se": None if mean_r_se is None else round(mean_r_se, 4),
+        "mean_r_ci_low": None if mean_r_ci_low is None else round(mean_r_ci_low, 4),
+        "mean_r_ci_high": None if mean_r_ci_high is None else round(mean_r_ci_high, 4),
+        "expectancy_status": expectancy_status,
         "note": "empirical_shadow_outcomes_not_forward_probability",
     }
 
