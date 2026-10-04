@@ -473,17 +473,6 @@ def run_forever():
             )
             signal = attach_benchmark_context(signal)
             signal["price_prior"] = gigi_price_prior.assess(signal.get("reason"))
-            signal["setup"] = gigi_setup.classify(
-                signal,
-                signal.get("regime"),
-                signal.get("liquidity"),
-                signal.get("macro"),
-                signal.get("event_response"),
-                signal.get("crowding"),
-                signal.get("session_profile"),
-                signal.get("options"),
-                signal.get("price_prior"),
-            )
             signal["stop_geometry"] = gigi_stop_geometry.analyze(
                 signal,
                 engine.normalize_rows(feeds["15m"]),
@@ -517,6 +506,19 @@ def run_forever():
                 signal.get("etf"),
                 signal.get("regime"),
                 signal.get("options"),
+            )
+            # Setup archetype must be classified only after crowding is built;
+            # otherwise squeeze/liquidation setups silently see an empty layer.
+            signal["setup"] = gigi_setup.classify(
+                signal,
+                signal.get("regime"),
+                signal.get("liquidity"),
+                signal.get("macro"),
+                signal.get("event_response"),
+                signal.get("crowding"),
+                signal.get("session_profile"),
+                signal.get("options"),
+                signal.get("price_prior"),
             )
             signal["evidence"] = gigi_evidence.audit(
                 signal.get("side"),
