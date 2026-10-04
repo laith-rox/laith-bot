@@ -438,7 +438,8 @@ def run_forever():
                 feeds.get("intermarket") or {},
             )
             signal["usd_basket"] = gigi_usd_basket.analyze(
-                feeds.get("intermarket") or {}
+                feeds.get("intermarket") or {},
+                engine.normalize_rows(feeds["15m"]),
             )
             signal["macro"] = gigi_macro.context(time.time())
             signal["event_response"] = gigi_event_response.analyze(
