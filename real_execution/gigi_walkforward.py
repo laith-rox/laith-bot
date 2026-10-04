@@ -36,6 +36,21 @@ def session_allowed(bar_datetime):
     return ENTRY_START_MINUTE <= minute < ENTRY_END_MINUTE
 
 
+def session_bucket(bar_datetime):
+    minute=gigi_clock.local_minute(bar_datetime)
+    if minute < ENTRY_START_MINUTE or minute >= ENTRY_END_MINUTE:
+        return "OUTSIDE"
+    if minute < 10*60:
+        return "EARLY_05_10"
+    if minute < 13*60:
+        return "LONDON_10_13"
+    if minute < 15*60+20:
+        return "MIDDAY_13_1520"
+    if minute < 18*60:
+        return "US_1520_18"
+    return "LATE_18_20"
+
+
 def _slice_through(rows, epochs, cutoff, count):
     idx=bisect_right(epochs, cutoff)-1
     if idx < 0:
@@ -268,6 +283,9 @@ def walk_forward(m5_rows, m15_rows, h4_rows, point=0.01, max_signals_per_hour=6,
             "mode":str(signal.get("mode") or "UNKNOWN").upper(),
             "reason":str(signal.get("reason") or ""),
             "score":int(signal.get("score") or 0),
+            "strength":int(engine.signal_strength(signal)),
+            "h4_bias":str((signal.get("mtf") or {}).get("h4_bias") or "NEUTRAL").upper(),
+            "session_bucket":session_bucket(bar),
             "entry":entry,
             "risk_distance":risk,
             "target_r":target_r,
@@ -353,6 +371,24 @@ def report(observations):
         "by_reason":{
             k:_net_summary([x for x in rows if x.get("reason")==k])
             for k in sorted({str(x.get("reason") or "") for x in rows})
+        },
+        "by_session":{
+            k:_net_summary([x for x in rows if x.get("session_bucket")==k])
+            for k in sorted({str(x.get("session_bucket") or "UNKNOWN") for x in rows})
+        },
+        "by_strength":{
+            str(k):_net_summary([x for x in rows if int(x.get("strength") or 0)==k])
+            for k in sorted({int(x.get("strength") or 0) for x in rows})
+        },
+        "by_reason_h4":{
+            f"{reason}|{bias}":_net_summary([
+                x for x in rows
+                if x.get("reason")==reason and x.get("h4_bias")==bias
+            ])
+            for reason,bias in sorted({
+                (str(x.get("reason") or ""),str(x.get("h4_bias") or "NEUTRAL"))
+                for x in rows
+            })
         },
         "note":"price_only_walk_forward_with_conservative_next_bar_profit_protection_external_context_excluded",
     }
