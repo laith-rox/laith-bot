@@ -101,6 +101,10 @@ def _gold_relationship(gold_rows, intermarket):
     long=_corr(gold_ret[-48:],usd_ret[-48:])
     if short*long < 0 and abs(short)>=0.25 and abs(long)>=0.25:
         state='RELATIONSHIP_FLIP'
+    elif long <= -0.40 and short > long + 0.25:
+        state='INVERSE_WEAKENING'
+    elif long >= 0.25 and short < long - 0.25:
+        state='POSITIVE_RELATION_WEAKENING'
     elif short <= -0.35:
         state='CLASSIC_INVERSE'
     elif short >= 0.25:
