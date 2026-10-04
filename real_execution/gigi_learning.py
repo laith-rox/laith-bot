@@ -64,6 +64,8 @@ DIMENSIONS = (
     "target_geometry_state",
     "target_implied_relation",
     "price_prior_status",
+    "market_proof_state",
+    "market_proof_mode_status",
     "setup_archetype",
     "setup_mixed",
     "evidence_state",
