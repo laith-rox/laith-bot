@@ -103,6 +103,11 @@ def audit(signal, regime=None, intermarket=None, macro=None, liquidity=None,
 
     usd_state=str(usd_basket.get("state") or "UNKNOWN").upper()
     usd_breadth=float(usd_basket.get("breadth") or 0.0)
+    usd_relationship=str((usd_basket.get("gold_relationship") or {}).get("state") or "UNKNOWN").upper()
+    if usd_relationship=="RELATIONSHIP_FLIP":
+        uncertainty.append("gold_usd_relationship_flip")
+    elif usd_relationship=="DECOUPLED_POSITIVE":
+        uncertainty.append("gold_usd_positive_decoupling")
     if side=="BUY" and usd_state in ("USD_STRONG_IMPULSE","USD_FIRM"):
         uncertainty.append("synthetic_usd_headwind")
     elif side=="SELL" and usd_state in ("USD_WEAK_IMPULSE","USD_SOFT"):
