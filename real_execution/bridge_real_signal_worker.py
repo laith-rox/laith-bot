@@ -39,6 +39,7 @@ import gigi_exposure
 import gigi_behavior
 import gigi_readiness
 import gigi_event_response
+import gigi_macro_surprise
 import gigi_clock
 import gigi_session_profile
 import gigi_benchmark
