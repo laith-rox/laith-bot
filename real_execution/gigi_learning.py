@@ -25,6 +25,7 @@ DIMENSIONS = (
     "intermarket_bias",
     "intermarket_relationship_state",
     "usd_basket_state",
+    "usd_gold_relationship",
     "usd_breadth_bucket",
     "liquidity_event",
     "positioning_regime",
