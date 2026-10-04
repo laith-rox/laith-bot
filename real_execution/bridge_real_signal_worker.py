@@ -539,6 +539,7 @@ def run_forever():
                 signal.get("exposure"),
                 signal.get("event_response"),
                 signal.get("usd_basket"),
+                signal.get("macro_surprise"),
             )
             signal["behavior"] = gigi_behavior.assess(
                 signal,
