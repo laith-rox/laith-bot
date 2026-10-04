@@ -63,6 +63,26 @@ class GigiReadinessTests(unittest.TestCase):
         self.assertIn("lbma_benchmark_window",out["warnings"])
 
 
+    def test_stable_negative_price_prior_is_shadow_quarantined(self):
+        out=gigi_readiness.audit(
+            {"side":"BUY"},
+            {"quality":"HIGH"},
+            {"quality":"GOOD"},
+            {"state":"CLEAN"},
+            {"state":"CLEAR"},
+            {"noise_exposure":"LOW"},
+            {"stacking_state":"CLEAR"},
+            {"alignment":"SUPPORT"},
+            {"state":"NORMAL","implied_move_relation":"WITHIN_1D_PROXY"},
+            {"status":"STABLE_NEGATIVE"},
+            {"phase":"NORMAL"},
+        )
+        self.assertEqual(out["state"],"SHADOW_QUARANTINED")
+        self.assertTrue(out["historical_quarantine"])
+        self.assertIn("historical_reason_shadow_quarantine",out["warnings"])
+        self.assertFalse(out["execution_gate"])
+
+
 
 if __name__=="__main__":
     unittest.main()
