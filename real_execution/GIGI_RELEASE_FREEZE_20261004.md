@@ -53,7 +53,7 @@ External slow-data layers are context only. None is a standalone BUY/SELL trigge
 
 ## Validation performed before freeze
 
-- Full local candidate discovery suite: **213 tests passed**.
+- Full local candidate discovery suite: **260 tests passed** (latest verification on 2026-10-04).
 - All candidate Python modules plus VPS candidate executor, relay and learning
   observer compile successfully.
 - Live external source smoke tests returned usable CFTC, WGC ETF, Cboe options,
@@ -65,3 +65,19 @@ External slow-data layers are context only. None is a standalone BUY/SELL trigge
 This freeze does **not** enable MT5 AutoTrading, does not clear the emergency
 restart latch, does not set an account hard-risk cap on the user's behalf, and
 does not place or submit a real order.
+
+
+## Latest verification — 2026-10-04
+
+- Python discovery suite: **260/260 passed**.
+- All candidate Python modules plus the VPS candidate executor, relay and
+  learning observer compiled successfully.
+- Live slow-source smoke checks succeeded:
+  - CFTC report: 2026-09-29, LONG_BIASED_DELEVERAGING;
+  - WGC ETF: 2026-09-25, MIXED_INFLOW;
+  - Cboe GLD options: delayed underlying last trade 2026-10-02 15:59:59,
+    balanced 25-delta skew, CALL_HEAVY OI proxy, moderate near-spot convexity;
+  - GVZ: 23.23 on 2026-10-02, LOW versus its recent one-year history.
+- Options expiry/OI, gamma-OI and skew remain explicitly unsigned/context-only;
+  no dealer-position sign is inferred.
+- No production execution state was changed during this verification.
