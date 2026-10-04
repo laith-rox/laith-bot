@@ -521,6 +521,7 @@ def run_forever():
                 signal.get("target_geometry"),
                 signal.get("local_premium"),
                 signal.get("usd_basket"),
+                signal.get("macro_surprise"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
