@@ -400,7 +400,7 @@ def compute_signal(values):
     # verifies the exact USD loss with OrderCalcProfit before DEMO execution.
     strength = max(buy_score, sell_score)
     sniper_mode = d.mode in ("SNIPER", "REJECTION_SCALP", "CORRECTION_SCALP")
-    sniper_cap = 3.00 if strength <= 4 else (5.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
+    sniper_cap = 2.00 if strength <= 4 else (4.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
     if sniper_mode:
         risk_cap = sniper_cap
     else:
@@ -446,7 +446,7 @@ def compute_signal(values):
     if sniper_window and side and d.mode != "REBOUND":
         # Use the same strength ladder through the approved sniper window.
         strength = max(buy_score, sell_score)
-        cap = 3.00 if strength <= 4 else (5.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
+        cap = 2.00 if strength <= 4 else (4.00 if strength == 5 else (7.00 if strength == 6 else 10.00))
         risk_distance = min(risk_distance, cap)
         d = type(d)("SNIPER", side, max(7, d.confidence), min(0.60, d.risk_mult), 0.0, 1.25, d.reason)
     if side=="BUY": sl,tp=close-risk_distance,close+risk_distance*d.target_r
@@ -747,7 +747,7 @@ def signal_strength(signal):
 def sniper_budget_usd(signal):
     """Requested LIVE sniper stop ladder in USD at the fixed 0.01 lot.
 
-    3-4/7 => $3, 5/7 => $5, 6/7 => $7, 7/7 => $10.
+    3-4/7 => $2, 5/7 => $4, 6/7 => $7, 7/7 => $10.
     This is a ceiling, not a forced stop: structure can choose a tighter stop.
     """
     mode=str(signal.get("mode") or "").upper()
@@ -755,9 +755,9 @@ def sniper_budget_usd(signal):
         return None
     strength=signal_strength(signal)
     if strength<=4:
-        return 3.0
+        return 2.0
     if strength==5:
-        return 5.0
+        return 4.0
     if strength==6:
         return 7.0
     return 10.0
@@ -808,7 +808,7 @@ def same_entry_copies(signal, health):
     strength=sum(bool(x) for x in selected) if isinstance(selected,list) else int(signal.get("score") or 0)
     tier=sniper_budget_usd(signal)
     if tier is not None:
-        # Sniper uses the requested 3/5/7/10 ladder. The bridge strong budget is
+        # Sniper uses the requested 2/4/7/10 ladder. The bridge strong budget is
         # still treated as an absolute ceiling, never as the sniper target.
         hard=float(health.get("strong_risk_budget_usd") or 0)
         budget=min(tier,hard) if hard>0 else tier
@@ -881,7 +881,7 @@ def recover_m15_continuation(signal, health):
         # it into a sniper stop. A separate bridge/executor ceiling remains.
         budget=float(health.get("strong_risk_budget_usd") or 0)
     else:
-        tier=3.0 if score<=4 else (5.0 if score==5 else (7.0 if score==6 else 10.0))
+        tier=2.0 if score<=4 else (4.0 if score==5 else (7.0 if score==6 else 10.0))
         hard=float(health.get("strong_risk_budget_usd") or 0)
         budget=min(tier,hard) if hard>0 else tier
     used=used_risk_for_mode(health,mode)
