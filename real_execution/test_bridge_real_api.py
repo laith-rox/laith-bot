@@ -93,6 +93,37 @@ class RealBridgeFailClosedTests(unittest.TestCase):
         self.assertIn("mt5_state_stale", blockers)
         self.assertIn("market_closed_or_stale", blockers)
 
+    def test_terminal_autotrading_off_is_readiness_blocker(self):
+        bridge.REAL_ARMED = True
+        bridge.EXECUTION_ENABLED = True
+        bridge._emergency_stop = False
+        bridge._client_state = {"received_at": 2_000_000_000, "terminal_trade_allowed": False}
+        bridge._client_last_poll = 2_000_000_000
+        bridge._market_state = {
+            **self._market_payload(1_999_999_990),
+            "received_at": 2_000_000_000,
+        }
+        blockers = bridge._readiness_blockers(now=2_000_000_000)
+        self.assertIn("mt5_autotrading_off", blockers)
+        self.assertFalse(bridge._ready())
+
+    def test_publish_rejected_when_terminal_autotrading_off(self):
+        bridge.REAL_ARMED = True
+        bridge.EXECUTION_ENABLED = True
+        bridge.FIXED_VOLUME = 0.01
+        bridge.CLIENT_TOKEN = "c"
+        bridge.PUBLISH_TOKEN = "p"
+        bridge.HMAC_SECRET = "h"
+        bridge._emergency_stop = False
+        bridge._client_state = {"received_at": __import__("time").time(), "terminal_trade_allowed": False}
+        bridge._market_state = {
+            **self._market_payload(__import__("time").time()),
+            "received_at": __import__("time").time(),
+        }
+        ok, reason = bridge._validate_publish({})
+        self.assertFalse(ok)
+        self.assertEqual(reason, "real_mt5_autotrading_off")
+
     def test_status_reports_preflight_false_while_locked(self):
         bridge.REAL_ARMED = False
         bridge.EXECUTION_ENABLED = False
