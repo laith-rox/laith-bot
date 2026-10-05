@@ -305,6 +305,38 @@ class RealSignalMirrorTests(unittest.TestCase):
         self.assertGreater(setup_pos,crowding_pos)
 
 
+    def test_research_release_blocks_real_publication_when_not_promoted(self):
+        signal={
+            "research_release":{"state":"SHADOW_ONLY"},
+            "readiness":{"state":"SHADOW_CLEAN"},
+            "uncertainty":{"posture":"NORMAL_ANALYSIS"},
+            "price_prior":{"status":"STABLE_POSITIVE"},
+        }
+        reason=worker.research_execution_block_reason(signal)
+        self.assertEqual(reason,"research_not_promoted:shadow_only")
+
+    def test_readiness_blocks_even_when_research_is_candidate(self):
+        signal={
+            "research_release":{"state":"EVIDENCE_CANDIDATE"},
+            "readiness":{"state":"SHADOW_CAUTION"},
+            "uncertainty":{"posture":"NORMAL_ANALYSIS"},
+            "price_prior":{"status":"STABLE_POSITIVE"},
+        }
+        self.assertEqual(
+            worker.research_execution_block_reason(signal),
+            "readiness_not_clean:shadow_caution",
+        )
+
+    def test_clean_promoted_signal_can_pass_research_boundary(self):
+        signal={
+            "research_release":{"state":"EVIDENCE_CANDIDATE"},
+            "readiness":{"state":"SHADOW_CLEAN"},
+            "uncertainty":{"posture":"NORMAL_ANALYSIS"},
+            "price_prior":{"status":"STABLE_POSITIVE"},
+        }
+        self.assertIsNone(worker.research_execution_block_reason(signal))
+
+
 
 if __name__ == "__main__":
     unittest.main()
