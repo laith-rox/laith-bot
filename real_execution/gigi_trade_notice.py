@@ -54,6 +54,10 @@ def build(signal, spot, outcome, reject_reason=None):
     setup=signal.get("setup") or {}
     crowding=signal.get("crowding") or {}
     uncertainty=signal.get("uncertainty") or {}
+    volatility=signal.get("volatility") or {}
+    positioning=signal.get("positioning") or {}
+    etf=signal.get("etf") or {}
+    options=signal.get("options") or {}
     status={
         "PUBLISHED":"✅ مرّرت للجسر",
         "REJECTED":"⛔️ رفضها حاجز التنفيذ",
@@ -73,10 +77,14 @@ def build(signal, spot, outcome, reject_reason=None):
         f"Setup: {setup.get('name') or setup.get('setup') or '-'}\n"
         f"Gigi: {ctx.get('alignment') or '-'} | score={ctx.get('score',0)}\n"
         f"Crowding: {crowding.get('dominant_risk') or 'BALANCED'}\n"
+        f"Volatility: {volatility.get('state') or '-'} | GVZ={volatility.get('gvz_regime') or '-'}\n"
+        f"CFTC: {positioning.get('regime') or '-'} | crowd={positioning.get('crowding') or '-'}\n"
+        f"ETF: {etf.get('regime') or '-'} | {etf.get('breadth') or '-'}\n"
+        f"Options: {options.get('skew') or '-'} | OI={options.get('oi_state') or '-'}\n"
         f"Uncertainty: {uncertainty.get('state') or uncertainty.get('level') or '-'}\n"
         f"جاهزية: {readiness.get('state') or readiness.get('decision') or '-'}\n"
         f"سبب الرفض/المنع: {reason}\n"
-        "ملاحظة: الرفض لا يمسح الفكرة؛ تُحفظ للتعلّم والمراجعة."
+        "ملاحظة: هذا تحديث تحليلي؛ تُحفظ الفكرة للتعلّم والمراجعة."
     )
     event_id="|".join([
         str(signal.get("bar") or ""),
