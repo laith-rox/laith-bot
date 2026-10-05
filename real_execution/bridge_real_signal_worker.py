@@ -165,6 +165,34 @@ def attach_benchmark_context(signal):
     return signal
 
 
+def research_execution_block_reason(signal):
+    """Fail closed when Gigi's own research layers do not support live release.
+
+    Shadow/readiness layers remain analytical. This wrapper is the explicit
+    execution boundary: live publication requires independent market proof,
+    clean readiness, and no abstention posture.
+    """
+    release = signal.get("research_release") or {}
+    readiness = signal.get("readiness") or {}
+    uncertainty = signal.get("uncertainty") or {}
+    prior = signal.get("price_prior") or {}
+
+    release_state = str(release.get("state") or "UNKNOWN").upper()
+    readiness_state = str(readiness.get("state") or "UNKNOWN").upper()
+    posture = str(uncertainty.get("posture") or "NORMAL_ANALYSIS").upper()
+    prior_state = str(prior.get("status") or "UNKNOWN").upper()
+
+    if release_state != "EVIDENCE_CANDIDATE":
+        return "research_not_promoted:" + release_state.lower()
+    if readiness_state != "SHADOW_CLEAN":
+        return "readiness_not_clean:" + readiness_state.lower()
+    if posture == "ABSTAIN_SHADOW":
+        return "uncertainty_abstain"
+    if prior_state == "STABLE_NEGATIVE":
+        return "historical_reason_quarantined"
+    return None
+
+
 def execution_block_reason(health):
     if health.get("mode") != "REAL":
         return "bridge_not_real"
@@ -672,6 +700,13 @@ def run_forever():
             if block_reason:
                 notify_trade_idea(signal, health, "REJECTED", block_reason)
                 print(f"real_signal_skip reason={block_reason}", flush=True)
+                time.sleep(POLL_SECONDS)
+                continue
+
+            research_reason = research_execution_block_reason(signal)
+            if research_reason:
+                notify_trade_idea(signal, health, "REJECTED", research_reason)
+                print(f"real_signal_skip reason={research_reason}", flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
 
