@@ -602,3 +602,29 @@ Consequence:
 - MAIN must prove stability across independent windows/setup reasons before it
   can become an evidence candidate.
 - Unit-test success proves software consistency, not trading edge.
+
+
+### Broker-native intraday session research — 2026-06-07 to 2026-10-05
+Source: 7,856 JustMarkets XAUUSD.m M15 bars, analyzed in Palestine local time.
+This is descriptive research, not a live entry rule.
+
+- 06:00 showed the strongest simple 1-hour continuation lean in this sample:
+  about 57.0%, with median absolute 1-hour movement about US$11.16.
+- 07:00 had a high median M15 range around US$11.00, but continuation was only
+  about 52.3%; high activity is not the same thing as trend persistence.
+- 18:00-20:00 was another high-activity cluster. Median M15 range was about
+  US$10.05 at 18:00, US$12.62 at 19:00, and US$11.84 at 20:00.
+- Yet simple 1-hour continuation at 18:00/19:00/20:00 was only about
+  48.3% / 49.7% / 44.2%. This is evidence against assuming the evening's
+  larger candles automatically make trend-following sniper entries better.
+- 21:00 continuation was also low at about 45.1%.
+- The broker history did not provide comparable continuous forward windows
+  through the daily closed/gap hours; those gaps are deliberately excluded.
+
+Research conclusion:
+- Keep the broad 05:00-20:00 MAIN research window as a scheduling preference,
+  but do not treat every hour inside it as equal.
+- 06:00 deserves a continuation hypothesis for further walk-forward testing.
+- 18:00-21:00 deserves a separate high-volatility/reversal hypothesis rather
+  than blindly reusing daytime continuation logic.
+- This 120-day sample is not enough to promote either hypothesis to execution.
