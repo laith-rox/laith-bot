@@ -4,6 +4,7 @@ import unittest
 from market import Bar, DataError
 from v4_runtime import (
     calibrate_quick_strength,
+    degraded_quick_entry_allowed,
     quick_history_snapshot,
     quick_market_bars,
     quick_reference_quote,
@@ -77,6 +78,47 @@ class V4RuntimeTests(unittest.TestCase):
         bars = [Bar(now - timedelta(minutes=5), 4300, 4302, 4299, 4301, 5)]
         with self.assertRaises(DataError):
             quick_reference_quote(FakeMarket(error="market_quote_invalid"), bars, now)
+
+    def test_live_reference_keeps_normal_quick_rules(self):
+        decision = {"side": "BUY", "buy": 5, "sell": 2, "quick5m": {"higher_side": "WAIT"}}
+        allowed, reason = degraded_quick_entry_allowed(
+            decision, {"delayed_reference": False}, cached_market=False
+        )
+        self.assertTrue(allowed)
+        self.assertIsNone(reason)
+
+    def test_delayed_reference_blocks_five_or_six_of_seven(self):
+        for score in (5, 6):
+            decision = {"side": "BUY", "buy": score, "sell": 1, "quick5m": {"higher_side": "BUY"}}
+            allowed, reason = degraded_quick_entry_allowed(
+                decision, {"delayed_reference": True}, cached_market=False
+            )
+            self.assertFalse(allowed)
+            self.assertEqual(reason, "degraded_reference_requires_7_of_7")
+
+    def test_delayed_reference_allows_7_of_7_only_with_higher_alignment(self):
+        decision = {"side": "BUY", "buy": 7, "sell": 1, "quick5m": {"higher_side": "BUY"}}
+        allowed, reason = degraded_quick_entry_allowed(
+            decision, {"delayed_reference": True}, cached_market=False
+        )
+        self.assertTrue(allowed)
+        self.assertIsNone(reason)
+
+    def test_delayed_reference_7_of_7_blocks_without_higher_alignment(self):
+        decision = {"side": "BUY", "buy": 7, "sell": 1, "quick5m": {"higher_side": "WAIT"}}
+        allowed, reason = degraded_quick_entry_allowed(
+            decision, {"delayed_reference": True}, cached_market=False
+        )
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "degraded_reference_requires_higher_alignment")
+
+    def test_delayed_reference_7_of_7_blocks_cached_market(self):
+        decision = {"side": "SELL", "buy": 0, "sell": 7, "quick5m": {"higher_side": "SELL"}}
+        allowed, reason = degraded_quick_entry_allowed(
+            decision, {"delayed_reference": True}, cached_market=True
+        )
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "degraded_reference_cached_market")
 
     def test_quick_history_snapshot_uses_only_measured_closed_results(self):
         history = quick_history_snapshot([
