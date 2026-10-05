@@ -17,6 +17,10 @@ def signal(side="BUY"):
         "crowding":{"dominant_risk":"BALANCED"},
         "uncertainty":{"state":"NORMAL"},
         "readiness":{"state":"READY"},
+        "volatility":{"state":"REALIZED_EXPANSION","gvz_regime":"NORMAL"},
+        "positioning":{"regime":"LONG_BIASED_DELEVERAGING","crowding":"NORMAL"},
+        "etf":{"regime":"MIXED_INFLOW","breadth":"WEST_OUT_ASIA_IN"},
+        "options":{"skew":"UPSIDE_CALL_BID","oi_state":"CALL_HEAVY"},
     }
 
 
@@ -42,6 +46,13 @@ class NoticeTests(unittest.TestCase):
     def test_no_side_is_not_a_trade_notice(self):
         s=signal("BUY"); s["side"]=None
         self.assertIsNone(gigi_trade_notice.build(s,4300,"REJECTED","no_side"))
+
+    def test_analysis_notice_includes_gigi_flow_layers(self):
+        out=gigi_trade_notice.build(signal("BUY"),4300,"ANALYSIS_ONLY")
+        self.assertIn("Volatility: REALIZED_EXPANSION",out["text"])
+        self.assertIn("CFTC: LONG_BIASED_DELEVERAGING",out["text"])
+        self.assertIn("ETF: MIXED_INFLOW",out["text"])
+        self.assertIn("Options: UPSIDE_CALL_BID",out["text"])
 
     def test_unconfigured_relay_fails_closed_but_returns_notice(self):
         out=gigi_trade_notice.send(signal(),4300,"REJECTED","test",relay_url="",relay_token="")
