@@ -74,6 +74,35 @@ def quick_market_bars(market, now, cached_bars=None):
         return cached_bars, True
 
 
+def degraded_quick_entry_allowed(quick_decision, entry_ref, cached_market=False):
+    """Allow degraded/fallback entry only for a fully confirmed 7/7 setup.
+
+    Live/current-slot references keep the normal Quick rules. When the entry
+    reference is delayed, 5-6/7 candidates are observation-only. A 7/7 setup
+    additionally requires the higher-timeframe side to agree and fresh provider
+    bars (not cached history).
+    """
+    if not entry_ref.get("delayed_reference"):
+        return True, None
+    side = quick_decision.get("side")
+    if side not in ("BUY", "SELL"):
+        return False, "degraded_reference_no_direction"
+    try:
+        score = int(quick_decision.get(side.lower(), 0))
+    except (TypeError, ValueError):
+        score = 0
+    if score < 7:
+        return False, "degraded_reference_requires_7_of_7"
+    higher_side = ((quick_decision.get("quick5m") or {}).get("higher_side")
+                   or quick_decision.get("official_decision")
+                   or "WAIT")
+    if higher_side != side:
+        return False, "degraded_reference_requires_higher_alignment"
+    if cached_market:
+        return False, "degraded_reference_cached_market"
+    return True, None
+
+
 def quick_history_snapshot(trades):
     """Summarize observed quick-paper outcomes; this is not a forecast probability."""
     measured = []
@@ -195,6 +224,18 @@ class V4PaperResilientQuick(V4Paper):
                 "quick_5m_wait buy=%s/7 sell=%s/7 reason=%s candle_start=%s",
                 quick_decision.get("buy"), quick_decision.get("sell"),
                 quick5m.get("reason"), entry_ref.get("candle_start_iso"),
+            )
+            return
+
+        degraded_allowed, degraded_reason = degraded_quick_entry_allowed(
+            quick_decision, entry_ref, cached_market=cached_market
+        )
+        if not degraded_allowed:
+            self.store.set("v4_quick_last_block", degraded_reason)
+            LOG.warning(
+                "quick_entry_block reason=%s side=%s buy=%s/7 sell=%s/7 source=%s",
+                degraded_reason, quick_decision.get("side"), quick_decision.get("buy"),
+                quick_decision.get("sell"), entry_ref.get("source"),
             )
             return
 
