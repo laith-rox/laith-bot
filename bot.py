@@ -17,7 +17,7 @@ from transport import Telegram, dispatch
 from timing import DecisionClock, decision_metadata
 from safety_monitor import start_safety_worker
 
-VERSION = "3.0.2"
+VERSION = "3.0.3"
 UTC = timezone.utc
 NEW_YORK = ZoneInfo("America/New_York")
 LOG = logging.getLogger("laith")
@@ -169,7 +169,7 @@ class App:
                 trade.update(protection_rule='staged-v1',protection_since=epoch)
                 trade.update(entry_buy=decision.get('buy'),entry_sell=decision.get('sell'),
                              quote_time=quote['time'],quote_source=quote['source'],
-                             price_tolerance=tolerance,
+                             price_tolerance=tolerance, official_4h_slot=official_slot,
                              entry_expires=min(quote['time']+(180 if quote_fallback else 90),bars[-1].end.timestamp()+180))
                 if not 0 <= epoch-quote['time'] <= (180 if quote_fallback else 90):
                     raise DataError('market_quote_stale')
@@ -177,7 +177,6 @@ class App:
                     raise DataError('market_quote_stale')
                 prepared=self.store.prepare_entry(trade,entry(trade,decision),epoch)
                 if prepared:
-                    self.store.set("official_4h_slot", official_slot)
                     LOG.info('official_4h_entry_prepared slot=%s id=%s price=%.2f source_age=%.1f',
                              official_slot,trade['id'],trade['entry'],epoch-quote['time'])
                 else:
@@ -214,6 +213,8 @@ class App:
 def run(args):
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
     store=Store(args.db); telegram=Telegram(args.telegram_token,args.telegram_chat); market=Market(args.twelve_key); news=NewsGuard(store)
+    repaired=store.reconcile_official_slot(time.time())
+    if repaired: LOG.warning("official_4h_slot_repaired previous=%s",repaired)
     safety_stop=start_safety_worker(args.db,args.twelve_key,args.telegram_token,args.telegram_chat)
     try:
         LOG.info("starting version=%s",VERSION)
