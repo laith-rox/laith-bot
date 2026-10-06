@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None, usd_basket=None, macro_surprise=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None, usd_basket=None, macro_surprise=None, central_banks=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -26,6 +26,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     local_premium=local_premium or {}
     usd_basket=usd_basket or {}
     macro_surprise=macro_surprise or {}
+    central_banks=central_banks or {}
 
     score=0
     reasons=[]
@@ -161,6 +162,14 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         position_regime!="UNKNOWN" or etf_regime!="UNKNOWN" or positioning_crowding!="UNKNOWN"
     ):
         reasons.append("flow_family_mixed")
+
+    central_bank_regime=str(central_banks.get("regime") or "UNKNOWN").upper()
+    if central_bank_regime in ("STRONG_NET_BUYING","NET_BUYING","MILD_NET_BUYING"):
+        reasons.append("central_bank_net_buying_backdrop")
+    elif central_bank_regime in ("STRONG_NET_SELLING","NET_SELLING"):
+        reasons.append("central_bank_net_selling_backdrop")
+    elif central_bank_regime=="UNKNOWN":
+        reasons.append("central_bank_flow_unknown")
 
     volatility_state=str(volatility.get("state") or "UNKNOWN").upper()
     if volatility_state=="STRESS_EXPANSION":
@@ -367,6 +376,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "synthetic_usd_breadth": round(usd_breadth,3),
         "synthetic_usd_relationship": usd_relationship,
         "flow_family_score": int(flow_family_score),
+        "central_bank_regime": central_bank_regime,
         "reasons": reasons,
         "note": "alignment_score_not_probability",
     }
