@@ -658,3 +658,50 @@ Research conclusion:
 - Lesson: more frequent entries and a higher checklist score do not create edge
   by themselves. New SNIPER variants need a genuinely different setup and fresh
   out-of-sample proof, not looser thresholds.
+
+
+## Fast-flow stress layer
+
+Gigi now distinguishes ordinary directional movement from a fast M5 cascade or
+squeeze using only CLOSED broker-native candles. The detector combines:
+- net movement relative to the prior M5 noise baseline;
+- directional persistence across recent bars;
+- median range expansion;
+- close location near the bar extreme;
+- MT5 tick-volume participation.
+
+States are DOWN_CASCADE, UP_SQUEEZE, FAST_DOWN_IMPULSE,
+FAST_UP_IMPULSE, BALANCED or UNKNOWN. Tick volume is explicitly treated as a
+broker activity proxy, not centralized exchange volume. Flow stress can raise
+liquidation/squeeze *risk context*, but it never creates a BUY/SELL signal.
+
+## Shadow excursion research — 150 resolved observations
+
+A new MFE/MAE report studies the path of ideas instead of judging only the
+final close. Current shadow sample:
+- 150 resolved observations overall;
+- median MFE about +1.00R;
+- median MAE about -1.00R;
+- about 72.7% reached +0.5R at some point;
+- about 50.0% reached +1.0R;
+- about 14.0% reached +1.5R;
+- about 0.7% reached +2.0R;
+- about 50.0% touched -1.0R.
+
+The largest reason bucket so far, SNIPER_STRENGTH_STOP_CAP (n=58), is classified
+TWO_SIDED_NOISY: it often reaches +0.5R but also frequently reaches -1R and
+rarely extends to +1.5R. This is research evidence only and does not
+automatically change stops, targets, or execution.
+
+MAIN currently has too few shadow outcomes for a reliable path conclusion.
+Small positive-looking buckets remain unpromoted until sample size and
+chronological validation are sufficient.
+
+## Research discipline reinforced
+
+- Do not optimize exits from final P/L alone; study MFE and MAE.
+- Do not promote a setup because a small live-shadow sample looks good.
+- Require price-only walk-forward evidence, forward shadow evidence, and drift
+  stability to agree before considering a research factor trustworthy.
+- A recent sign flip is treated as drift / regime change, not instant proof of
+  a new edge.
