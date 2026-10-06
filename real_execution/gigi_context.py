@@ -7,7 +7,7 @@ technical setup.
 from __future__ import annotations
 
 
-def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None, usd_basket=None, macro_surprise=None, central_banks=None):
+def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None, volatility=None, etf=None, crowding=None, options=None, yields=None, event_response=None, session_profile=None, benchmark=None, target_geometry=None, local_premium=None, usd_basket=None, macro_surprise=None, central_banks=None, flow_stress=None):
     side=str(side or "WAIT").upper()
     regime=regime or {}
     intermarket=intermarket or {}
@@ -27,6 +27,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     usd_basket=usd_basket or {}
     macro_surprise=macro_surprise or {}
     central_banks=central_banks or {}
+    flow_stress=flow_stress or {}
 
     score=0
     reasons=[]
@@ -329,6 +330,16 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
     elif india_premium_state=="STRONG_DISCOUNT":
         reasons.append("india_local_discount_strong")
 
+    flow_stress_state=str(flow_stress.get("state") or "UNKNOWN").upper()
+    if flow_stress_state=="DOWN_CASCADE":
+        reasons.append("m5_flow_down_cascade")
+    elif flow_stress_state=="UP_SQUEEZE":
+        reasons.append("m5_flow_up_squeeze")
+    elif flow_stress_state=="FAST_DOWN_IMPULSE":
+        reasons.append("m5_flow_fast_down_impulse")
+    elif flow_stress_state=="FAST_UP_IMPULSE":
+        reasons.append("m5_flow_fast_up_impulse")
+
     crowding_risk=str(crowding.get("dominant_risk") or "BALANCED").upper()
     if crowding_risk in ("HIGH_LONG_LIQUIDATION","WATCH_LONG_LIQUIDATION","LONG_LIQUIDATION_BIAS"):
         reasons.append("long_liquidation_risk")
@@ -354,6 +365,7 @@ def evaluate(side, regime, intermarket, macro, liquidity=None, positioning=None,
         "macro_calendar_horizon": macro_horizon,
         "volatility_state": volatility_state,
         "crowding_risk": crowding_risk,
+        "flow_stress_state": flow_stress_state,
         "options_skew": options_skew,
         "options_oi_state": options_oi,
         "options_gamma_context": options_gamma,
