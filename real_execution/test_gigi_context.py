@@ -435,6 +435,26 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_flow_stress_is_exposed_without_direct_score_change(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {},{},{},{},{},{},{},{},{},
+            {"state":"DOWN_CASCADE"},
+        )
+        self.assertEqual(out["flow_stress_state"],"DOWN_CASCADE")
+        self.assertIn("m5_flow_down_cascade",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
