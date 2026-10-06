@@ -19,6 +19,7 @@ COPY gigi_volatility.py test_gigi_volatility.py ./
 COPY gigi_etf.py test_gigi_etf.py ./
 COPY gigi_central_banks.py test_gigi_central_banks.py ./
 COPY gigi_crowding.py test_gigi_crowding.py test_gigi_equity_risk.py ./
+COPY gigi_flow_stress.py test_gigi_flow_stress.py ./
 COPY gigi_options.py test_gigi_options.py ./
 COPY gigi_local_premium.py test_gigi_local_premium.py ./
 COPY gigi_thesis.py test_gigi_thesis.py ./
@@ -69,6 +70,7 @@ RUN python -m unittest -v \
     test_gigi_etf.py \
     test_gigi_central_banks.py \
     test_gigi_crowding.py \
+    test_gigi_flow_stress.py \
     test_gigi_options.py \
     test_gigi_local_premium.py \
     test_gigi_thesis.py \
