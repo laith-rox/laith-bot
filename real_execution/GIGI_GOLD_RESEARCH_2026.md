@@ -628,3 +628,33 @@ Research conclusion:
 - 18:00-21:00 deserves a separate high-volatility/reversal hypothesis rather
   than blindly reusing daytime continuation logic.
 - This 120-day sample is not enough to promote either hypothesis to execution.
+
+
+### Central-bank official-sector backdrop — latest WGC article discovered 2026-10-06
+- Latest discoverable monthly World Gold Council central-bank statistics article
+  is dated 3 September 2026 and reports July activity.
+- Reported July net central-bank buying: about 23t.
+- Reported year-to-date purchases: about 130t.
+- Poland and China were highlighted among the leading buyers, while Russia was
+  a net seller in the month.
+- Shadow classification: NET_BUYING.
+- Important limitation: official-sector data arrive with a lag and can be
+  revised; this is structural H4/D1/W1 context, never an M5/M15 entry trigger.
+
+### Price-only walk-forward lesson — six non-overlapping 60-day windows
+- MAIN is promising but unstable overall; it is not called proven.
+- MAIN London (10:00-13:00 Palestine) had a positive weighted mean near +0.18R
+  across the six windows, but one window was negative, so it remains unstable.
+- MAIN early (05:00-10:00) also had a positive weighted mean near +0.15R but
+  was unstable across windows.
+- MAIN US (15:20-18:00) had a negative weighted mean near -0.11R and remained
+  unstable rather than reliably negative.
+- SNIPER was negative in every session bucket across all six windows. H4
+  aligned, neutral and counter-trend SNIPER slices were also all stable
+  negative. This is a research-hold finding, not a permanent claim about every
+  future sniper design.
+- Strength alone did not fix SNIPER: strength-2, strength-3 and strength-6
+  were stable negative; strength-4/5/7 were still unproven/unstable.
+- Lesson: more frequent entries and a higher checklist score do not create edge
+  by themselves. New SNIPER variants need a genuinely different setup and fresh
+  out-of-sample proof, not looser thresholds.
