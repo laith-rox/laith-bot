@@ -39,6 +39,7 @@ DIMENSIONS = (
     "etf_breadth",
     "central_bank_regime",
     "crowding_risk",
+    "flow_stress_state",
     "options_skew",
     "options_oi_state",
     "options_gamma_context",
