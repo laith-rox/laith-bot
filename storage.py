@@ -47,6 +47,27 @@ class Store:
         with self.db:
             self._set(key, value)
 
+    def reconcile_official_slot(self, now):
+        """Clear a slot reserved by an entry that was never delivered.
+
+        Older releases reserved the four-hour slot at prepare time. Preserve a
+        slot only when an entry in that slot was actually sent or its delivery
+        is uncertain; otherwise the current slot may be evaluated again.
+        """
+        current = int(float(now) // (4 * 3600))
+        stored = self.get("official_4h_slot")
+        if stored != current:
+            return None
+        start = current * 4 * 3600
+        delivered = self.db.execute(
+            "SELECT 1 FROM outbox WHERE kind='entry' AND created>=? AND created<? "
+            "AND status IN ('sent','uncertain') LIMIT 1",
+            (start, start + 4 * 3600)).fetchone()
+        if delivered:
+            return None
+        self.set("official_4h_slot", None)
+        return stored
+
     def _save_trade(self, trade):
         self.db.execute("INSERT INTO signals VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
                         "status=excluded.status, data=excluded.data",
@@ -207,9 +228,13 @@ class Store:
                 if final == "sent":
                     trade.update(status="active", announced=now, message_id=message_id)
                     self._set("last_signal_at", now)
+                    if isinstance(trade.get("official_4h_slot"), int):
+                        self._set("official_4h_slot", trade["official_4h_slot"])
                     self._set("early_watch", None)
                 elif final == "uncertain":
                     trade.update(status="uncertain_delivery", announced=now, delivery_uncertain=True)
+                    if isinstance(trade.get("official_4h_slot"), int):
+                        self._set("official_4h_slot", trade["official_4h_slot"])
                     self._set("paused", True)
                     self._set("pause_reason", "delivery_uncertain")
                 elif final == "failed":
