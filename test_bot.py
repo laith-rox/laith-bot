@@ -270,6 +270,37 @@ class StatefulTests(unittest.TestCase):
         self.assertIsNone(self.store.claim(NOW.timestamp()+60))
         self.assertIsNotNone(self.store.claim(NOW.timestamp()+90))
 
+    def test_official_slot_reserved_only_after_confirmed_entry_delivery(self):
+        trade = active_trade()
+        trade.update(status="pending", announced=None, official_4h_slot=123)
+        self.store.prepare_entry(trade, "test", NOW.timestamp())
+        row = self.store.claim(NOW.timestamp())
+        self.store.finish(row["id"], "failed", NOW.timestamp(), error="market_quote_stale")
+        self.assertIsNone(self.store.get("official_4h_slot"))
+        self.assertIsNone(self.store.active())
+
+        trade = active_trade("SELL")
+        trade["id"] += "-sent"
+        trade.update(status="pending", announced=None, official_4h_slot=123)
+        self.store.prepare_entry(trade, "test", NOW.timestamp()+1)
+        row = self.store.claim(NOW.timestamp()+1)
+        self.store.finish(row["id"], "sent", NOW.timestamp()+1, message_id=77)
+        self.assertEqual(self.store.get("official_4h_slot"), 123)
+
+    def test_reconcile_clears_legacy_failed_slot_but_preserves_delivered_slot(self):
+        current = int(NOW.timestamp() // (4 * 3600))
+        self.store.set("official_4h_slot", current)
+        self.assertEqual(self.store.reconcile_official_slot(NOW.timestamp()), current)
+        self.assertIsNone(self.store.get("official_4h_slot"))
+
+        trade = active_trade()
+        trade.update(status="pending", announced=None, official_4h_slot=current)
+        self.store.prepare_entry(trade, "test", NOW.timestamp())
+        row = self.store.claim(NOW.timestamp())
+        self.store.finish(row["id"], "sent", NOW.timestamp(), message_id=78)
+        self.assertIsNone(self.store.reconcile_official_slot(NOW.timestamp()+1))
+        self.assertEqual(self.store.get("official_4h_slot"), current)
+
     def test_unknown_outcome_not_counted_as_win(self):
         trade, _ = advance_trade(active_trade(), [candle(h=130,l=80)])
         self.store.save_transition(trade, [], NOW.timestamp())
