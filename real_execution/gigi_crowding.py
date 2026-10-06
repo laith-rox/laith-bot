@@ -8,13 +8,14 @@ liquidation cascade.
 from __future__ import annotations
 
 
-def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=None, options=None):
+def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=None, options=None, flow_stress=None):
     positioning = positioning or {}
     volatility = volatility or {}
     liquidity = liquidity or {}
     etf = etf or {}
     regime = regime or {}
     options = options or {}
+    flow_stress = flow_stress or {}
 
     long_risk = 0
     short_risk = 0
@@ -83,6 +84,20 @@ def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=
     elif options_oi == "CALL_HEAVY":
         reasons.append("options_call_oi_heavy_unsigned")
 
+    flow_state = str(flow_stress.get("state") or "UNKNOWN").upper()
+    if flow_state == "DOWN_CASCADE":
+        long_risk += 2
+        reasons.append("m5_down_cascade")
+    elif flow_state == "UP_SQUEEZE":
+        short_risk += 2
+        reasons.append("m5_up_squeeze")
+    elif flow_state == "FAST_DOWN_IMPULSE":
+        long_risk += 1
+        reasons.append("m5_fast_down_impulse")
+    elif flow_state == "FAST_UP_IMPULSE":
+        short_risk += 1
+        reasons.append("m5_fast_up_impulse")
+
     # Live trigger-like context: liquidity rejection and volatility expansion.
     if liq_event == "BUY_SIDE_SWEEP" or liq_pressure == "BEARISH":
         long_risk += 2
@@ -91,7 +106,10 @@ def analyze(positioning=None, volatility=None, liquidity=None, etf=None, regime=
         short_risk += 2
         reasons.append("bullish_liquidity_rejection")
 
-    speed_gate = vol_state in ("STRESS_EXPANSION", "REALIZED_EXPANSION")
+    speed_gate = (
+        vol_state in ("STRESS_EXPANSION", "REALIZED_EXPANSION")
+        or flow_state in ("DOWN_CASCADE", "UP_SQUEEZE")
+    )
     if speed_gate:
         long_risk += 1
         short_risk += 1
