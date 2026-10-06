@@ -45,6 +45,7 @@ import gigi_session_profile
 import gigi_benchmark
 import gigi_price_prior
 import gigi_market_proof
+import gigi_slice_proof
 import gigi_release_gate
 import gigi_setup
 import gigi_evidence
@@ -332,6 +333,7 @@ def preview_payload(signal):
         "uncertainty": signal.get("uncertainty") or {},
         "price_prior": signal.get("price_prior") or {},
         "market_proof": signal.get("market_proof") or {},
+        "slice_proof": signal.get("slice_proof") or {},
         "research_release": signal.get("research_release") or {},
         "setup": signal.get("setup") or {},
         "evidence": signal.get("evidence") or {},
@@ -532,6 +534,13 @@ def run_forever():
             signal["price_prior"] = gigi_price_prior.assess(signal.get("reason"))
             signal["market_proof"] = gigi_market_proof.assess(
                 signal.get("mode"), signal.get("reason")
+            )
+            signal["slice_proof"] = gigi_slice_proof.assess(
+                signal.get("mode"),
+                signal.get("side"),
+                signal.get("bar"),
+                sum(bool(x) for x in (signal.get("checks") or {}).get(signal.get("side"), [])),
+                (signal.get("regime") or {}).get("h4_bias"),
             )
             signal["research_release"] = gigi_release_gate.assess(
                 signal.get("market_proof")
