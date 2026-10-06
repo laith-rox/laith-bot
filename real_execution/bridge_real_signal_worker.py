@@ -53,6 +53,7 @@ import gigi_trade_mode
 import gigi_uncertainty
 import gigi_central_banks
 import gigi_trade_notice
+import gigi_flow_stress
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -311,6 +312,7 @@ def preview_payload(signal):
         "event_response": signal.get("event_response") or {},
         "macro_surprise": signal.get("macro_surprise") or {},
         "liquidity": signal.get("liquidity") or {},
+        "flow_stress": signal.get("flow_stress") or {},
         "positioning": signal.get("positioning") or {},
         "volatility": signal.get("volatility") or {},
         "etf": signal.get("etf") or {},
@@ -518,6 +520,9 @@ def run_forever():
                 engine.normalize_rows(feeds["5m"]),
                 engine.normalize_rows(feeds["15m"]),
             )
+            signal["flow_stress"] = gigi_flow_stress.analyze(
+                engine.normalize_rows(feeds["5m"])
+            )
             signal["positioning"] = gigi_positioning.fetch(time.time())
             signal["volatility"] = gigi_volatility.analyze(
                 engine.normalize_rows(feeds["15m"])
@@ -578,6 +583,7 @@ def run_forever():
                 signal.get("etf"),
                 signal.get("regime"),
                 signal.get("options"),
+                signal.get("flow_stress"),
             )
             # Setup archetype must be classified only after crowding is built;
             # otherwise squeeze/liquidation setups silently see an empty layer.
@@ -628,6 +634,7 @@ def run_forever():
                 signal.get("usd_basket"),
                 signal.get("macro_surprise"),
                 signal.get("central_banks"),
+                signal.get("flow_stress"),
             )
             signal["uncertainty"] = gigi_uncertainty.assess(
                 signal,
