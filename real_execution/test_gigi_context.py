@@ -408,6 +408,33 @@ class GigiContextTests(unittest.TestCase):
         self.assertEqual(out["score"],0)
 
 
+    def test_central_bank_buying_is_visible_but_not_directional_score(self):
+        out=gigi_context.evaluate(
+            "BUY",
+            {"name":"RANGE","h4_bias":"NEUTRAL","effort_result":"BALANCED"},
+            {"bias":"NEUTRAL"},
+            {"regime":"CLEAR"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"NEUTRAL","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"regime":"MIXED"},
+            {"dominant_risk":"BALANCED"},
+            {},
+            {},
+            {},
+            {},
+            {},
+            {},
+            {},
+            {},
+            {},
+            {"regime":"NET_BUYING","monthly_net_tonnes":23.0},
+        )
+        self.assertEqual(out["central_bank_regime"],"NET_BUYING")
+        self.assertIn("central_bank_net_buying_backdrop",out["reasons"])
+        self.assertEqual(out["score"],0)
+
+
 
 if __name__=="__main__":
     unittest.main()
