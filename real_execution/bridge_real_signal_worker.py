@@ -50,6 +50,7 @@ import gigi_setup
 import gigi_evidence
 import gigi_trade_mode
 import gigi_uncertainty
+import gigi_central_banks
 import gigi_trade_notice
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
@@ -312,6 +313,7 @@ def preview_payload(signal):
         "positioning": signal.get("positioning") or {},
         "volatility": signal.get("volatility") or {},
         "etf": signal.get("etf") or {},
+        "central_banks": signal.get("central_banks") or {},
         "crowding": signal.get("crowding") or {},
         "options": signal.get("options") or {},
         "local_premium": signal.get("local_premium") or {},
@@ -519,6 +521,7 @@ def run_forever():
                 engine.normalize_rows(feeds["15m"])
             )
             signal["etf"] = gigi_etf.fetch(time.time())
+            signal["central_banks"] = gigi_central_banks.fetch(time.time())
             signal["options"] = gigi_options.fetch(time.time())
             signal["local_premium"] = gigi_local_premium.fetch(time.time())
             signal["yields"] = gigi_yields.fetch(time.time())
@@ -615,6 +618,7 @@ def run_forever():
                 signal.get("local_premium"),
                 signal.get("usd_basket"),
                 signal.get("macro_surprise"),
+                signal.get("central_banks"),
             )
             signal["uncertainty"] = gigi_uncertainty.assess(
                 signal,
