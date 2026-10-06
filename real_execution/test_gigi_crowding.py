@@ -87,6 +87,30 @@ class GigiCrowdingTests(unittest.TestCase):
         self.assertFalse(out["directional_signal"])
 
 
+    def test_down_cascade_can_open_speed_gate(self):
+        out=gigi_crowding.analyze(
+            {"regime":"LONG_BIASED_DELEVERAGING","crowding":"NORMAL"},
+            {"state":"NORMAL"},
+            {"event":"NONE","pressure":"NEUTRAL"},
+            {"regime":"MIXED_OUTFLOW"},
+            {"h4_bias":"DOWN"},
+            {"skew":"BALANCED","oi_state":"BALANCED"},
+            {"state":"DOWN_CASCADE"},
+        )
+        self.assertTrue(out["speed_gate"])
+        self.assertIn("m5_down_cascade",out["reasons"])
+        self.assertGreater(out["long_liquidation_score"],out["short_squeeze_score"])
+
+    def test_flow_stress_alone_is_context_not_order_signal(self):
+        out=gigi_crowding.analyze(
+            {},{}, {}, {}, {}, {},
+            {"state":"UP_SQUEEZE"},
+        )
+        self.assertFalse(out["directional_signal"])
+        self.assertTrue(out["speed_gate"])
+        self.assertIn("m5_up_squeeze",out["reasons"])
+
+
 
 if __name__=="__main__":
     unittest.main()
