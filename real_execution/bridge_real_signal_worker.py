@@ -650,6 +650,9 @@ def run_forever():
                 signal.get("crowding"),
                 signal.get("volatility"),
                 signal.get("macro"),
+                signal.get("market_proof"),
+                signal.get("price_prior"),
+                signal.get("research_release"),
             )
             signal["thesis"] = gigi_thesis.audit(
                 signal,
