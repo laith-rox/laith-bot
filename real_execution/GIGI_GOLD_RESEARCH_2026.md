@@ -705,3 +705,43 @@ chronological validation are sufficient.
   stability to agree before considering a research factor trustworthy.
 - A recent sign flip is treated as drift / regime change, not instant proof of
   a new edge.
+
+
+## Broker walk-forward finding — do not ignore
+
+Price-only walk-forward evidence from six non-overlapping 60-day XAUUSD.m
+windows (2025-10-09 through 2026-10-04), with historical broker spread and
+conservative next-bar profit protection replay, produced a much more important
+lesson than adding another indicator:
+
+- MAIN: 1,394 observations, weighted mean about +0.063R. Five of six windows
+  were positive, but one was negative, so the mode is PROMISING_UNSTABLE rather
+  than proven.
+- SNIPER: 13,818 observations, weighted mean about -0.121R. All six windows
+  were negative. This is STABLE_NEGATIVE in the current price-only engine.
+- MAIN session slices:
+  - 05:00-10:00 Palestine: +0.146R mean, unstable.
+  - 10:00-13:00: +0.183R mean, unstable.
+  - 13:00-15:20: -0.057R mean.
+  - 15:20-18:00: -0.110R mean.
+  - 18:00-20:00: roughly flat (+0.004R), insufficient per-window proof.
+- Setup reasons:
+  - m15_support_break_retest: STABLE_POSITIVE across three independent
+    60-day windows (+0.323R, +0.099R, +0.018R).
+  - fast_primary_2of3, m15_resistance_break_retest, mtf_countertrend_medium,
+    mtf_medium_continuation, technical_medium_local_invalidation and
+    technical_medium_recovered were STABLE_NEGATIVE in the current replay.
+
+Interpretation:
+- Frequency is not edge. The current SNIPER engine is not allowed to be called
+  "good" merely because it creates many opportunities.
+- The next research priority is to improve or replace the negative tactical
+  archetypes, not to add more correlated indicators.
+- Historical proof is descriptive, not a guarantee. External historical macro,
+  CFTC, ETF, options and yield states were not backfilled, so those layers must
+  earn their value in shadow/out-of-sample data rather than being retrofitted.
+
+Candidate analysis change:
+- Gigi trade-mode requests now quarantine STABLE_NEGATIVE modes/setup reasons.
+- PRE_HIGH_EVENT and HIGH_EVENT_SHOCK_0_5M are read from the actual macro phase
+  field, fixing the old broad-regime/phase confusion.
