@@ -780,3 +780,46 @@ Important discipline:
 
 This is the intended Gigi behaviour: when a new idea fails, narrow or reject it
 instead of inventing a story to defend it.
+
+
+## October 2026 research update — flow divergence is now a first-class concept
+
+World Gold Council's September review showed a modern gold-market contradiction
+that Gigi must not flatten into one "flow" score:
+
+- Gold fell 8.5% in September while global gold ETFs still attracted about
+  US$10bn (67t).
+- COMEX Managed Money positioning fell sharply at the same time, by roughly
+  84t equivalent, while spreading positions fell by about 156t equivalent.
+- This means physical/ETF allocation demand and leveraged derivatives flows can
+  point in opposite directions for meaningful periods.
+- Therefore ETF inflow is not automatically bullish intraday, and futures
+  liquidation is not proof that strategic gold demand disappeared.
+
+Research implication:
+- classify ETF-versus-futures divergence explicitly;
+- ask which flow is currently aligned with price structure;
+- keep ETF/CFTC as slow context and price/liquidity as the timing layer;
+- learn divergence states separately instead of averaging them away.
+
+A new research-only module, gigi_flow_divergence.py, labels:
+- ETF_BUYING_VS_FUTURES_LIQUIDATION
+- ETF_SELLING_VS_FUTURES_COVERING
+- FLOW_CONFIRMATION_BULLISH
+- FLOW_CONFIRMATION_BEARISH
+- MIXED_FLOW
+
+No state is a standalone BUY/SELL or execution rule.
+
+## October 2026 China update
+
+World Gold Council's 15 October China update adds another reminder that "gold
+demand" is not one market:
+- the PBoC reported a 23t gold addition in September, its largest monthly
+  addition since October 2023;
+- Chinese gold ETF inflows remained healthy into early October;
+- SHFE activity moderated in September but remained robust over Q3.
+
+Research implication: official-sector demand, ETF allocation and futures
+positioning should remain separate evidence families even when they all concern
+gold demand.
