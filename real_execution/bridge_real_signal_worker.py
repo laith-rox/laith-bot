@@ -54,6 +54,7 @@ import gigi_uncertainty
 import gigi_central_banks
 import gigi_trade_notice
 import gigi_flow_stress
+import gigi_sniper_v2
 
 REAL_ANALYSIS_PREVIEW_ENABLED = os.getenv("REAL_ANALYSIS_PREVIEW_ENABLED", "false").strip().lower() == "true"
 REAL_SIGNAL_ENABLED = os.getenv("REAL_SIGNAL_ENABLED", "false").strip().lower() == "true"
@@ -340,6 +341,7 @@ def preview_payload(signal):
         "setup": signal.get("setup") or {},
         "evidence": signal.get("evidence") or {},
         "trade_mode_request": signal.get("trade_mode_request") or {},
+        "sniper_v2": signal.get("sniper_v2") or {},
         "session": main_session_name(signal_local_minute(signal)) if str(signal.get("mode") or "").upper() == "MAIN" else "DAY_SNIPER",
         "live_handoff_enabled": REAL_LIVE_HANDOFF_ENABLED,
         "mirrored_demo_release": MIRRORED_DEMO_RELEASE,
@@ -691,6 +693,17 @@ def run_forever():
                 signal.get("target_geometry"),
                 signal.get("price_prior"),
                 signal.get("benchmark"),
+            )
+            signal["sniper_v2"] = gigi_sniper_v2.assess(
+                signal,
+                signal.get("setup"),
+                signal.get("execution_quality"),
+                signal.get("stop_geometry"),
+                signal.get("uncertainty"),
+                signal.get("evidence"),
+                signal.get("macro"),
+                signal.get("price_prior"),
+                signal.get("readiness"),
             )
 
             if _preview_enabled:
