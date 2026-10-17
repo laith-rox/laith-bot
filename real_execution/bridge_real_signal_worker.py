@@ -571,6 +571,7 @@ def run_forever():
                 signal.get("macro"),
                 now=time.time(),
                 local_premium=signal.get("local_premium"),
+                central_banks=signal.get("central_banks"),
             )
             signal["execution_quality"] = gigi_execution_quality.analyze(
                 health,
