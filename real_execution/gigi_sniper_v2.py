@@ -39,6 +39,97 @@ def _h4_relation(side, regime):
     return "COUNTER"
 
 
+def price_only_assess(signal=None, setup=None, stop_geometry=None,
+                      spread_to_risk=None, price_prior=None):
+    """Historical-testable core of the new tactical design.
+
+    Uses only price-derived setup geometry, H4 relation, technical checks and
+    historical spread/risk cost. No current macro/options/ETF/CFTC value is
+    allowed into this function, which avoids look-ahead in broker walk-forward.
+    """
+    signal=signal or {}
+    setup=setup or {}
+    stop_geometry=stop_geometry or {}
+    price_prior=price_prior or {}
+
+    side=str(signal.get("side") or "WAIT").upper()
+    archetype=str(setup.get("primary") or "NO_CLEAR_ARCHETYPE").upper()
+    setup_score=int(setup.get("primary_score") or 0)
+    prior=str(price_prior.get("status") or "UNQUALIFIED_OR_UNKNOWN").upper()
+    stop_noise=str(stop_geometry.get("noise_exposure") or "UNKNOWN").upper()
+    h4_relation=_h4_relation(side,signal.get("regime"))
+    strength=sum(bool(x) for x in (signal.get("checks") or {}).get(side,[]))
+
+    try:
+        cost=float(spread_to_risk)
+    except Exception:
+        cost=None
+
+    blockers=[]
+    cautions=[]
+    score=0
+
+    if side not in ("BUY","SELL"):
+        blockers.append("no_direction")
+    # Price-only proof can only test archetypes fully observable from bars.
+    if archetype not in ("LIQUIDITY_REVERSAL","BREAKOUT_ACCEPTANCE"):
+        blockers.append("price_only_archetype_not_qualified")
+    if prior=="STABLE_NEGATIVE":
+        blockers.append("legacy_reason_stable_negative")
+    if stop_noise=="HIGH":
+        blockers.append("stop_inside_market_noise")
+    if cost is None:
+        blockers.append("spread_to_risk_unknown")
+    elif cost > 0.08:
+        blockers.append("spread_to_risk_too_high")
+
+    if not blockers:
+        score += 2 if cost <= 0.05 else 1
+        score += 3 if archetype=="LIQUIDITY_REVERSAL" else 2
+        score += 2 if setup_score>=5 else (1 if setup_score>=3 else 0)
+        if h4_relation=="ALIGNED":
+            score+=1
+        elif h4_relation=="COUNTER":
+            cautions.append("h4_countertrend_tactical_only")
+        if strength>=6:
+            score+=1
+
+    if blockers:
+        state="REJECT"
+    elif score>=7 and cost is not None and cost<=0.05:
+        state="STRONG_PRICE_SHADOW_CANDIDATE"
+    elif score>=5:
+        state="PRICE_SHADOW_CANDIDATE"
+    elif score>=3:
+        state="WATCH"
+    else:
+        state="REJECT"
+
+    if cost is None:
+        cost_bucket="UNKNOWN"
+    elif cost<=0.05:
+        cost_bucket="LE_0_05R"
+    elif cost<=0.08:
+        cost_bucket="0_05_TO_0_08R"
+    else:
+        cost_bucket="GT_0_08R"
+
+    return {
+        "state":state,
+        "score":int(score),
+        "archetype":archetype,
+        "setup_score":setup_score,
+        "h4_relation":h4_relation,
+        "strength":strength,
+        "spread_to_risk":None if cost is None else round(cost,4),
+        "cost_bucket":cost_bucket,
+        "blockers":sorted(set(blockers)),
+        "cautions":sorted(set(cautions)),
+        "authorizes_execution":False,
+        "note":"price_only_sniper_v2_research_requires_multiwindow_proof",
+    }
+
+
 def assess(signal=None, setup=None, execution_quality=None, stop_geometry=None,
            uncertainty=None, evidence=None, macro=None, price_prior=None,
            readiness=None):
