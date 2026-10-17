@@ -58,6 +58,7 @@ def build(signal, spot, outcome, reject_reason=None):
     positioning=signal.get("positioning") or {}
     etf=signal.get("etf") or {}
     options=signal.get("options") or {}
+    sniper_v2=signal.get("sniper_v2") or {}
     status={
         "PUBLISHED":"✅ مرّرت للجسر",
         "REJECTED":"⛔️ رفضها حاجز التنفيذ",
@@ -81,6 +82,7 @@ def build(signal, spot, outcome, reject_reason=None):
         f"CFTC: {positioning.get('regime') or '-'} | crowd={positioning.get('crowding') or '-'}\n"
         f"ETF: {etf.get('regime') or '-'} | {etf.get('breadth') or '-'}\n"
         f"Options: {options.get('skew') or '-'} | OI={options.get('oi_state') or '-'}\n"
+        f"Sniper V2 Shadow: {sniper_v2.get('state') or '-'} | {sniper_v2.get('archetype') or '-'} | cost={sniper_v2.get('cost_bucket') or '-'}\n"
         f"Uncertainty: {uncertainty.get('state') or uncertainty.get('level') or '-'}\n"
         f"جاهزية: {readiness.get('state') or readiness.get('decision') or '-'}\n"
         f"سبب الرفض/المنع: {reason}\n"
