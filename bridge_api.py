@@ -35,6 +35,7 @@ _items: dict[str, dict] = {}
 _runtime_enabled = CONFIG_ENABLED
 _client_state: dict | None = None
 _client_last_poll: float | None = None
+_market_state: dict | None = None
 _key_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 _reason_re = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
