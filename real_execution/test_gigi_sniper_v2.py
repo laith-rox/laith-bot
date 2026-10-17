@@ -89,6 +89,29 @@ class GigiSniperV2Tests(unittest.TestCase):
         self.assertEqual(out["state"],"REJECT")
         self.assertIn("legacy_or_undifferentiated_archetype",out["blockers"])
 
+    def test_price_only_core_accepts_new_low_cost_liquidity_reversal(self):
+        out=gigi_sniper_v2.price_only_assess(
+            base_signal(),
+            {"primary":"LIQUIDITY_REVERSAL","primary_score":6},
+            {"noise_exposure":"LOW"},
+            0.04,
+            {"status":"UNQUALIFIED_OR_UNKNOWN"},
+        )
+        self.assertIn(out["state"],("PRICE_SHADOW_CANDIDATE","STRONG_PRICE_SHADOW_CANDIDATE"))
+        self.assertFalse(out["authorizes_execution"])
+
+    def test_price_only_core_rejects_old_trend_continuation(self):
+        out=gigi_sniper_v2.price_only_assess(
+            base_signal(),
+            {"primary":"TREND_CONTINUATION","primary_score":7},
+            {"noise_exposure":"LOW"},
+            0.03,
+            {"status":"UNQUALIFIED_OR_UNKNOWN"},
+        )
+        self.assertEqual(out["state"],"REJECT")
+        self.assertIn("price_only_archetype_not_qualified",out["blockers"])
+
+
 
 if __name__=="__main__":
     unittest.main()
