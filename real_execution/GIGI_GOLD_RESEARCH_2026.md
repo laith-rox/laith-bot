@@ -745,3 +745,38 @@ Candidate analysis change:
 - Gigi trade-mode requests now quarantine STABLE_NEGATIVE modes/setup reasons.
 - PRE_HIGH_EVENT and HIGH_EVENT_SHOCK_0_5M are read from the actual macro phase
   field, fixing the old broad-regime/phase confusion.
+
+
+## Sniper V2 redesign checkpoint — 240d price-only filter study
+
+Because the legacy SNIPER population was stable-negative in the six-window
+broker walk-forward, Gigi did not loosen its thresholds. A new, narrower
+SHADOW-only tactical design was tested retrospectively on 8,617 enriched legacy
+SNIPER observations using only price-derived context and historical spread/risk
+geometry. No current macro/CFTC/ETF/options value was injected into old bars.
+
+Results:
+- legacy SNIPER baseline: n=8,617, mean -0.1491R, win rate 55.05%, PF 0.7052;
+- Sniper V2 candidate filter: n=67, mean -0.0959R, win rate 59.70%, PF 0.7742;
+- strong V2 subset: n=30, mean -0.0924R, win rate 66.67%, PF 0.7322.
+
+The filter improved the legacy distribution but did NOT create positive
+expectancy. Therefore Sniper V2 is not promoted.
+
+Archetype split:
+- BREAKOUT_ACCEPTANCE: n=59, mean -0.1360R, PF 0.6951 -> RESEARCH_HOLD_NEGATIVE;
+- LIQUIDITY_REVERSAL: n=8, mean +0.1993R, PF 1.7399 -> promising but far too
+  small for a conclusion.
+
+Important discipline:
+- the liquidity-reversal result is exploratory and was found inside the same
+  retrospective sample, so it is not independent proof;
+- BREAKOUT_ACCEPTANCE is quarantined inside Sniper V2 rather than repeatedly
+  repackaged with more indicators;
+- LIQUIDITY_REVERSAL may be collected in forward shadow data, but no execution
+  promotion is allowed until sample size, chronology and drift tests pass;
+- the high V2 win rate is explicitly not treated as edge because expectancy
+  remained negative.
+
+This is the intended Gigi behaviour: when a new idea fails, narrow or reject it
+instead of inventing a story to defend it.
