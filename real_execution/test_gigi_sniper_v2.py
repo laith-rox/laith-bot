@@ -112,6 +112,30 @@ class GigiSniperV2Tests(unittest.TestCase):
         self.assertIn("price_only_archetype_not_qualified",out["blockers"])
 
 
+    def test_breakout_subset_is_research_hold_after_price_study(self):
+        out=gigi_sniper_v2.price_only_assess(
+            base_signal(),
+            {"primary":"BREAKOUT_ACCEPTANCE","primary_score":6},
+            {"noise_exposure":"LOW"},
+            0.04,
+            {"status":"UNQUALIFIED_OR_UNKNOWN"},
+        )
+        self.assertEqual(out["state"],"REJECT")
+        self.assertIn("v2_archetype_retrospective_negative",out["blockers"])
+        self.assertEqual(out["archetype_research"]["status"],"RESEARCH_HOLD_NEGATIVE")
+
+    def test_liquidity_reversal_carries_insufficient_sample_caution(self):
+        out=gigi_sniper_v2.price_only_assess(
+            base_signal(),
+            {"primary":"LIQUIDITY_REVERSAL","primary_score":6},
+            {"noise_exposure":"LOW"},
+            0.04,
+            {"status":"UNQUALIFIED_OR_UNKNOWN"},
+        )
+        self.assertIn("v2_archetype_sample_insufficient",out["cautions"])
+        self.assertEqual(out["archetype_research"]["n"],8)
+
+
 
 if __name__=="__main__":
     unittest.main()
