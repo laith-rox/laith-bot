@@ -41,7 +41,7 @@ def _age_days(value, now_dt):
     return max(0.0,(now_dt-dt).total_seconds()/86400.0)
 
 
-def assess(positioning=None, etf=None, volatility=None, options=None, yields=None, macro=None, now=None, local_premium=None):
+def assess(positioning=None, etf=None, volatility=None, options=None, yields=None, macro=None, now=None, local_premium=None, central_banks=None):
     positioning=positioning or {}
     etf=etf or {}
     volatility=volatility or {}
@@ -49,6 +49,7 @@ def assess(positioning=None, etf=None, volatility=None, options=None, yields=Non
     yields=yields or {}
     macro=macro or {}
     local_premium=local_premium or {}
+    central_banks=central_banks or {}
     now_dt=datetime.now(timezone.utc) if now is None else datetime.fromtimestamp(float(now),timezone.utc)
 
     specs={
@@ -58,6 +59,11 @@ def assess(positioning=None, etf=None, volatility=None, options=None, yields=Non
         "options":(options.get("as_of"),3.5,options.get("error")),
         "yields":(yields.get("as_of"),5.0,yields.get("error")),
         "local_premium":(local_premium.get("as_of"),10.0,local_premium.get("error")),
+        "central_banks":(
+            central_banks.get("published_date") or central_banks.get("data_to"),
+            45.0,
+            central_banks.get("error"),
+        ),
     }
 
     ages={}
@@ -88,9 +94,9 @@ def assess(positioning=None, etf=None, volatility=None, options=None, yields=Non
     else:
         missing.append("macro")
 
-    if not stale and len(available)>=7:
+    if not stale and len(available)>=8:
         quality="HIGH"
-    elif len(available)>=5 and len(stale)<=1:
+    elif len(available)>=6 and len(stale)<=1:
         quality="MEDIUM"
     else:
         quality="LOW"
