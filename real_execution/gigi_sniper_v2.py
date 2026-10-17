@@ -17,6 +17,25 @@ ALLOWED_ARCHETYPES = {
     "SQUEEZE_LIQUIDATION",
 }
 
+# Retrospective broker-price filter study over the current 240d observation
+# sample. This is descriptive, not forward proof and not a win probability.
+PRICE_RESEARCH = {
+    "BREAKOUT_ACCEPTANCE": {
+        "n":59, "mean_r":-0.1360, "profit_factor":0.6951,
+        "status":"RESEARCH_HOLD_NEGATIVE",
+    },
+    "LIQUIDITY_REVERSAL": {
+        "n":8, "mean_r":0.1993, "profit_factor":1.7399,
+        "status":"PROMISING_INSUFFICIENT_SAMPLE",
+    },
+}
+
+
+def archetype_research(archetype):
+    return dict(PRICE_RESEARCH.get(str(archetype or "").upper()) or {
+        "n":0, "mean_r":None, "profit_factor":None, "status":"UNBACKFILLED",
+    })
+
 
 def _cost_ratio(signal, execution_quality):
     try:
@@ -57,6 +76,7 @@ def price_only_assess(signal=None, setup=None, stop_geometry=None,
     setup_score=int(setup.get("primary_score") or 0)
     prior=str(price_prior.get("status") or "UNQUALIFIED_OR_UNKNOWN").upper()
     stop_noise=str(stop_geometry.get("noise_exposure") or "UNKNOWN").upper()
+    research=archetype_research(archetype)
     h4_relation=_h4_relation(side,signal.get("regime"))
     strength=sum(bool(x) for x in (signal.get("checks") or {}).get(side,[]))
 
@@ -76,6 +96,10 @@ def price_only_assess(signal=None, setup=None, stop_geometry=None,
         blockers.append("price_only_archetype_not_qualified")
     if prior=="STABLE_NEGATIVE":
         blockers.append("legacy_reason_stable_negative")
+    if research.get("status")=="RESEARCH_HOLD_NEGATIVE":
+        blockers.append("v2_archetype_retrospective_negative")
+    elif research.get("status")=="PROMISING_INSUFFICIENT_SAMPLE":
+        cautions.append("v2_archetype_sample_insufficient")
     if stop_noise=="HIGH":
         blockers.append("stop_inside_market_noise")
     if cost is None:
@@ -123,6 +147,7 @@ def price_only_assess(signal=None, setup=None, stop_geometry=None,
         "strength":strength,
         "spread_to_risk":None if cost is None else round(cost,4),
         "cost_bucket":cost_bucket,
+        "archetype_research":research,
         "blockers":sorted(set(blockers)),
         "cautions":sorted(set(cautions)),
         "authorizes_execution":False,
@@ -155,6 +180,7 @@ def assess(signal=None, setup=None, execution_quality=None, stop_geometry=None,
     conflict=int(evidence.get("independent_conflict_count") or 0)
     prior=str(price_prior.get("status") or "UNQUALIFIED_OR_UNKNOWN").upper()
     readiness_state=str(readiness.get("state") or "UNKNOWN").upper()
+    research=archetype_research(archetype)
     h4_relation=_h4_relation(side,signal.get("regime"))
     cost=_cost_ratio(signal,execution_quality)
 
@@ -168,6 +194,12 @@ def assess(signal=None, setup=None, execution_quality=None, stop_geometry=None,
         blockers.append("legacy_or_undifferentiated_archetype")
     if prior=="STABLE_NEGATIVE":
         blockers.append("legacy_reason_stable_negative")
+    if research.get("status")=="RESEARCH_HOLD_NEGATIVE":
+        blockers.append("v2_archetype_retrospective_negative")
+    elif research.get("status")=="PROMISING_INSUFFICIENT_SAMPLE":
+        cautions.append("v2_archetype_sample_insufficient")
+    elif research.get("status")=="UNBACKFILLED":
+        cautions.append("v2_archetype_no_price_backfill")
     if macro_phase in ("PRE_HIGH_EVENT","HIGH_EVENT_SHOCK_0_5M","PRE_MEDIUM_EVENT","MEDIUM_EVENT_SHOCK_0_5M"):
         blockers.append("event_first_move_untrusted")
     if exec_quality in ("BLOCKED_TERMINAL","STALE_TICK","EXTREME","UNKNOWN"):
@@ -256,6 +288,7 @@ def assess(signal=None, setup=None, execution_quality=None, stop_geometry=None,
         "h4_relation":h4_relation,
         "spread_to_risk":None if cost is None else round(float(cost),4),
         "cost_bucket":cost_bucket,
+        "archetype_research":research,
         "evidence_state":evidence_state,
         "support_count":support,
         "conflict_count":conflict,
