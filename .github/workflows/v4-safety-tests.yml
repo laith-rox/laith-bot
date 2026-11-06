@@ -22,4 +22,4 @@ jobs:
       - name: Compile V4 safety modules
         run: python -m py_compile v4_opportunity_plan.py v4_market_guard.py v4_news_intelligence.py v4_alert_planner.py v4_alert_delivery.py v4_alert_coordinator.py
       - name: Run safety tests
-        run: python -m unittest -v test_v4_opportunity_plan test_v4_opportunity_gate test_v4_market_guard test_v4_news_intelligence test_v4_alert_planner test_v4_alert_delivery test_v4_alert_coordinator
+        run: python -m unittest -v test_v4_opportunity_plan test_v4_opportunity_gate test_v4_opportunity_malformed test_v4_market_guard test_v4_news_intelligence test_v4_alert_planner test_v4_alert_delivery test_v4_alert_coordinator
