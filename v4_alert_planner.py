@@ -1,18 +1,30 @@
 """Pure alert dispatch guards for V4; no broker orders and no network calls."""
-from v4_market_guard import close_alert_key, market_guard
+from v4_market_guard import close_alert_key
 from v4_news_intelligence import plan_pre_news_alert
 
 
 def plan_market_close_notice(now, intervals, last_quote_at, *, weekly=False,
                              already_sent_keys=()):
     """Build one T-30 close warning when verified schedule and quote permit."""
-    state, closes, reason = market_guard(now, intervals, last_quote_at=last_quote_at)
-    if state != "PRE_CLOSE" or closes is None:
+    # Calendar-based close warnings must not disappear when quote data is stale.
+    # Quote freshness is independently required for trade ENTRY signals.
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    from datetime import timezone
+    now_utc = now.astimezone(timezone.utc)
+    candidates = []
+    for opened, closes in intervals:
+        if opened.tzinfo is None or closes.tzinfo is None or opened >= closes:
+            continue
+        opened = opened.astimezone(timezone.utc)
+        closes = closes.astimezone(timezone.utc)
+        if opened <= now_utc < closes:
+            until = (closes - now_utc).total_seconds()
+            if 29 * 60 <= until <= 30 * 60:
+                candidates.append(closes)
+    if not candidates:
         return None
-    # Warn only at T-30; avoid first-time alerts just seconds before close.
-    until = (closes - now).total_seconds()
-    if not 29 * 60 <= until <= 30 * 60:
-        return None
+    closes = min(candidates)
     key = close_alert_key(closes, weekly=weekly)
     if key in already_sent_keys:
         return None
