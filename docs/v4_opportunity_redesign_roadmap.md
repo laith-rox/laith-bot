@@ -33,3 +33,19 @@ Status: APPROVED FOR DEVELOPMENT AND TESTING ONLY. NOT APPROVED FOR PRODUCTION.
 
 ## Current implementation status
 The existing draft PR #40 only implements a preliminary conservative Quick-entry gate and explicit WAIT/ENTRY wording; the eight capabilities above are **not implemented yet**. Tests in the PR have not yet been executed. This roadmap is the scope for subsequent development.
+
+## Six additional proposals — pending explicit approval
+9. **Gold pattern memory:** compare similar historical sessions/regimes without assuming recurrence; prevent look-ahead bias.
+10. **False-breakout classifier:** distinguish genuine breakout/retest from liquidity sweep and failed breakout using measurable structure.
+11. **Position sizing calculator:** recommend risk-based size from balance, stop distance, contract size, and broker specifications; no full-margin recommendations.
+12. **Unexpected-news and data-integrity guard:** pause actionable alerts during abnormal volatility, feed outages, stale quotes, or unscheduled shocks.
+13. **Missed-opportunity audit:** record why qualified opportunities were missed (filter, latency, data freshness, session gating), review with hindsight-safe replay.
+14. **Strategy tournament:** compare breakout, pullback, and reversal strategies by session/regime using walk-forward tests, spread/slippage and drawdown.
+
+These six are **recommendations, not yet approved implementation scope**. Do not enable them in production by default.
+
+## Architecture and sequencing notes
+- Use event triggers (session opening, range break, liquidity sweep, retest, regime change, news release) with deduplication, plus lightweight monitoring to detect triggers; remove any *obligation* to publish every N minutes.
+- Separate market-data quality, strategy hypotheses, opportunity scoring, risk, Telegram presentation, and outcome journaling.
+- No trade is 'guaranteed'; empirical confidence must be calibrated on held-out data.
+- Keep all new work in the development branch and test before seeking explicit merge/deployment permission.
