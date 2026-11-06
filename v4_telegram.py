@@ -174,7 +174,7 @@ def quick_no_entry_message(reason=None):
         "market_quote_stale": "السعر الحالي غير موثوق",
     }
     detail = descriptions.get(reason, "لا توجد فرصة مؤكدة حاليًا")
-    return f"🔴 <b>لا تدخل الآن — V4 سريع 5د</b>\\nالسبب: {detail}\\n📄 متابعة إشارات ورقية فقط"
+    return f"🔴 <b>لا تدخل الآن — V4 سريع 5د</b>\nالسبب: {detail}\n📄 متابعة إشارات ورقية فقط"
 
 
 def continuation_message(snapshot):
