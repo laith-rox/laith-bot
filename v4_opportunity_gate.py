@@ -1,4 +1,5 @@
-"""Opportunity-driven paper signal gate. No order execution or scheduling changes."""
+"""Opportunity-driven manual Telegram signal gate. No broker order execution."""
+import math
 
 
 def evaluate_opportunity(decision, reference, cached_market=False, news_clear=True):
@@ -12,15 +13,21 @@ def evaluate_opportunity(decision, reference, cached_market=False, news_clear=Tr
         return False, "market_data_not_live"
     if not news_clear:
         return False, "news_risk"
-    score = int(q.get(side.lower(), 0))
+    try:
+        score = int(q.get(side.lower(), 0))
+    except (ValueError, TypeError, OverflowError):
+        return False, "invalid_setup_score"
     if score < 6:
         return False, "weak_setup"
     if q.get("higher_side") != side:
         return False, "higher_timeframe_conflict"
-    atr = float(q.get("atr5") or 0)
-    price = float(q.get("current_price") or 0)
-    candle_open = float(q.get("current_open") or 0)
-    if atr <= 0 or price <= 0:
+    try:
+        atr = float(q.get("atr5") or 0)
+        price = float(q.get("current_price") or 0)
+        candle_open = float(q.get("current_open") or 0)
+    except (ValueError, TypeError, OverflowError):
+        return False, "invalid_volatility_or_price"
+    if not all(math.isfinite(x) for x in (atr, price, candle_open)) or atr <= 0 or price <= 0 or candle_open <= 0:
         return False, "invalid_volatility_or_price"
     if abs(price - candle_open) > 0.35 * atr:
         return False, "late_entry_after_impulse"
