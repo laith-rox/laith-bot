@@ -28,6 +28,7 @@ from v4_pending_entry import pending_entry_retry_allowed
 from v4_alert_coordinator import run_alert_cycle
 from v4_verified_calendar import verified_sessions, verified_news
 from v4_market_guard import market_guard
+from v4_regime_scenarios import analyze_regime, scenario_hypotheses
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
@@ -227,6 +228,22 @@ class V4PaperResilientQuick(V4Paper):
         decision = analyze_v4(bars, now, macro=macro)
         self.store.set("v4_quick_last_slot", slot)
         self.store.set("v4_quick_last_analysis", decision)
+        # Separate intelligence stream: analyze completed candles only, no
+        # trade execution and no fabricated probabilities.
+        regime = analyze_regime(bars)
+        self.store.set("v4_market_regime", regime)
+        if regime.get("actionable"):
+            recent = bars[-20:]
+            try:
+                support = min(float(b.low) for b in recent)
+                resistance = max(float(b.high) for b in recent)
+                self.store.set("v4_scenarios", list(scenario_hypotheses(
+                    regime, support=support, resistance=resistance,
+                    last_price=float(bars[-1].close))))
+            except (ValueError, TypeError, AttributeError):
+                self.store.set("v4_scenarios", [])
+        else:
+            self.store.set("v4_scenarios", [])
 
         active = self.store.get("v4_active")
         monitor_quote = None
