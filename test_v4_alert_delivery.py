@@ -35,6 +35,14 @@ class DeliveryTests(unittest.TestCase):
         notifier.result = True
         self.assertTrue(deliver_once(store, notifier, notice))
 
+    def test_unconfirmed_delivery_does_not_mark_sent(self):
+        store, notifier = Store(), Notifier(result=None)
+        notice = dict(key="news:2", message="Alert")
+        self.assertFalse(deliver_once(store, notifier, notice))
+        self.assertIsNone(store.get("v4_alert_sent:news:2"))
+        notifier.result = True
+        self.assertTrue(deliver_once(store, notifier, notice))
+
     def test_invalid_notice(self):
         self.assertFalse(deliver_once(Store(), Notifier(), {}))
 
