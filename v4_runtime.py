@@ -180,7 +180,9 @@ class V4PaperResilientQuick(V4Paper):
                 pending_candidate = pending["candidate"]
                 pending_session = pending["session_id"]
                 pending_message = pending["message"]
-                if not valid_quote_observation(pending.get("observed_at"), now.timestamp()) or trading_guard_closed(now):
+                if (not valid_quote_observation(pending.get("observed_at"), now.timestamp())
+                        or trading_guard_closed(now)
+                        or pending_session != now.astimezone(NY_TZ).date().isoformat()):
                     self.store.set("v4_pending_quick_telegram", None)
                 elif should_publish_signal(self.store, pending_candidate, session_id=pending_session):
                     if self.notifier.send(pending_message) is True:
