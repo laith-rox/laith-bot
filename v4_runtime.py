@@ -185,8 +185,18 @@ class V4PaperResilientQuick(V4Paper):
                 pending_candidate = pending["candidate"]
                 pending_session = pending["session_id"]
                 pending_message = pending["message"]
+                configured_raw = os.environ.get("V4_VERIFIED_BROKER_SESSIONS")
+                configured_sessions = verified_sessions(configured_raw)
+                verified_closed = bool(configured_raw and not configured_sessions)
+                if configured_sessions:
+                    try:
+                        quote_at = datetime.fromtimestamp(float(pending["observed_at"]), UTC)
+                        verified_closed = market_guard(
+                            now, configured_sessions, last_quote_at=quote_at)[0] != "OPEN"
+                    except (KeyError, ValueError, TypeError, OverflowError):
+                        verified_closed = True
                 if not pending_entry_retry_allowed(
-                    pending, now, market_closed=trading_guard_closed(now),
+                    pending, now, market_closed=trading_guard_closed(now) or verified_closed,
                     news_allowed=self.news.check(now)[0]
                 ):
                     self.store.set("v4_pending_quick_telegram", None)
