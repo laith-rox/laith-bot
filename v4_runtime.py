@@ -279,7 +279,16 @@ class V4PaperResilientQuick(V4Paper):
             LOG.info("quick_opportunity_wait reason=%s side=%s", opportunity_reason, quick_decision.get("side"))
             return
 
-        observed_at = float(entry_ref.get("observed_at", now.timestamp()))
+        try:
+            observed_at = float(entry_ref.get("observed_at"))
+        except (TypeError, ValueError, OverflowError):
+            self.store.set("v4_quick_last_block", "missing_quote_observation_time")
+            self._set_quick_entry_state("WAIT", "missing_quote_observation_time")
+            return
+        if not math.isfinite(observed_at) or observed_at > now.timestamp() + 10 or now.timestamp() - observed_at > 90:
+            self.store.set("v4_quick_last_block", "stale_or_future_quote_observation")
+            self._set_quick_entry_state("WAIT", "stale_or_future_quote_observation")
+            return
         quote_now = datetime.fromtimestamp(observed_at, UTC)
         setup = build_quick(quick_decision, quote_now, quote_price=entry_ref["price"])
         if setup is None:
