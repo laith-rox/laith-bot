@@ -181,10 +181,12 @@ class V4PaperResilientQuick(V4Paper):
         slot = int(now.timestamp() // 300)
         if self.store.get("v4_quick_last_slot") == slot:
             return
-        self.store.set("v4_quick_last_slot", slot)
+        # Do not commit the slot before analysis: transient provider failures
+        # must remain retryable rather than silently skipping the whole window.
 
         macro = self.store.get("v4_macro")
         decision = analyze_v4(bars, now, macro=macro)
+        self.store.set("v4_quick_last_slot", slot)
         self.store.set("v4_quick_last_analysis", decision)
 
         active = self.store.get("v4_active")
