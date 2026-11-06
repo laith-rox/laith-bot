@@ -6,6 +6,7 @@ on:
       - 'v4_market_guard.py'
       - 'v4_news_intelligence.py'
       - 'v4_alert_planner.py'
+      - 'v4_alert_delivery.py'
       - 'test_v4_*.py'
       - '.github/workflows/v4-safety-tests.yml'
   workflow_dispatch:
@@ -18,6 +19,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile V4 safety modules
-        run: python -m py_compile v4_opportunity_plan.py v4_market_guard.py v4_news_intelligence.py v4_alert_planner.py
+        run: python -m py_compile v4_opportunity_plan.py v4_market_guard.py v4_news_intelligence.py v4_alert_planner.py v4_alert_delivery.py
       - name: Run safety tests
-        run: python -m unittest -v test_v4_opportunity_plan test_v4_opportunity_gate test_v4_market_guard test_v4_news_intelligence test_v4_alert_planner
+        run: python -m unittest -v test_v4_opportunity_plan test_v4_opportunity_gate test_v4_market_guard test_v4_news_intelligence test_v4_alert_planner test_v4_alert_delivery
