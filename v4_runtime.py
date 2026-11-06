@@ -21,6 +21,7 @@ from v4_quick_5m import analyze_quick_5m
 from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
 from v4_telegram import V4Telegram, continuation_message, quick_message, quick_no_entry_message
+from v4_opportunity_gate import evaluate_opportunity
 from market import Market
 from v4_minute_safety import start as start_minute_safety
 
@@ -248,6 +249,16 @@ class V4PaperResilientQuick(V4Paper):
                 degraded_reason, quick_decision.get("side"), quick_decision.get("buy"),
                 quick_decision.get("sell"), entry_ref.get("source"),
             )
+            return
+
+        opportunity_ok, opportunity_reason = evaluate_opportunity(
+            quick_decision, entry_ref, cached_market=cached_market,
+            news_clear=bool(allowed_news and not nearby),
+        )
+        if not opportunity_ok:
+            self.store.set("v4_quick_last_block", opportunity_reason)
+            self._set_quick_entry_state("WAIT", opportunity_reason)
+            LOG.info("quick_opportunity_wait reason=%s side=%s", opportunity_reason, quick_decision.get("side"))
             return
 
         observed_at = float(entry_ref.get("observed_at", now.timestamp()))
