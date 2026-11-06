@@ -65,3 +65,14 @@ These six are **recommendations, not yet approved implementation scope**. Do not
 ## News system test acceptance
 - Unit tests: T-20-minute alert timing and deduplication, DST conversion, calendar revisions, missing consensus, stale data, failed API, release surprise sign, conditional gold scenarios, and post-release gating.
 - Shadow-mode replay of historical high-impact news including spread/slippage assumptions; confirm no future data leaks into pre-release forecasts.
+
+## Approved — V4 MARKET GUARD (daily and weekly market close / reopen)
+**Status: approved specification for development and tests; not deployed.**
+- Source trading sessions and holidays from broker-specific XAUUSD symbol schedule (JustMarkets where available), including DST, daily maintenance breaks, weekly close, and exceptional changes; never assume universal fixed close hours.
+- Exactly one deduplicated Telegram alert at **T-30 minutes** before each daily and weekly close; weekly notice explicitly identifies weekend risk. Handle overlapping daily/weekly close as a single combined warning.
+- **Block all NEW manual-entry signals in the final 30 minutes before any scheduled close** and throughout closure. Do not imply a Telegram signal automatically closes any open position.
+- At reopening, invalidate all prior session trade candidates and alert identifiers, cached candles, pre-close references, pending triggers, and old quote timestamps. Never replay queued or stale entry alerts.
+- Re-enable only after broker-confirmed trading status, fresh post-open quote and current-slot bars, normal-enough spread/liquidity, and enough post-open observations to compute the required indicators without relying on stale prior-session entry context.
+- If broker calendar or live quote cannot be verified, fail closed: no 'enter now' alerts. Send a concise status notice if warranted, not a trade.
+- If a position is already open, any management notice must be clearly distinguished from a NEW entry signal and must remain manual.
+- Required tests: T-30 warning, exactly-once behavior, daily/weekend/holiday closures, DST, overlapping closes, restarts, broker schedule missing, stale cache on reopening, delayed provider bars, deduplication, and new-session price confirmation.
