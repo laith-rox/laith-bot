@@ -219,6 +219,7 @@ class V4PaperResilientQuick(V4Paper):
 
         if not entry_ref.get("timing_aligned"):
             self.store.set("v4_quick_last_block", "quick_candle_time_not_aligned")
+            self._set_quick_entry_state("WAIT", "quick_candle_time_not_aligned")
             LOG.warning("quick_entry_block reason=quick_candle_time_not_aligned")
             return
 
@@ -228,6 +229,7 @@ class V4PaperResilientQuick(V4Paper):
         quick5m = quick_decision.get("quick5m") or {}
         if not quick5m.get("entry_allowed"):
             self.store.set("v4_quick_last_block", "quick_5m_wait")
+            self._set_quick_entry_state("WAIT", "quick_5m_wait")
             LOG.info(
                 "quick_5m_wait buy=%s/7 sell=%s/7 reason=%s candle_start=%s",
                 quick_decision.get("buy"), quick_decision.get("sell"),
