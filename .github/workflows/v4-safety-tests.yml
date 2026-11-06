@@ -1,0 +1,23 @@
+name: V4 safety modules
+on:
+  pull_request:
+    paths:
+      - 'v4_opportunity_plan.py'
+      - 'v4_market_guard.py'
+      - 'v4_news_intelligence.py'
+      - 'v4_alert_planner.py'
+      - 'test_v4_*.py'
+      - '.github/workflows/v4-safety-tests.yml'
+  workflow_dispatch:
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile V4 safety modules
+        run: python -m py_compile v4_opportunity_plan.py v4_market_guard.py v4_news_intelligence.py v4_alert_planner.py
+      - name: Run safety tests
+        run: python -m unittest -v test_v4_opportunity_plan test_v4_market_guard test_v4_news_intelligence test_v4_alert_planner
