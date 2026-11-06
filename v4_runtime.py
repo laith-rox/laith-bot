@@ -311,6 +311,10 @@ class V4PaperResilientQuick(V4Paper):
         # When an independently verified broker schedule is configured, require
         # an OPEN session and a fresh quote (including the final 30m close gate).
         configured_sessions = verified_sessions(os.environ.get("V4_VERIFIED_BROKER_SESSIONS"))
+        if os.environ.get("V4_VERIFIED_BROKER_SESSIONS") and not configured_sessions:
+            self.store.set("v4_quick_last_block", "invalid_verified_broker_calendar")
+            self._set_quick_entry_state("WAIT", "invalid_verified_broker_calendar")
+            return
         if configured_sessions:
             try:
                 observed_quote = datetime.fromtimestamp(float(entry_ref["observed_at"]), UTC)
