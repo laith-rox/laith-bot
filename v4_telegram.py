@@ -150,15 +150,29 @@ def quick_message(trade):
     reasons = trade.get("risk_reasons") or []
     reason_text = f" — {str(reasons[0])}" if reasons else ""
     return (
-        f"⚡ <b>V4 سريع — 5د — {trade.get('side', '—')}</b>\n"
+        f"🟢 <b>دخول الآن — {trade.get('side', '—')} — V4 سريع 5د</b>\n"
         f"🔵① القوة: <b>{trade.get('strength', '—')}</b> — {trade.get('score', '—')}/7\n"
-        f"🟠② الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🟠② سعر الدخول المرجعي: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
         f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
         f"{risk_number} المخاطرة: <b>{risk_level}</b>{reason_text}\n"
         f"🔵⑥ الشروط: <b>{trade.get('score', '—')}/7</b>\n"
-        "📄 ورقية/بحثية | ⏱️ صلاحية 20د"
+        "📄 إشارة ورقية فقط، ليست أمر تنفيذ؛ تحقق من السعر الحالي قبل أي صفقة."
     )
+
+def quick_no_entry_message(reason=None):
+    """Plain-language WAIT notice, sent only on state transitions."""
+    descriptions = {
+        "quick_5m_wait": "شروط الدخول غير مكتملة",
+        "quick_candle_time_not_aligned": "توقيت السعر غير موثوق",
+        "degraded_reference_requires_7_of_7": "السعر الحي غير متاح وقوة الإشارة أقل من 7/7",
+        "degraded_reference_requires_higher_alignment": "الاتجاه الأكبر لا يؤكد الدخول",
+        "degraded_reference_cached_market": "بيانات السوق مخزنة وليست حديثة بما يكفي",
+        "market_quote_stale": "السعر الحالي غير موثوق",
+    }
+    detail = descriptions.get(reason, "لا توجد فرصة مؤكدة حاليًا")
+    return f"🔴 <b>لا تدخل الآن — V4 سريع 5د</b>\\nالسبب: {detail}\\n📄 متابعة إشارات ورقية فقط"
+
 
 def continuation_message(snapshot):
     state = snapshot.get("state", "—")
