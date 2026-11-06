@@ -284,6 +284,7 @@ class V4PaperResilientQuick(V4Paper):
         setup = build_quick(quick_decision, quote_now, quote_price=entry_ref["price"])
         if setup is None:
             self.store.set("v4_quick_last_block", "quick_recheck_failed")
+            self._set_quick_entry_state("WAIT", "quick_recheck_failed")
             return
 
         condition_names = quick_decision.get("quick_condition_names") or []
