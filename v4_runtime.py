@@ -29,6 +29,7 @@ from v4_alert_coordinator import run_alert_cycle
 from v4_verified_calendar import verified_sessions, verified_news
 from v4_market_guard import market_guard
 from v4_regime_scenarios import analyze_regime, scenario_hypotheses
+from v4_liquidity_events import detect_liquidity_event
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
@@ -232,6 +233,7 @@ class V4PaperResilientQuick(V4Paper):
         # trade execution and no fabricated probabilities.
         regime = analyze_regime(bars)
         self.store.set("v4_market_regime", regime)
+        self.store.set("v4_liquidity_event", detect_liquidity_event(bars))
         if regime.get("actionable"):
             recent = bars[-20:]
             try:
