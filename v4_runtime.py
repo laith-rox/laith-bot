@@ -205,8 +205,16 @@ class V4PaperResilientQuick(V4Paper):
                     snap.get("side"), snap.get("state"), snap.get("score"),
                     snap.get("price"), snap.get("rsi"), snap.get("quote_source"),
                 )
-                if self.notifier:
-                    self.notifier.send(continuation_message(snap))
+                # Publish continuation only on a meaningful change in state.
+                # The latest snapshot remains available in Store on every cycle.
+                continuation_key = "%s:%s:%s" % (
+                    active.get("id"), snap.get("state"), snap.get("side")
+                )
+                if self.notifier and self.store.get("v4_continuation_notice_key") != continuation_key:
+                    if self.notifier.send(continuation_message(snap)) is True:
+                        self.store.set("v4_continuation_notice_key", continuation_key)
+                    else:
+                        LOG.warning("continuation_telegram_delivery_failed key=%s", continuation_key)
 
         allowed_news, news_reason, nearby = self.news.check(now)
 
