@@ -184,6 +184,9 @@ class V4PaperResilientQuick(V4Paper):
                         or trading_guard_closed(now)
                         or pending_session != now.astimezone(NY_TZ).date().isoformat()):
                     self.store.set("v4_pending_quick_telegram", None)
+                elif not self.news.check(now)[0]:
+                    # A news blackout overrides a previously valid entry.
+                    self.store.set("v4_pending_quick_telegram", None)
                 elif should_publish_signal(self.store, pending_candidate, session_id=pending_session):
                     if self.notifier.send(pending_message) is True:
                         mark_signal_published(self.store, pending_candidate, session_id=pending_session)
