@@ -1,5 +1,4 @@
 """Pure alert dispatch guards for V4; no broker orders and no network calls."""
-from datetime import timedelta
 from v4_market_guard import close_alert_key, market_guard
 from v4_news_intelligence import plan_pre_news_alert
 
@@ -19,9 +18,9 @@ def plan_market_close_notice(now, intervals, last_quote_at, *, weekly=False,
         return None
     scope = "الأسبوعي" if weekly else "اليومي"
     return {"key": key, "message": (
-        "⏰ <b>Laith V4 — تنبيه الإغلاق %s</b>\\n"
-        "باقي نحو 30 دقيقة على إغلاق سوق الذهب حسب جدول الوسيط.\\n"
-        "⛔ توقفت إشارات الدخول الجديدة حتى إعادة فتح السوق والتحقق من الأسعار.\\n"
+        "⏰ <b>Laith V4 — تنبيه الإغلاق %s</b>\n"
+        "باقي نحو 30 دقيقة على إغلاق سوق الذهب حسب جدول الوسيط.\n"
+        "⛔ توقفت إشارات الدخول الجديدة حتى إعادة فتح السوق والتحقق من الأسعار.\n"
         "📌 هذا تنبيه فقط؛ لا يغلق صفقاتك على MT5."
     ) % scope}
 
