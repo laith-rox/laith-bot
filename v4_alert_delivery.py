@@ -16,7 +16,7 @@ def deliver_once(store, notifier, notice):
     if store.get(state_key):
         return False
     result = notifier.send(notice["message"])
-    if result is False:
+    if result is not True:
         return False
     store.set(state_key, True)
     return True
