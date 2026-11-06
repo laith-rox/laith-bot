@@ -172,13 +172,6 @@ class V4PaperResilientQuick(V4Paper):
 
     def quick_cycle(self, now):
         """Five-minute stream: expose weak/medium/strong candidates when data is current enough."""
-        bars, cached_market = quick_market_bars(
-            self.market, now, getattr(self, "_last_quick_bars", None)
-        )
-        if not cached_market:
-            self._last_quick_bars = bars
-        self._advance_quicks(bars, now)
-
         # Retry an undelivered Telegram signal before processing a new slot.
         # This is a delivery retry only: never create another market setup.
         pending = self.store.get("v4_pending_quick_telegram")
@@ -198,6 +191,13 @@ class V4PaperResilientQuick(V4Paper):
             except (KeyError, TypeError, ValueError):
                 LOG.warning("invalid_pending_quick_telegram_cleared")
                 self.store.set("v4_pending_quick_telegram", None)
+
+        bars, cached_market = quick_market_bars(
+            self.market, now, getattr(self, "_last_quick_bars", None)
+        )
+        if not cached_market:
+            self._last_quick_bars = bars
+        self._advance_quicks(bars, now)
 
         slot = int(now.timestamp() // 300)
         if self.store.get("v4_quick_last_slot") == slot:
