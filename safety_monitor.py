@@ -67,27 +67,27 @@ def evaluate_warning(trade,bars,now,previous=None):
 
 
 def warning_message(trade,event):
-    movement = '⬇️ هابط' if trade['side']=='BUY' else '⬆️ صاعد'
-    observed = 'رُصد تراجع هابط ⬇️ ضد الشراء' if trade['side']=='BUY' else 'رُصد ارتداد صاعد ⬆️ ضد البيع'
-    labels={'correction':'⚠️ ' + observed,
-            'reversal':'🚨 خطر انعكاس ' + movement + ': كسر قصير وزخم معاكس',
-            'stop':'🚨 رُصد تجاوز الوقف في بيانات المصدر'}
-    side='شراء' if trade['side']=='BUY' else 'بيع'
-    action=('تصحيح محتمل؛ استمرار الحركة غير مؤكد، وليس إشارة دخول عكسية.' if event['kind']=='correction' else
-            'راجع سعر وسيطك والوقف فورًا؛ لا تدخل عكسًا تلقائيًا.')
-    evidence = ''
+    """Compact warning display; no changes to signal or execution rules."""
+    side = 'شراء' if trade['side'] == 'BUY' else 'بيع'
+    arrow = '⬇️' if trade['side'] == 'BUY' else '⬆️'
+    kind = event['kind']
+    title = {'correction': f'⚠️ {arrow} ضغط معاكس — تصحيح محتمل',
+             'reversal': f'🚨 {arrow} انعكاس محتمل — راجع الصفقة',
+             'stop': '🚨 تجاوز الوقف في بيانات المصدر'}[kind]
+    strength = {'correction': 'متوسط', 'reversal': 'قوي', 'stop': 'حرج'}[kind]
     checks = event.get('pressure_checks')
-    if event['kind'] in ('correction','reversal'):
-        if isinstance(checks,list) and len(checks)==4 and all(type(x) is bool for x in checks):
-            count=sum(checks)
-            evidence=(f'📊 تحقق مؤشرات الضغط المعاكس: <b>{count}/4 = {count*25}%</b>\n'
-                      'نسبة شروط مرصودة؛ ليست احتمال استمرار التصحيح، حتى عند 100%.\n')
-        else:
-            evidence='📊 نسبة تحقق المؤشرات: غير متاحة\n'
-    return (f"<b>{labels[event['kind']]}</b>\n{side} | <code>{escape(trade['id'])}</code>\n"
-            f"إغلاق الدقيقة: <b>{event['price']:.2f}</b> | {local_time(event['stamp'])} فلسطين\n"
-            f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n{evidence}{action}\n"
-            'Twelve Data؛ ليس سعر وسيطك الحي. تحذير احتمالي، لا إغلاق آلي.')
+    pressure = (f"{sum(checks)}/4" if isinstance(checks, list) and len(checks) == 4
+                and all(type(x) is bool for x in checks) else 'غير متاح')
+    action = ('راقب التصحيح وراجع الوقف؛ لا دخول عكسي تلقائي.'
+              if kind == 'correction' else
+              'راجع الصفقة والوقف لدى وسيطك؛ لا دخول عكسي تلقائي.')
+    return (f"<b>{title}</b>\n"
+            f"الإشارة: <b>{side}</b> | قوة التحذير: <b>{strength}</b>\n"
+            f"آخر إغلاق دقيقة: <b>{event['price']:.2f}</b> | {local_time(event['stamp'])} فلسطين\n"
+            f"الوقف المرجعي: <b>{trade['stop']:.2f}</b>\n"
+            f"الضغط المعاكس: <b>{pressure}</b> (شروط، ليست نسبة نجاح)\n"
+            f"{action}\n"
+            '⚠️ سعر المصدر ليس سعر وسيطك الحي؛ لا تنفيذ آلي.')
 
 
 def monitor(store,bars,now):
@@ -129,8 +129,7 @@ def run(path,key,token,chat_id,stop):
                         if previous.get('ok',True) or previous.get('signal_id')!=trade['id']:
                             event_id='rapid:'+trade['id']+':unavailable:'+str(int(time.time()))
                             store.enqueue(event_id,'emergency',
-                                '⚠️ تعذّر تحديث مراقبة الدقيقة\nالمرجع: <code>'+escape(trade['id'])+
-                                '</code>\nالبيانات متأخرة أو غير متاحة؛ لا تعتمد على الطوارئ وحدها لتنفيذ وقفك.',
+                                '⚠️ مراقبة الدقيقة غير متاحة\nالبيانات متأخرة؛ راجع وقفك لدى الوسيط ولا تعتمد على التنبيه وحده.',
                                 time.time(),signal_id=trade['id'],expires=time.time()+180)
                         if str(exc)=='minute_quota_reached': next_fetch=time.time()+900
                         LOG.warning('safety_unavailable reason=%s',str(exc))
