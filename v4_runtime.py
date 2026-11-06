@@ -159,8 +159,15 @@ class V4PaperResilientQuick(V4Paper):
         """Notify only when actionable entry status changes, not every five minutes."""
         old = self.store.get("v4_quick_entry_state")
         self.store.set("v4_quick_entry_state", status)
-        if status == "WAIT" and old != "WAIT" and self.notifier:
-            self.notifier.send(quick_no_entry_message(reason))
+        if status == "WAIT" and self.notifier:
+            pending = self.store.get("v4_quick_wait_notice_pending")
+            if old != "WAIT" or pending:
+                if self.notifier.send(quick_no_entry_message(reason)) is True:
+                    self.store.set("v4_quick_wait_notice_pending", False)
+                else:
+                    self.store.set("v4_quick_wait_notice_pending", True)
+        elif status != "WAIT":
+            self.store.set("v4_quick_wait_notice_pending", False)
 
     def quick_cycle(self, now):
         """Five-minute stream: expose weak/medium/strong candidates when data is current enough."""
