@@ -22,6 +22,7 @@ from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
 from v4_telegram import V4Telegram, continuation_message, quick_message, quick_no_entry_message
 from v4_opportunity_gate import evaluate_opportunity
+from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
 
@@ -346,8 +347,23 @@ class V4PaperResilientQuick(V4Paper):
             setup["strength"], setup.get("risk_level"), setup.get("quote_source"),
             setup.get("timing_aligned"), bool(cached_market), bool(active),
         )
-        if self.notifier:
-            self.notifier.send(quick_message(setup))
+        # Signal publishing is event-driven even though analysis is polled.
+        # A session key scopes duplicate prevention without changing trade state.
+        signal_candidate = {
+            "state": "READY", "side": setup["side"], "horizon": "SCALP",
+            "entry": setup["entry"], "stop": setup["stop"],
+            "target": setup["target"],
+        }
+        session_id = now.astimezone(NY_TZ).date().isoformat()
+        if self.notifier and should_publish_signal(
+            self.store, signal_candidate, session_id=session_id
+        ):
+            if self.notifier.send(quick_message(setup)) is True:
+                mark_signal_published(
+                    self.store, signal_candidate, session_id=session_id
+                )
+            else:
+                LOG.warning("quick_telegram_delivery_failed id=%s", setup["id"])
 
 
 NY_TZ = ZoneInfo("America/New_York")
