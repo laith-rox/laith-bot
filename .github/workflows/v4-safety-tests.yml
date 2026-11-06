@@ -15,6 +15,7 @@ on:
       - 'v4_quote_observation.py'
       - 'v4_pending_entry.py'
       - 'v4_verified_calendar.py'
+      - 'v4_risk_advisor.py'
       - 'test_v4_*.py'
       - '.github/workflows/v4-safety-tests.yml'
   workflow_dispatch:
@@ -27,6 +28,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile V4 safety modules
-        run: python -m py_compile v4_runtime.py v4_opportunity_gate.py v4_quote_observation.py v4_pending_entry.py v4_verified_calendar.py v4_opportunity_plan.py v4_market_guard.py v4_news_intelligence.py v4_alert_planner.py v4_alert_delivery.py v4_alert_coordinator.py v4_signal_dedupe.py v4_entry_notifications.py
+        run: python -m py_compile v4_runtime.py v4_opportunity_gate.py v4_quote_observation.py v4_pending_entry.py v4_verified_calendar.py v4_risk_advisor.py v4_opportunity_plan.py v4_market_guard.py v4_news_intelligence.py v4_alert_planner.py v4_alert_delivery.py v4_alert_coordinator.py v4_signal_dedupe.py v4_entry_notifications.py
       - name: Run safety tests
-        run: python -m unittest -v test_v4_opportunity_plan test_v4_opportunity_gate test_v4_opportunity_malformed test_v4_quote_observation test_v4_pending_entry test_v4_verified_calendar test_v4_market_guard test_v4_news_intelligence test_v4_alert_planner test_v4_alert_delivery test_v4_alert_coordinator test_v4_signal_dedupe test_v4_entry_notifications
+        run: python -m unittest -v test_v4_opportunity_plan test_v4_opportunity_gate test_v4_opportunity_malformed test_v4_quote_observation test_v4_pending_entry test_v4_verified_calendar test_v4_risk_advisor test_v4_market_guard test_v4_news_intelligence test_v4_alert_planner test_v4_alert_delivery test_v4_alert_coordinator test_v4_signal_dedupe test_v4_entry_notifications
