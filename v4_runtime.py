@@ -9,6 +9,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
 import math
+import os
 import time
 
 from engine import advance_trade
@@ -24,6 +25,8 @@ from v4_telegram import V4Telegram, continuation_message, quick_message, quick_n
 from v4_opportunity_gate import evaluate_opportunity
 from v4_quote_observation import valid_quote_observation
 from v4_pending_entry import pending_entry_retry_allowed
+from v4_alert_coordinator import run_alert_cycle
+from v4_verified_calendar import verified_sessions, verified_news
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
@@ -467,6 +470,10 @@ def run(args):
     safety_stop = start_minute_safety(args, trading_guard_closed)
     next_cycle = 0.0
     next_quick = 0.0
+    next_alert = 0.0
+    broker_sessions = verified_sessions(os.environ.get('V4_VERIFIED_BROKER_SESSIONS'))
+    news_events = verified_news(os.environ.get('V4_VERIFIED_NEWS_EVENTS'))
+    LOG.info('verified_calendar_sessions=%s verified_news_events=%s', len(broker_sessions), len(news_events))
     try:
         while True:
             now = datetime.now(UTC)
@@ -474,6 +481,14 @@ def run(args):
                 telegram.poll()
             except Exception:
                 LOG.exception("telegram_cycle_failed")
+            if time.time() >= next_alert:
+                try:
+                    run_alert_cycle(now, store=store, notifier=telegram,
+                                    broker_sessions=broker_sessions, quote_at=None,
+                                    verified_news_events=news_events)
+                except Exception:
+                    LOG.exception('verified_alert_cycle_failed')
+                next_alert = time.time() + 15
             if trading_guard_closed(now):
                 # Keep Telegram polling alive while all market-driven V4 activity is paused.
                 # No automatic educational lessons are published; teaching happens only on request.
