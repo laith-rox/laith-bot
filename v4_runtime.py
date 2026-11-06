@@ -399,9 +399,9 @@ class V4PaperResilientQuick(V4Paper):
             "target": setup["target"],
         }
         session_id = now.astimezone(NY_TZ).date().isoformat()
-        if self.notifier and should_publish_signal(
-            self.store, signal_candidate, session_id=session_id
-        ):
+        if (self.notifier and not trading_guard_closed(datetime.now(UTC))
+                and valid_quote_observation(entry_ref.get("observed_at"), datetime.now(UTC).timestamp())
+                and should_publish_signal(self.store, signal_candidate, session_id=session_id)):
             if self.notifier.send(quick_message(setup)) is True:
                 mark_signal_published(
                     self.store, signal_candidate, session_id=session_id
