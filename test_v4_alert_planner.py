@@ -21,9 +21,9 @@ class AlertPlannerTests(unittest.TestCase):
     def test_missing_broker_calendar(self):
         self.assertIsNone(plan_market_close_notice(self.now, [], self.now))
 
-    def test_stale_quote_blocks(self):
+    def test_stale_quote_still_warns_about_verified_close(self):
         old = self.now - timedelta(minutes=3)
-        self.assertIsNone(plan_market_close_notice(self.now, self.intervals, old))
+        self.assertIsNotNone(plan_market_close_notice(self.now, self.intervals, old))
 
     def test_not_early(self):
         earlier = self.now - timedelta(minutes=2)
