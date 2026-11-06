@@ -179,6 +179,24 @@ class V4PaperResilientQuick(V4Paper):
             self._last_quick_bars = bars
         self._advance_quicks(bars, now)
 
+        # Retry an undelivered Telegram signal before processing a new slot.
+        # This is a delivery retry only: never create another market setup.
+        pending = self.store.get("v4_pending_quick_telegram")
+        if pending and self.notifier:
+            try:
+                pending_candidate = pending["candidate"]
+                pending_session = pending["session_id"]
+                pending_message = pending["message"]
+                if should_publish_signal(self.store, pending_candidate, session_id=pending_session):
+                    if self.notifier.send(pending_message) is True:
+                        mark_signal_published(self.store, pending_candidate, session_id=pending_session)
+                        self.store.set("v4_pending_quick_telegram", None)
+                else:
+                    self.store.set("v4_pending_quick_telegram", None)
+            except (KeyError, TypeError, ValueError):
+                LOG.warning("invalid_pending_quick_telegram_cleared")
+                self.store.set("v4_pending_quick_telegram", None)
+
         slot = int(now.timestamp() // 300)
         if self.store.get("v4_quick_last_slot") == slot:
             return
@@ -385,6 +403,10 @@ class V4PaperResilientQuick(V4Paper):
                     self.store, signal_candidate, session_id=session_id
                 )
             else:
+                self.store.set("v4_pending_quick_telegram", {
+                    "candidate": signal_candidate, "session_id": session_id,
+                    "message": quick_message(setup),
+                })
                 LOG.warning("quick_telegram_delivery_failed id=%s", setup["id"])
 
 
