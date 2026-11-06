@@ -148,9 +148,12 @@ def quick_message(trade):
     risk_level = trade.get("risk_level", "—")
     risk_number = "⛔️⑤" if risk_level in ("مرتفعة", "متوسطة") else "🟢⑤"
     reasons = trade.get("risk_reasons") or []
+    entry_status = ("🔴 <b>لا تدخل الآن — سعر حي غير مؤكد</b>"
+                    if trade.get("delayed_reference") or not trade.get("current_five_minute_candle")
+                    else f"🟢 <b>دخول الآن — {trade.get('side', '—')}</b>")
     reason_text = f" — {str(reasons[0])}" if reasons else ""
     return (
-        f"🟢 <b>دخول الآن — {trade.get('side', '—')} — V4 سريع 5د</b>\n"
+        f"{entry_status} | V4 سريع 5د\n"
         f"🔵① القوة: <b>{trade.get('strength', '—')}</b> — {trade.get('score', '—')}/7\n"
         f"🟠② سعر الدخول المرجعي: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
