@@ -20,7 +20,7 @@ from v4_quick import advance_quick, build_quick, continuation_snapshot
 from v4_quick_5m import analyze_quick_5m
 from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
-from v4_telegram import V4Telegram, continuation_message, quick_message
+from v4_telegram import V4Telegram, continuation_message, quick_message, quick_no_entry_message
 from market import Market
 from v4_minute_safety import start as start_minute_safety
 
@@ -153,6 +153,13 @@ def calibrate_quick_strength(setup, decision):
 
 
 class V4PaperResilientQuick(V4Paper):
+    def _set_quick_entry_state(self, status, reason=None):
+        """Notify only when actionable entry status changes, not every five minutes."""
+        old = self.store.get("v4_quick_entry_state")
+        self.store.set("v4_quick_entry_state", status)
+        if status == "WAIT" and old != "WAIT" and self.notifier:
+            self.notifier.send(quick_no_entry_message(reason))
+
     def quick_cycle(self, now):
         """Five-minute stream: expose weak/medium/strong candidates when data is current enough."""
         bars, cached_market = quick_market_bars(
@@ -206,6 +213,7 @@ class V4PaperResilientQuick(V4Paper):
         except DataError as exc:
             reason = str(exc)
             self.store.set("v4_quick_last_block", reason)
+            self._set_quick_entry_state("WAIT", reason)
             LOG.warning("quick_entry_block reason=%s", reason)
             return
 
@@ -232,6 +240,7 @@ class V4PaperResilientQuick(V4Paper):
         )
         if not degraded_allowed:
             self.store.set("v4_quick_last_block", degraded_reason)
+            self._set_quick_entry_state("WAIT", degraded_reason)
             LOG.warning(
                 "quick_entry_block reason=%s side=%s buy=%s/7 sell=%s/7 source=%s",
                 degraded_reason, quick_decision.get("side"), quick_decision.get("buy"),
@@ -312,6 +321,7 @@ class V4PaperResilientQuick(V4Paper):
             historical_flat=history["flat"],
             historical_positive_rate=history["positive_rate"],
         )
+        self._set_quick_entry_state("ENTRY" if not setup.get("delayed_reference") and setup.get("current_five_minute_candle") else "WAIT", "market_quote_stale")
         self._save_quick(setup)
         self.store.set("v4_quick_last", setup)
         self.store.set("v4_quick_last_block", None)
