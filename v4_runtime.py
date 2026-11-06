@@ -30,6 +30,7 @@ from v4_verified_calendar import verified_sessions, verified_news
 from v4_market_guard import market_guard
 from v4_regime_scenarios import analyze_regime, scenario_hypotheses
 from v4_liquidity_events import detect_liquidity_event
+from v4_decision_journal import record_candidate
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
@@ -332,6 +333,12 @@ class V4PaperResilientQuick(V4Paper):
             news_clear=bool(allowed_news and not nearby),
         )
         if not opportunity_ok:
+            record_candidate(
+                self.store, observed_at=entry_ref.get("observed_at"),
+                slot=entry_ref.get("candle_start_iso") or "unknown",
+                side=quick_decision.get("side") if quick_decision.get("side") in ("BUY", "SELL") else "WAIT",
+                state="REJECTED", reason=str(opportunity_reason or "opportunity_gate"),
+                entry=entry_ref.get("price"))
             self.store.set("v4_quick_last_block", opportunity_reason)
             self._set_quick_entry_state("WAIT", opportunity_reason)
             LOG.info("quick_opportunity_wait reason=%s side=%s", opportunity_reason, quick_decision.get("side"))
@@ -452,6 +459,11 @@ class V4PaperResilientQuick(V4Paper):
             "entry": setup["entry"], "stop": setup["stop"],
             "target": setup["target"],
         }
+        record_candidate(
+            self.store, observed_at=entry_ref.get("observed_at"),
+            slot=entry_ref.get("candle_start_iso") or "unknown",
+            side=setup["side"], state="READY", reason="validated_quick_setup",
+            entry=setup["entry"], score=setup.get("score"))
         session_id = now.astimezone(NY_TZ).date().isoformat()
         if (self.notifier and not trading_guard_closed(datetime.now(UTC))
                 and valid_quote_observation(entry_ref.get("observed_at"), datetime.now(UTC).timestamp())
