@@ -30,11 +30,11 @@ def plan_pre_news_alert(now, event, *, lead_minutes=20, tolerance_seconds=60):
     risk = event.get("risk") or "مرتفعة"
     key = "v4_news_20m:%s:%s" % (event_id, at.isoformat())
     message = (
-        "🚨 <b>V4 — خبر مهم بعد 20 دقيقة</b>\\n"
-        "📅 %s — %s UTC\\n"
-        "📊 المتوقع: %s | السابق: %s\\n"
-        "🧠 سيناريو مشروط: %s\\n"
-        "⚠️ مخاطرة الذهب: %s\\n"
+        "🚨 <b>V4 — خبر مهم بعد 20 دقيقة</b>\n"
+        "📅 %s — %s UTC\n"
+        "📊 المتوقع: %s | السابق: %s\n"
+        "🧠 سيناريو مشروط: %s\n"
+        "⚠️ مخاطرة الذهب: %s\n"
         "⛔ لا دخول على الخبر وحده؛ ننتظر النتيجة وتأكيد السعر."
     ) % (title, at.strftime("%Y-%m-%d %H:%M"),
          "غير متاح" if consensus is None else consensus,
