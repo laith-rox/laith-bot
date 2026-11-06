@@ -23,6 +23,7 @@ from v4_service import V4Paper, UTC, parser
 from v4_telegram import V4Telegram, continuation_message, quick_message, quick_no_entry_message
 from v4_opportunity_gate import evaluate_opportunity
 from v4_quote_observation import valid_quote_observation
+from v4_pending_entry import pending_entry_retry_allowed
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
@@ -180,12 +181,10 @@ class V4PaperResilientQuick(V4Paper):
                 pending_candidate = pending["candidate"]
                 pending_session = pending["session_id"]
                 pending_message = pending["message"]
-                if (not valid_quote_observation(pending.get("observed_at"), now.timestamp())
-                        or trading_guard_closed(now)
-                        or pending_session != now.astimezone(NY_TZ).date().isoformat()):
-                    self.store.set("v4_pending_quick_telegram", None)
-                elif not self.news.check(now)[0]:
-                    # A news blackout overrides a previously valid entry.
+                if not pending_entry_retry_allowed(
+                    pending, now, market_closed=trading_guard_closed(now),
+                    news_allowed=self.news.check(now)[0]
+                ):
                     self.store.set("v4_pending_quick_telegram", None)
                 elif should_publish_signal(self.store, pending_candidate, session_id=pending_session):
                     if self.notifier.send(pending_message) is True:
