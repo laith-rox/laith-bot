@@ -22,6 +22,7 @@ from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
 from v4_telegram import V4Telegram, continuation_message, quick_message, quick_no_entry_message
 from v4_opportunity_gate import evaluate_opportunity
+from v4_quote_observation import valid_quote_observation
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
@@ -279,17 +280,11 @@ class V4PaperResilientQuick(V4Paper):
             LOG.info("quick_opportunity_wait reason=%s side=%s", opportunity_reason, quick_decision.get("side"))
             return
 
-        try:
-            observed_at = float(entry_ref.get("observed_at"))
-        except (TypeError, ValueError, OverflowError):
-            self.store.set("v4_quick_last_block", "missing_quote_observation_time")
-            self._set_quick_entry_state("WAIT", "missing_quote_observation_time")
-            return
-        if not math.isfinite(observed_at) or observed_at > now.timestamp() + 10 or now.timestamp() - observed_at > 90:
+        if not valid_quote_observation(entry_ref.get("observed_at"), now.timestamp()):
             self.store.set("v4_quick_last_block", "stale_or_future_quote_observation")
             self._set_quick_entry_state("WAIT", "stale_or_future_quote_observation")
             return
-        quote_now = datetime.fromtimestamp(observed_at, UTC)
+        quote_now = datetime.fromtimestamp(float(entry_ref["observed_at"]), UTC)
         setup = build_quick(quick_decision, quote_now, quote_price=entry_ref["price"])
         if setup is None:
             self.store.set("v4_quick_last_block", "quick_recheck_failed")
