@@ -46,7 +46,8 @@ def verified_news(raw):
             if not isinstance(event, dict) or not event.get("title"):
                 return ()
             e = dict(event)
-            e["time"] = _utc(e["time"])
+            e["release_at"] = _utc(e["release_at"])
+            e["calendar_verified"] = True
             events.append(e)
         return tuple(events)
     except (ValueError, TypeError, KeyError, AttributeError):
