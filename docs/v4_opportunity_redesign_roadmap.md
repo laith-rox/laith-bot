@@ -49,3 +49,19 @@ These six are **recommendations, not yet approved implementation scope**. Do not
 - Separate market-data quality, strategy hypotheses, opportunity scoring, risk, Telegram presentation, and outcome journaling.
 - No trade is 'guaranteed'; empirical confidence must be calibrated on held-out data.
 - Keep all new work in the development branch and test before seeking explicit merge/deployment permission.
+
+## Approved capability 15 — V4 NEWS INTELLIGENCE (pre-release research and Telegram alert)
+**Status: approved for development/testing only, NOT implemented or deployed.**
+- Maintain an authoritative, timezone-aware economic calendar (event ID, scheduled release time, currency, country, importance, previous, consensus, revisions, source timestamp).
+- For major USD/gold-sensitive releases (CPI, PCE, NFP, FOMC decisions, Fed speeches and other high-impact events), build a pre-release research snapshot from available consensus, previous data, macro trend, dollar/yields, gold technical structure, and positioning when reliably sourced.
+- Send one deduplicated **Telegram pre-release alert at T-minus-20 minutes** with event and local time, market consensus/previous, explicitly conditional economic-outcome scenarios, expected possible USD/gold reactions, qualitative strength and risk, and 'no unconfirmed pre-news entry' caution.
+- Distinguish **forecast of the release number** from **forecast of the gold price reaction**. Never claim knowledge of unreleased actual values or assign invented confidence probabilities; label unavailable or stale inputs.
+- At release, capture actual vs consensus and any revisions with provenance; watch volatility, spreads, feed freshness and price response. Do not issue an immediate trade entry on the headline alone.
+- Post-release update: what surprised the market, observed gold direction, whether price confirmed/invalidated the scenario, risk gate and any manual-entry setup with price/SL/TP if independently confirmed.
+- Evaluate forecast accuracy and trading-signal outcomes separately, with timestamps to avoid hindsight leakage.
+- Handle DST, rescheduled/canceled releases, provider failures, duplicate events, weekend/market closures and rate limits; do not send a fabricated prediction if calendar/consensus data cannot be verified.
+- Alerts and paper research only; never execute orders or modify production until explicit approval after tests.
+
+## News system test acceptance
+- Unit tests: T-20-minute alert timing and deduplication, DST conversion, calendar revisions, missing consensus, stale data, failed API, release surprise sign, conditional gold scenarios, and post-release gating.
+- Shadow-mode replay of historical high-impact news including spread/slippage assumptions; confirm no future data leaks into pre-release forecasts.
