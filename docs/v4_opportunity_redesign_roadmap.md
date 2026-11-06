@@ -1,3 +1,9 @@
+## Deployment target clarified by user (2026-11-06)
+- **Target is the existing Laith V4 Telegram worker** (Railway service `laith-v4-worker`, production branch `v4-main`), NOT a separate experimental bot, replacement bot, or paper-only product.
+- Development may continue in a separate GitHub feature branch solely to protect the running V4 until the complete feature set passes tests. The finished changes are intended to be merged/deployed **to V4 itself** following validation and user authorization.
+- Telegram recommendations only; user executes manually. Preserve Laith Single untouched.
+- Current PR #40 is partial and **must not be described as all requested features installed**.
+
 # Laith V4 — Opportunity-driven research roadmap
 
 Status: APPROVED FOR DEVELOPMENT AND TESTING ONLY. NOT APPROVED FOR PRODUCTION.
