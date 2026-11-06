@@ -187,7 +187,9 @@ class V4PaperResilientQuick(V4Paper):
                 pending_candidate = pending["candidate"]
                 pending_session = pending["session_id"]
                 pending_message = pending["message"]
-                if should_publish_signal(self.store, pending_candidate, session_id=pending_session):
+                if not valid_quote_observation(pending.get("observed_at"), now.timestamp()) or trading_guard_closed(now):
+                    self.store.set("v4_pending_quick_telegram", None)
+                elif should_publish_signal(self.store, pending_candidate, session_id=pending_session):
                     if self.notifier.send(pending_message) is True:
                         mark_signal_published(self.store, pending_candidate, session_id=pending_session)
                         self.store.set("v4_pending_quick_telegram", None)
@@ -406,6 +408,7 @@ class V4PaperResilientQuick(V4Paper):
                 self.store.set("v4_pending_quick_telegram", {
                     "candidate": signal_candidate, "session_id": session_id,
                     "message": quick_message(setup),
+                    "observed_at": entry_ref.get("observed_at"),
                 })
                 LOG.warning("quick_telegram_delivery_failed id=%s", setup["id"])
 
