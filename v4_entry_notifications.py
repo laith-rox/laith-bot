@@ -4,6 +4,7 @@ This is a pure state machine. Live quote and broker session verification must
 be supplied by adapters; it never sends orders or assumes market hours.
 """
 import logging
+from html import escape
 from v4_signal_dedupe import signal_identity, should_publish_signal, mark_signal_published
 
 LOG = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def plan_entry_notification(store, candidate, *, session_id, market_state,
         return None
     side = candidate["side"]
     label = "شراء BUY" if side == "BUY" else "بيع SELL"
-    horizon = candidate.get("horizon") or "SCALP"
+    horizon = escape(str(candidate.get("horizon") or "SCALP"), quote=True)
     entry, stop, target = (float(candidate[key]) for key in ("entry", "stop", "target"))
     message = (
         "🟢 <b>Laith V4 — دخول يدوي مؤكد</b>\n"
