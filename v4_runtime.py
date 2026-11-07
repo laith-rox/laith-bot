@@ -561,12 +561,18 @@ def run(args):
         "starting independent V4 resilient worker db=%s experiment=%s telegram=%s quick_interval=%ss",
         args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
     )
-    safety_stop = start_minute_safety(args, trading_guard_closed)
+    broker_sessions = verified_sessions(os.environ.get('V4_VERIFIED_BROKER_SESSIONS'))
+    news_events = verified_news(os.environ.get('V4_VERIFIED_NEWS_EVENTS'))
+    # The independent minute-safety thread must obey the same verified broker
+    # session gate as the main worker. A weekday alone cannot justify fetching
+    # minute prices or publishing warnings based on closed-session data.
+    def safety_market_closed(at):
+        return trading_guard_closed(at) or verified_runtime_session_state(at, broker_sessions) != "OPEN"
+
+    safety_stop = start_minute_safety(args, safety_market_closed)
     next_cycle = 0.0
     next_quick = 0.0
     next_alert = 0.0
-    broker_sessions = verified_sessions(os.environ.get('V4_VERIFIED_BROKER_SESSIONS'))
-    news_events = verified_news(os.environ.get('V4_VERIFIED_NEWS_EVENTS'))
     LOG.info('verified_calendar_sessions=%s verified_news_events=%s', len(broker_sessions), len(news_events))
     try:
         while True:
