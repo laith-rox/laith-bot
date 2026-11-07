@@ -47,6 +47,8 @@ def verified_news(raw):
                 return ()
             e = dict(event)
             e["release_at"] = _utc(e["release_at"])
+            if e.get("actual_published_at") is not None:
+                e["actual_published_at"] = _utc(e["actual_published_at"])
             e["calendar_verified"] = True
             events.append(e)
         return tuple(events)
