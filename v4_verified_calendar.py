@@ -29,7 +29,11 @@ def verified_sessions(raw):
             if opened >= closed:
                 return ()
             intervals.append((opened, closed))
-        return tuple(sorted(intervals))
+        intervals.sort()
+        # Conflicting broker windows are ambiguous: never authorize an entry.
+        if any(previous[1] > current[0] for previous, current in zip(intervals, intervals[1:])):
+            return ()
+        return tuple(intervals)
     except (ValueError, TypeError, KeyError, AttributeError):
         return ()
 
