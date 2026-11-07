@@ -354,6 +354,10 @@ class V4PaperResilientQuick(V4Paper):
             self.store.set("v4_quick_last_block", "invalid_verified_broker_calendar")
             self._set_quick_entry_state("WAIT", "invalid_verified_broker_calendar")
             return
+        if not configured_sessions:
+            self.store.set("v4_quick_last_block", "unverified_broker_calendar")
+            self._set_quick_entry_state("WAIT", "unverified_broker_calendar")
+            return
         if configured_sessions:
             try:
                 observed_quote = datetime.fromtimestamp(float(entry_ref["observed_at"]), UTC)
