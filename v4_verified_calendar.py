@@ -49,6 +49,7 @@ def verified_news(raw):
             return ()
         events = []
         seen_ids = set()
+        seen_releases = set()
         for event in payload["events"]:
             if (not isinstance(event, dict) or not isinstance(event.get("title"), str)
                     or not event["title"].strip()):
@@ -63,6 +64,12 @@ def verified_news(raw):
             e["release_at"] = _utc(e["release_at"])
             if e.get("actual_published_at") is not None:
                 e["actual_published_at"] = _utc(e["actual_published_at"])
+            # An event without an ID can otherwise be duplicated under the same
+            # release and title, generating repeated alerts from one calendar.
+            release_key = (e["title"].strip().casefold(), e["release_at"])
+            if release_key in seen_releases:
+                return ()
+            seen_releases.add(release_key)
             e["calendar_verified"] = True
             events.append(e)
         return tuple(events)
