@@ -26,7 +26,7 @@ from v4_opportunity_gate import evaluate_opportunity
 from v4_quote_observation import valid_quote_observation
 from v4_pending_entry import pending_entry_retry_allowed
 from v4_alert_coordinator import run_alert_cycle
-from v4_verified_calendar import verified_sessions, verified_news
+from v4_verified_calendar import verified_sessions, verified_news, verified_entry_calendar_available
 from v4_market_guard import market_guard
 from v4_broker_entry_guard import broker_entry_eligibility
 from v4_regime_scenarios import analyze_regime, scenario_hypotheses
@@ -193,7 +193,7 @@ class V4PaperResilientQuick(V4Paper):
                 configured_sessions = verified_sessions(configured_raw)
                 # Fail closed: a missing verified broker calendar is not evidence
                 # that the market is open. Never replay an old Telegram entry.
-                verified_closed = not bool(configured_sessions)
+                verified_closed = not verified_entry_calendar_available(configured_raw)
                 if configured_sessions:
                     try:
                         quote_at = datetime.fromtimestamp(float(pending["observed_at"]), UTC)
@@ -354,7 +354,7 @@ class V4PaperResilientQuick(V4Paper):
             self.store.set("v4_quick_last_block", "invalid_verified_broker_calendar")
             self._set_quick_entry_state("WAIT", "invalid_verified_broker_calendar")
             return
-        if not configured_sessions:
+        if not verified_entry_calendar_available(os.environ.get("V4_VERIFIED_BROKER_SESSIONS")):
             self.store.set("v4_quick_last_block", "unverified_broker_calendar")
             self._set_quick_entry_state("WAIT", "unverified_broker_calendar")
             return
