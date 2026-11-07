@@ -1,6 +1,7 @@
 """Pure alert dispatch guards for V4; no broker orders and no network calls."""
 from v4_market_guard import close_alert_key
 from v4_news_intelligence import plan_pre_news_alert
+from v4_news_surprise import plan_post_news_alert
 
 
 def plan_market_close_notice(now, intervals, last_quote_at, *, weekly=False,
@@ -41,7 +42,7 @@ def plan_verified_news_notices(now, events, *, already_sent_keys=()):
     """Generate distinct T-20 news notices from independently verified events."""
     notices = []
     for event in events:
-        notice = plan_pre_news_alert(now, event)
-        if notice and notice["key"] not in already_sent_keys:
-            notices.append(notice)
+        for notice in (plan_pre_news_alert(now, event), plan_post_news_alert(now, event)):
+            if notice and notice["key"] not in already_sent_keys:
+                notices.append(notice)
     return notices
