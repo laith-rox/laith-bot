@@ -37,3 +37,23 @@ class NewsPlannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewsTelegramMarkupSafetyTests(unittest.TestCase):
+    def test_external_calendar_fields_are_html_escaped(self):
+        from datetime import datetime, timedelta, timezone
+        from v4_news_intelligence import plan_pre_news_alert
+        now = datetime(2026, 11, 9, 13, 0, tzinfo=timezone.utc)
+        event = {"id": "news-safe", "release_at": now + timedelta(minutes=20),
+                 "importance": "high", "calendar_verified": True,
+                 "title": "<b>FAKE</b>", "consensus": "1<&2",
+                 "previous": "<i>oops</i>", "conditional_scenario": "<script>x</script>",
+                 "risk": "high & rising"}
+        notice = plan_pre_news_alert(now, event)
+        self.assertIsNotNone(notice)
+        message = notice["message"]
+        for unsafe in ("<b>FAKE</b>", "<i>oops</i>", "<script>x</script>"):
+            self.assertNotIn(unsafe, message)
+        self.assertIn("&lt;b&gt;FAKE&lt;/b&gt;", message)
+        self.assertIn("1&lt;&amp;2", message)
+        self.assertIn("high &amp; rising", message)
