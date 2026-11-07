@@ -4,7 +4,7 @@ No inferred broker hours or economic release times. An operator must explicitly
 provide an ISO-8601 UTC schedule and mark it verified; malformed input fails closed.
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 def _utc(value):
@@ -27,7 +27,9 @@ def verified_sessions(raw):
         intervals = []
         for entry in payload["sessions"]:
             opened, closed = _utc(entry["open"]), _utc(entry["close"])
-            if opened >= closed:
+            # One broker session cannot span multiple days. A typo or a
+            # week-long interval must never authorize weekend entries.
+            if opened >= closed or closed - opened > timedelta(hours=24):
                 return ()
             intervals.append((opened, closed))
         intervals.sort()
