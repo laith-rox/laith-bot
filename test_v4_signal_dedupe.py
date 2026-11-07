@@ -34,6 +34,14 @@ class SignalDedupeTests(unittest.TestCase):
         self.signal["stop"] = 3002
         self.assertIsNone(signal_identity(self.signal))
 
+    def test_boolean_prices_rejected(self):
+        for field in ("entry", "stop", "target"):
+            with self.subTest(field=field):
+                candidate = dict(self.signal)
+                candidate[field] = True
+                self.assertIsNone(signal_identity(candidate))
+                self.assertFalse(should_publish_signal(self.store, candidate, session_id="s1"))
+
     def test_nan_rejected(self):
         self.signal["entry"] = float("nan")
         self.assertIsNone(signal_identity(self.signal))
