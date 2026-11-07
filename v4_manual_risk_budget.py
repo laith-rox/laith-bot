@@ -34,11 +34,15 @@ def manual_risk_budget(*, side, entry, stop, risk_budget_usd,
         risk_per_lot = abs(entry - stop) * contract * conversion
         if risk_per_lot <= 0:
             raise ValueError("zero risk")
-        cap = min(maximum, budget / risk_per_lot)
+        # Compute the cap from decimal inputs, avoiding binary-float overestimation.
+        d_entry, d_stop, d_budget, d_contract, d_conversion, d_step, _, d_max = (
+            Decimal(str(v)) for v in raw)
+        d_risk_per_lot = abs(d_entry - d_stop) * d_contract * d_conversion
+        cap = min(d_max, d_budget / d_risk_per_lot)
         # Step multiples anchored at zero: conservative when min lot is not a multiple.
         # Decimal floor avoids rounding UP across a tight risk boundary.
         # Never add a tolerance to the risk budget: even a tiny excess is unsafe.
-        units = int((Decimal(str(cap)) / Decimal(str(step))).to_integral_value(rounding=ROUND_FLOOR))
+        units = int((cap / d_step).to_integral_value(rounding=ROUND_FLOOR))
         lot = float(Decimal(units) * Decimal(str(step)))
         if lot < minimum or lot <= 0:
             return {"status": "WAIT", "reason": "minimum_lot_exceeds_risk_budget",
