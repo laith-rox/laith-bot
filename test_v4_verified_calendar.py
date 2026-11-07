@@ -38,3 +38,22 @@ class VerifiedEntryCalendarAvailabilityTests(unittest.TestCase):
     def test_explicit_valid_session_required(self):
         from v4_verified_calendar import verified_entry_calendar_available
         self.assertTrue(verified_entry_calendar_available('{"verified":true,"sessions":[{"open":"2026-11-09T00:00:00Z","close":"2026-11-09T22:00:00Z"}]}'))
+
+
+class OverlappingBrokerSessionsTests(unittest.TestCase):
+    def test_overlapping_sessions_fail_closed(self):
+        from v4_verified_calendar import verified_entry_calendar_available
+        sessions = [
+            {"open": "2026-11-09T12:00:00Z", "close": "2026-11-09T18:00:00Z"},
+            {"open": "2026-11-09T08:00:00Z", "close": "2026-11-09T13:00:00Z"},
+        ]
+        raw = json.dumps({"verified": True, "sessions": sessions})
+        self.assertEqual(verified_sessions(raw), ())
+        self.assertFalse(verified_entry_calendar_available(raw))
+
+    def test_adjacent_sessions_are_allowed(self):
+        sessions = [
+            {"open": "2026-11-09T12:00:00Z", "close": "2026-11-09T18:00:00Z"},
+            {"open": "2026-11-09T08:00:00Z", "close": "2026-11-09T12:00:00Z"},
+        ]
+        self.assertEqual(len(verified_sessions(json.dumps({"verified": True, "sessions": sessions}))), 2)
