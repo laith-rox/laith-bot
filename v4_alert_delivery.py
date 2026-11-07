@@ -15,7 +15,11 @@ def deliver_once(store, notifier, notice):
     state_key = "v4_alert_sent:" + key
     if store.get(state_key):
         return False
-    result = notifier.send(notice["message"])
+    try:
+        result = notifier.send(notice["message"])
+    except (OSError, TimeoutError, ConnectionError):
+        # Transport failure is not delivery confirmation; permit a later retry.
+        return False
     if result is not True:
         return False
     store.set(state_key, True)
