@@ -57,9 +57,12 @@ def verified_news(raw):
             # Duplicate IDs can carry conflicting times and bypass news blackout logic.
             event_id = event.get("id")
             if event_id is not None:
-                if not isinstance(event_id, str) or not event_id.strip() or event_id in seen_ids:
+                if not isinstance(event_id, str) or not event_id.strip():
                     return ()
-                seen_ids.add(event_id)
+                normalized_id = event_id.strip().casefold()
+                if normalized_id in seen_ids:
+                    return ()
+                seen_ids.add(normalized_id)
             e = dict(event)
             e["release_at"] = _utc(e["release_at"])
             if e.get("actual_published_at") is not None:
