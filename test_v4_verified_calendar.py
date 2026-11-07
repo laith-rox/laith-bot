@@ -57,3 +57,13 @@ class OverlappingBrokerSessionsTests(unittest.TestCase):
             {"open": "2026-11-09T08:00:00Z", "close": "2026-11-09T12:00:00Z"},
         ]
         self.assertEqual(len(verified_sessions(json.dumps({"verified": True, "sessions": sessions}))), 2)
+
+
+class NonObjectCalendarPayloadTests(unittest.TestCase):
+    def test_json_scalar_and_list_fail_closed(self):
+        from v4_verified_calendar import verified_entry_calendar_available
+        for raw in ("null", "true", "[]", "42", "\"text\""):
+            with self.subTest(raw=raw):
+                self.assertEqual(verified_sessions(raw), ())
+                self.assertEqual(verified_news(raw), ())
+                self.assertFalse(verified_entry_calendar_available(raw))
