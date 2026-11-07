@@ -22,6 +22,8 @@ def manual_risk_budget(*, side, entry, stop, risk_budget_usd,
            usd_per_quote_unit, lot_step, min_lot, max_lot)
     if any(v is None for v in raw):
         return {"status": "WAIT", "reason": "broker_contract_or_currency_unverified", "manual_only": True}
+    if any(isinstance(v, bool) for v in raw):
+        return {"status": "WAIT", "reason": "invalid_risk_inputs", "manual_only": True}
     try:
         entry, stop, budget, contract, conversion, step, minimum, maximum = map(float, raw)
         if not all(math.isfinite(v) and v > 0 for v in (entry, stop, budget, contract,
