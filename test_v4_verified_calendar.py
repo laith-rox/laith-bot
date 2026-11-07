@@ -129,3 +129,25 @@ class BrokerSessionDurationSafetyTests(unittest.TestCase):
             {"open": "2026-11-09T00:00:00Z", "close": "2026-11-09T12:00:00Z"},
             {"open": "2026-11-10T00:00:00Z", "close": "2026-11-12T00:00:00Z"}]})
         self.assertEqual(verified_sessions(raw), ())
+
+
+class SaturdayBrokerSessionGuardTests(unittest.TestCase):
+    def test_rejects_verified_saturday_session(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-07T08:00:00Z", "close": "2026-11-07T10:00:00Z"}
+        ]})
+        self.assertEqual(verified_sessions(raw), ())
+
+    def test_rejects_friday_session_crossing_into_saturday(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-06T23:30:00Z", "close": "2026-11-07T00:30:00Z"}
+        ]})
+        self.assertEqual(verified_sessions(raw), ())
+
+    def test_allows_verified_friday_and_sunday_sessions(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-06T21:00:00Z", "close": "2026-11-06T23:00:00Z"},
+            {"open": "2026-11-08T22:00:00Z", "close": "2026-11-08T23:00:00Z"}
+        ]})
+        self.assertEqual(len(verified_sessions(raw)), 2)
+
