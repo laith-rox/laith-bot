@@ -31,7 +31,7 @@ def verified_sessions(raw):
             # week-long interval must never authorize weekend entries.
             if opened >= closed or closed - opened > timedelta(hours=24):
                 return ()
-            intervals.append((opened, closed))
+            # A purported broker window must never authorize Saturday trading.\n            # Check every UTC date touched, not only the opening date.\n            cursor = opened.date()\n            last_date = (closed - timedelta(microseconds=1)).date()\n            while cursor <= last_date:\n                if cursor.weekday() == 5:\n                    return ()\n                cursor += timedelta(days=1)\n            intervals.append((opened, closed))
         intervals.sort()
         # Conflicting broker windows are ambiguous: never authorize an entry.
         if any(previous[1] > current[0] for previous, current in zip(intervals, intervals[1:])):
