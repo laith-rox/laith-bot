@@ -4,6 +4,7 @@ No broker execution, no assumed lot contract size, and no guarantee of fills.
 A broker-confirmed contract size and account currency conversion are required.
 """
 import math
+from decimal import Decimal, ROUND_FLOOR
 
 
 def manual_risk_budget(*, side, entry, stop, risk_budget_usd,
@@ -35,8 +36,10 @@ def manual_risk_budget(*, side, entry, stop, risk_budget_usd,
             raise ValueError("zero risk")
         cap = min(maximum, budget / risk_per_lot)
         # Step multiples anchored at zero: conservative when min lot is not a multiple.
-        units = math.floor((cap + 1e-12) / step)
-        lot = units * step
+        # Decimal floor avoids rounding UP across a tight risk boundary.
+        # Never add a tolerance to the risk budget: even a tiny excess is unsafe.
+        units = int((Decimal(str(cap)) / Decimal(str(step))).to_integral_value(rounding=ROUND_FLOOR))
+        lot = float(Decimal(units) * Decimal(str(step)))
         if lot < minimum or lot <= 0:
             return {"status": "WAIT", "reason": "minimum_lot_exceeds_risk_budget",
                     "risk_per_lot_usd": round(risk_per_lot, 6), "manual_only": True}
