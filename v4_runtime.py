@@ -49,6 +49,19 @@ QUICK_BAR_FALLBACK_ERRORS = {
 }
 
 
+def verified_runtime_session_state(now, sessions):
+    """Gate market polling on an authoritative broker schedule; fail closed."""
+    if now.tzinfo is None:
+        raise ValueError("aware UTC time required")
+    if not sessions:
+        return "BROKER_CALENDAR_UNVERIFIED"
+    current = now.astimezone(UTC)
+    for opened, closes in sessions:
+        if opened.tzinfo and closes.tzinfo and opened <= current < closes:
+            return "OPEN"
+    return "BROKER_SESSION_CLOSED"
+
+
 def quick_reference_quote(market, bars, now):
     """Return a reference price for monitoring without weakening official entry."""
     try:
@@ -579,6 +592,17 @@ def run(args):
                 store.set("v4_last_error", None)
                 store.set("v4_quick_last_error", None)
                 store.set("v4_weekend_education_error", None)
+                next_cycle = time.time() + args.interval
+                next_quick = time.time() + args.quick_interval
+                time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
+                continue
+            # A weekday heuristic cannot override verified broker sessions.
+            # Keep Telegram responsive without fetching data during closure.
+            verified_state = verified_runtime_session_state(now, broker_sessions)
+            if verified_state != "OPEN":
+                store.set("v4_market_status", verified_state)
+                store.set("v4_last_error", None)
+                store.set("v4_quick_last_error", None)
                 next_cycle = time.time() + args.interval
                 next_quick = time.time() + args.quick_interval
                 time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
