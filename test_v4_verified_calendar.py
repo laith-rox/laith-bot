@@ -168,3 +168,21 @@ class VerifiedNewsPublicationTimingTests(unittest.TestCase):
                 event = {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z",
                          "actual_published_at": actual}
                 self.assertEqual(len(verified_news(json.dumps({"verified": True, "events": [event]}))), 1)
+
+
+class VerifiedCalendarTimezoneBoundaryTests(unittest.TestCase):
+    def test_saturday_in_utc_rejected_even_with_friday_local_offset(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-06T23:30:00-01:00", "close": "2026-11-07T01:00:00-01:00"}]})
+        self.assertEqual(verified_sessions(raw), ())
+
+    def test_saturday_at_exclusive_close_boundary_allowed(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-06T22:00:00Z", "close": "2026-11-07T00:00:00Z"}]})
+        self.assertEqual(len(verified_sessions(raw)), 1)
+
+    def test_overlapping_verified_sessions_fail_closed(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-09T10:00:00Z", "close": "2026-11-09T12:00:00Z"},
+            {"open": "2026-11-09T11:59:59Z", "close": "2026-11-09T13:00:00Z"}]})
+        self.assertEqual(verified_sessions(raw), ())
