@@ -53,6 +53,13 @@ class EntryTests(unittest.TestCase):
         self.assertFalse(publish_entry_notification(self.store, notifier, planned))
         self.assertEqual(notifier.sent, [])
 
+    def test_untrusted_horizon_is_html_escaped(self):
+        self.signal["horizon"] = '<b>FAKE</b>&"'
+        planned = self.plan()
+        self.assertIsNotNone(planned)
+        self.assertIn("&lt;b&gt;FAKE&lt;/b&gt;&amp;&quot;", planned["message"])
+        self.assertNotIn("<b>FAKE</b>", planned["message"])
+
     def test_market_closed(self):
         self.assertIsNone(self.plan(market_state="CLOSED"))
 
