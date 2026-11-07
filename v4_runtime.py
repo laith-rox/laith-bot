@@ -453,7 +453,14 @@ class V4PaperResilientQuick(V4Paper):
             historical_flat=history["flat"],
             historical_positive_rate=history["positive_rate"],
         )
-        self._set_quick_entry_state("ENTRY" if not setup.get("delayed_reference") and setup.get("current_five_minute_candle") else "WAIT", "market_quote_stale")
+        # A fallback to a closed candle is useful for analysis, but must never
+        # create an actionable Telegram entry or paper-open announcement.
+        if setup.get("delayed_reference") or not setup.get("current_five_minute_candle"):
+            self.store.set("v4_quick_last_block", "live_current_candle_unverified")
+            self._set_quick_entry_state("WAIT", "live_current_candle_unverified")
+            LOG.warning("quick_entry_block reason=live_current_candle_unverified")
+            return
+        self._set_quick_entry_state("ENTRY", "verified_live_current_candle")
         self._save_quick(setup)
         self.store.set("v4_quick_last", setup)
         self.store.set("v4_quick_last_block", None)
