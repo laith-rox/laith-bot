@@ -6,6 +6,7 @@ source timestamp after the scheduled release and not in the future.
 """
 from datetime import datetime, timezone, timedelta
 import math
+from html import escape
 
 
 def _number(value):
@@ -42,8 +43,8 @@ def plan_post_news_alert(now, event, *, max_delay_minutes=30):
         return None
     surprise = actual - consensus
     direction = "أعلى من المتوقع" if surprise > 0 else "أقل من المتوقع" if surprise < 0 else "مطابق للتوقع"
-    title = str(event.get("title") or "خبر اقتصادي").replace("<", "&lt;").replace(">", "&gt;")
-    source = event["actual_source"].strip().replace("<", "&lt;").replace(">", "&gt;")
+    title = escape(str(event.get("title") or "خبر اقتصادي"))
+    source = escape(event["actual_source"].strip())
     key = "v4_news_actual:%s:%s:%s" % (event["id"], at.isoformat(), published.isoformat())
     return {"key": key, "event_id": event["id"], "message": (
         "📰 <b>Laith V4 — نتيجة خبر مؤكدة</b>\n"
