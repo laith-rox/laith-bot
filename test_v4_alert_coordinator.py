@@ -70,3 +70,39 @@ class CoordinatorTransportRecoveryTests(unittest.TestCase):
         self.assertEqual(run_alert_cycle(now, **kwargs), [])
         self.assertEqual(notifier.calls, 3)
         self.assertEqual(len(notifier.sent), 2)
+
+
+class VerifiedCalendarCoordinatorIntegrationTests(unittest.TestCase):
+    def test_unverified_calendar_never_generates_news_alerts(self):
+        import json
+        from v4_verified_calendar import verified_news
+        now = datetime(2026, 11, 6, 13, 40, tzinfo=timezone.utc)
+        event = {"id": "CPI", "title": "CPI", "release_at": "2026-11-06T14:00:00Z", "importance": "high"}
+        store, notifier = MemoryStore(), TelegramFake()
+        for verified in (False, True):
+            raw = json.dumps({"verified": verified, "events": [event]})
+            delivered = run_alert_cycle(now, store=store, notifier=notifier,
+                broker_sessions=(), quote_at=None, verified_news_events=verified_news(raw))
+            if verified:
+                self.assertEqual(len(delivered), 1)
+            else:
+                self.assertEqual(delivered, [])
+        self.assertEqual(len(notifier.sent), 1)
+        self.assertEqual(run_alert_cycle(now, store=store, notifier=notifier,
+            broker_sessions=(), quote_at=None,
+            verified_news_events=verified_news(json.dumps({"verified": True, "events": [event]}))), [])
+
+    def test_duplicate_external_event_ids_fail_closed_before_delivery(self):
+        import json
+        from v4_verified_calendar import verified_news
+        now = datetime(2026, 11, 6, 13, 40, tzinfo=timezone.utc)
+        events = [
+            {"id": "CPI", "title": "CPI", "release_at": "2026-11-06T14:00:00Z", "importance": "high"},
+            {"id": " cpi ", "title": "Other", "release_at": "2026-11-06T14:05:00Z", "importance": "high"},
+        ]
+        store, notifier = MemoryStore(), TelegramFake()
+        delivered = run_alert_cycle(now, store=store, notifier=notifier,
+            broker_sessions=(), quote_at=None,
+            verified_news_events=verified_news(json.dumps({"verified": True, "events": events})))
+        self.assertEqual(delivered, [])
+        self.assertEqual(notifier.sent, [])
