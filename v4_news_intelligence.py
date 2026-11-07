@@ -3,6 +3,7 @@
 Upstream must supply verified calendar events and consensus. No invented forecast.
 """
 from datetime import timedelta, timezone
+from html import escape
 
 
 def plan_pre_news_alert(now, event, *, lead_minutes=20, tolerance_seconds=60):
@@ -36,7 +37,8 @@ def plan_pre_news_alert(now, event, *, lead_minutes=20, tolerance_seconds=60):
         "🧠 سيناريو مشروط: %s\n"
         "⚠️ مخاطرة الذهب: %s\n"
         "⛔ لا دخول على الخبر وحده؛ ننتظر النتيجة وتأكيد السعر."
-    ) % (title, at.strftime("%Y-%m-%d %H:%M"),
-         "غير متاح" if consensus is None else consensus,
-         "غير متاح" if previous is None else previous, expectation, risk)
+    ) % (escape(str(title)), at.strftime("%Y-%m-%d %H:%M"),
+         escape(str("غير متاح" if consensus is None else consensus)),
+         escape(str("غير متاح" if previous is None else previous)),
+         escape(str(expectation)), escape(str(risk)))
     return {"key": key, "message": message, "event_id": event_id}
