@@ -14,6 +14,8 @@ def signal_identity(candidate):
     side = candidate.get("side")
     if side not in ("BUY", "SELL"):
         return None
+    if any(isinstance(candidate.get(k), bool) for k in ("entry", "stop", "target")):
+        return None
     try:
         entry = round(float(candidate["entry"]), 2)
         stop = round(float(candidate["stop"]), 2)
