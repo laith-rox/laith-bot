@@ -28,6 +28,9 @@ class PendingEntryTests(unittest.TestCase):
     def test_session_changed(self):
         self.assertFalse(self.allowed({**self.pending, "session_id": "2026-11-08"}))
 
+    def test_naive_clock_fails_closed(self):
+        self.assertFalse(self.allowed(now=self.now.replace(tzinfo=None)))
+
     def test_malformed(self):
         self.assertFalse(self.allowed({**self.pending, "candidate": None}))
         self.assertFalse(self.allowed({**self.pending, "message": ""}))
