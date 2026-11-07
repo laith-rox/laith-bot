@@ -22,6 +22,17 @@ class ManualRiskBudgetTests(unittest.TestCase):
         self.assertEqual(result["lot_ceiling"], 0.02)
         self.assertLessEqual(result["estimated_stop_risk_usd"], 14)
 
+    def test_fractional_step_boundary_never_rounds_up(self):
+        result = self.calc(entry=4000, stop=3999, risk_budget_usd=0.299999999999,
+                           contract_oz_per_lot=1, lot_step=0.1, min_lot=0.1)
+        self.assertEqual(result["lot_ceiling"], 0.2)
+        self.assertLessEqual(result["estimated_stop_risk_usd"], 0.299999999999)
+
+    def test_exact_decimal_step_boundary(self):
+        result = self.calc(entry=4000, stop=3999, risk_budget_usd=0.3,
+                           contract_oz_per_lot=1, lot_step=0.1, min_lot=0.1)
+        self.assertEqual(result["lot_ceiling"], 0.3)
+
     def test_minimum_lot_cannot_fit(self):
         self.assertEqual(self.calc(risk_budget_usd=4)["reason"],
                          "minimum_lot_exceeds_risk_budget")
