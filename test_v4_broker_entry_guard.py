@@ -34,6 +34,14 @@ class BrokerEntryEligibilityTests(unittest.TestCase):
         self.assertEqual(reason, "last_30_minutes")
         self.assertFalse(broker_entry_eligibility(self.now, (), self.now)[0])
 
+    def test_bar_newer_than_quote_is_blocked(self):
+        quote = self.now - timedelta(seconds=20)
+        bar_end = self.now - timedelta(seconds=5)
+        allowed, reason = broker_entry_eligibility(self.now, self.sessions,
+            quote, bar_end_at=bar_end)
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "indicator_bar_from_previous_session")
+
     def test_future_indicator_bar_blocked(self):
         allowed, _ = broker_entry_eligibility(self.now, self.sessions, self.now,
             bar_end_at=self.now + timedelta(minutes=5))
