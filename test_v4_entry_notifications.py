@@ -51,6 +51,26 @@ class EntryTests(unittest.TestCase):
     def test_news_risk(self):
         self.assertIsNone(self.plan(news_safe=False))
 
+    def test_transport_timeout_keeps_signal_retryable(self):
+        planned = self.plan()
+        class TimedOut:
+            def send(self, message):
+                raise TimeoutError("network timeout")
+        self.assertFalse(publish_entry_notification(self.store, TimedOut(), planned))
+        self.assertIsNotNone(self.plan())
+        notifier = Notifier(True)
+        self.assertTrue(publish_entry_notification(self.store, notifier, planned))
+        self.assertFalse(publish_entry_notification(self.store, notifier, planned))
+        self.assertEqual(len(notifier.sent), 1)
+
+    def test_connection_error_keeps_signal_retryable(self):
+        planned = self.plan()
+        class Disconnected:
+            def send(self, message):
+                raise ConnectionError("connection reset")
+        self.assertFalse(publish_entry_notification(self.store, Disconnected(), planned))
+        self.assertIsNotNone(self.plan())
+
     def test_send_failure_does_not_mark(self):
         planned = self.plan()
         self.assertFalse(publish_entry_notification(self.store, Notifier(False), planned))
