@@ -49,3 +49,25 @@ class DeliveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransportFailureTests(unittest.TestCase):
+    def test_transport_failures_do_not_mark_alert_sent(self):
+        for failure in (TimeoutError, ConnectionError, OSError):
+            with self.subTest(failure=failure):
+                store = Store()
+                class FlakyNotifier:
+                    def __init__(self):
+                        self.calls = 0
+                    def send(self, message):
+                        self.calls += 1
+                        if self.calls == 1:
+                            raise failure("telegram transport unavailable")
+                        return True
+                notifier = FlakyNotifier()
+                notice = {"key": "emergency:42", "message": "V4 emergency"}
+                self.assertFalse(deliver_once(store, notifier, notice))
+                self.assertIsNone(store.get("v4_alert_sent:emergency:42"))
+                self.assertTrue(deliver_once(store, notifier, notice))
+                self.assertFalse(deliver_once(store, notifier, notice))
+                self.assertEqual(notifier.calls, 2)
