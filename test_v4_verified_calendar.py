@@ -84,6 +84,20 @@ class NewsIdentityIntegrityTests(unittest.TestCase):
                 event.update(changes)
                 self.assertEqual(verified_news(json.dumps({"verified": True, "events": [event]})), ())
 
+    def test_duplicate_release_without_ids_rejected(self):
+        events = [
+            {"title": "CPI", "release_at": "2026-11-10T13:30:00Z"},
+            {"title": " cpi ", "release_at": "2026-11-10T13:30:00+00:00"},
+        ]
+        self.assertEqual(verified_news(json.dumps({"verified": True, "events": events})), ())
+
+    def test_same_title_at_distinct_release_times_allowed(self):
+        events = [
+            {"title": "CPI", "release_at": "2026-11-10T13:30:00Z"},
+            {"title": "CPI", "release_at": "2026-12-10T13:30:00Z"},
+        ]
+        self.assertEqual(len(verified_news(json.dumps({"verified": True, "events": events}))), 2)
+
     def test_distinct_news_ids_allowed(self):
         events = [
             {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z"},
