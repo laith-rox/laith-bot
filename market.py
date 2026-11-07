@@ -95,7 +95,8 @@ class Market:
         self.session=session or requests.Session()
         self._bars_cache=None
         self._bars_cache_at=0.0
-        self._bars_cache_ttl=55.0
+        self._bars_cache_ttl=240.0
+        self._quota_retry_after=0.0
     def quote(self, clock):
         try:
             response = self.session.get('https://api.twelvedata.com/exchange_rate',
@@ -110,17 +111,26 @@ class Market:
         # The main loop runs every ~20s, but a 5m candle cannot change that fast.
         # Reuse validated bars briefly so one process does not burn provider credits.
         mono=time.monotonic()
+        if mono < self._quota_retry_after:
+            raise DataError("market_quota_cooldown")
         if self._bars_cache is not None and mono-self._bars_cache_at < self._bars_cache_ttl:
             require_fresh(self._bars_cache,now)
             return self._bars_cache
         try:
             response=self.session.get("https://api.twelvedata.com/time_series",params={"symbol":"XAU/USD","interval":"5min","outputsize":2400,"timezone":"UTC","order":"ASC","apikey":self.key,"format":"JSON"},timeout=(5,25))
         except requests.RequestException: raise DataError("market_connection_failed") from None
+        if response.status_code == 429:
+            self._quota_retry_after=time.monotonic()+300.0
+            raise DataError("market_quota_cooldown")
         if response.status_code != 200: raise DataError(f"market_http_{response.status_code}")
         try: payload=response.json()
         except ValueError: raise DataError("market_response_not_json") from None
         if isinstance(payload,dict) and payload.get("status")=="error":
-            code=payload.get("code"); raise DataError("market_quota_reached" if code==429 else "market_provider_error")
+            code=payload.get("code")
+            if code==429:
+                self._quota_retry_after=time.monotonic()+300.0
+                raise DataError("market_quota_cooldown")
+            raise DataError("market_provider_error")
         bars=closed_only(parse_bars(payload,now),now); require_fresh(bars,now)
         self._bars_cache=bars
         self._bars_cache_at=mono
