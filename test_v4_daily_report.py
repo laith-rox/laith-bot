@@ -31,4 +31,28 @@ class DailyReportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plan_daily_decision_report(datetime(2026,11,7,8),events)
 
+
+class ReportDeliveryTests(unittest.TestCase):
+    def test_delivery_once_and_retry_on_failure(self):
+        from v4_alert_coordinator import run_alert_cycle
+        class Store:
+            def __init__(self): self.data = {}
+            def get(self, key): return self.data.get(key)
+            def set(self, key, value): self.data[key] = value
+        class Notifier:
+            def __init__(self): self.messages = []; self.ok = False
+            def send(self, message):
+                self.messages.append(message)
+                return self.ok
+        now = datetime(2026,11,7,8,tzinfo=UTC)
+        events = [{"observed_at":"2026-11-06T19:30:00Z", "state":"READY", "reason":"confirmed"}]
+        s, n = Store(), Notifier()
+        kwargs = dict(store=s, notifier=n, broker_sessions=(), quote_at=None,
+                      decision_events=events)
+        self.assertEqual(run_alert_cycle(now, **kwargs), [])
+        n.ok = True
+        self.assertEqual(run_alert_cycle(now, **kwargs), ["v4_daily_decisions:2026-11-06"])
+        self.assertEqual(run_alert_cycle(now, **kwargs), [])
+        self.assertEqual(len(n.messages), 2)
+
 if __name__ == '__main__': unittest.main()
