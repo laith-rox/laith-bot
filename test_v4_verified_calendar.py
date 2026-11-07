@@ -67,3 +67,26 @@ class NonObjectCalendarPayloadTests(unittest.TestCase):
                 self.assertEqual(verified_sessions(raw), ())
                 self.assertEqual(verified_news(raw), ())
                 self.assertFalse(verified_entry_calendar_available(raw))
+
+
+class NewsIdentityIntegrityTests(unittest.TestCase):
+    def test_duplicate_news_ids_fail_closed(self):
+        events = [
+            {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z"},
+            {"id": "cpi", "title": "CPI revised", "release_at": "2026-11-10T14:30:00Z"},
+        ]
+        self.assertEqual(verified_news(json.dumps({"verified": True, "events": events})), ())
+
+    def test_invalid_event_identity_and_blank_title_fail_closed(self):
+        for changes in ({"id": []}, {"id": ""}, {"title": "  "}, {"title": 123}):
+            with self.subTest(changes=changes):
+                event = {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z"}
+                event.update(changes)
+                self.assertEqual(verified_news(json.dumps({"verified": True, "events": [event]})), ())
+
+    def test_distinct_news_ids_allowed(self):
+        events = [
+            {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z"},
+            {"id": "ppi", "title": "PPI", "release_at": "2026-11-11T13:30:00Z"},
+        ]
+        self.assertEqual(len(verified_news(json.dumps({"verified": True, "events": events}))), 2)
