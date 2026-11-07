@@ -138,3 +138,22 @@ class BrokerGuardToTelegramIntegrationTests(unittest.TestCase):
         self.assertTrue(publish_entry_notification(store, notifier, planned))
         self.assertFalse(publish_entry_notification(store, notifier, planned))
         self.assertEqual(len(notifier.sent), 1)
+
+
+class BrokerPrecloseToTelegramIntegrationTests(unittest.TestCase):
+    def test_preclose_blocks_manual_entry_even_with_fresh_quote(self):
+        from datetime import datetime, timedelta, timezone
+        from v4_broker_entry_guard import broker_entry_eligibility
+        now = datetime(2026, 11, 9, 21, 45, tzinfo=timezone.utc)
+        sessions = ((now - timedelta(hours=2), now + timedelta(minutes=15)),)
+        allowed, reason = broker_entry_eligibility(now, sessions,
+            now - timedelta(seconds=5), bar_end_at=now - timedelta(minutes=5))
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "last_30_minutes")
+        store, notifier = Store(), Notifier()
+        candidate = dict(state="READY", side="BUY", entry=4000, stop=3995, target=4010)
+        planned = plan_entry_notification(store, candidate, session_id="verified-session",
+            market_state="PRE_CLOSE", quote_verified=allowed, news_safe=True)
+        self.assertIsNone(planned)
+        self.assertFalse(publish_entry_notification(store, notifier, planned))
+        self.assertEqual(notifier.sent, [])
