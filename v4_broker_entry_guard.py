@@ -26,7 +26,7 @@ def broker_entry_eligibility(now, intervals, quote_at, *, bar_end_at=None):
             if not isinstance(bar_end_at, datetime) or bar_end_at.tzinfo is None:
                 return False, "invalid_indicator_bar_time"
             # Last completed bar must not extend beyond the observation time.
-            if not (opened <= bar_end_at <= now):
+            if not (opened <= bar_end_at <= quote_at <= now):
                 return False, "indicator_bar_from_previous_session"
         return True, "verified_open_and_fresh"
     except (TypeError, ValueError, AttributeError, OverflowError):
