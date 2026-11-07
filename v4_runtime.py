@@ -28,6 +28,7 @@ from v4_pending_entry import pending_entry_retry_allowed
 from v4_alert_coordinator import run_alert_cycle
 from v4_verified_calendar import verified_sessions, verified_news
 from v4_market_guard import market_guard
+from v4_broker_entry_guard import broker_entry_eligibility
 from v4_regime_scenarios import analyze_regime, scenario_hypotheses
 from v4_liquidity_events import detect_liquidity_event
 from v4_decision_journal import record_candidate, JOURNAL_KEY
@@ -194,8 +195,8 @@ class V4PaperResilientQuick(V4Paper):
                 if configured_sessions:
                     try:
                         quote_at = datetime.fromtimestamp(float(pending["observed_at"]), UTC)
-                        verified_closed = market_guard(
-                            now, configured_sessions, last_quote_at=quote_at)[0] != "OPEN"
+                        verified_closed = not broker_entry_eligibility(
+                            now, configured_sessions, quote_at)[0]
                     except (KeyError, ValueError, TypeError, OverflowError):
                         verified_closed = True
                 if not pending_entry_retry_allowed(
@@ -354,11 +355,12 @@ class V4PaperResilientQuick(V4Paper):
         if configured_sessions:
             try:
                 observed_quote = datetime.fromtimestamp(float(entry_ref["observed_at"]), UTC)
-                verified_state, _, verified_reason = market_guard(
-                    now, configured_sessions, last_quote_at=observed_quote)
+                last_bar_end = getattr(bars[-1], "end", None)
+                verified_allowed, verified_reason = broker_entry_eligibility(
+                    now, configured_sessions, observed_quote, bar_end_at=last_bar_end)
             except (KeyError, ValueError, TypeError, OverflowError):
-                verified_state, verified_reason = "WAIT", "invalid_verified_quote"
-            if verified_state != "OPEN":
+                verified_allowed, verified_reason = False, "invalid_verified_quote"
+            if not verified_allowed:
                 self.store.set("v4_quick_last_block", verified_reason)
                 self._set_quick_entry_state("WAIT", verified_reason)
                 return
