@@ -4,6 +4,7 @@ Reports decisions observed during a completed Palestine-local day, never a
 fabricated trade P/L or win rate. Suppresses empty reports and future records.
 """
 from datetime import datetime, timedelta, timezone
+from html import escape
 from zoneinfo import ZoneInfo
 from v4_decision_journal import journal_summary
 
@@ -34,7 +35,7 @@ def plan_daily_decision_report(now, events, *, earliest_local_hour=7):
     summary = journal_summary(selected)
     counts = summary["states"]
     top = list(summary["block_reasons"].items())[:3]
-    blockers = "، ".join(f"{reason}: {count}" for reason, count in top) or "لا يوجد"
+    blockers = "، ".join(f"{escape(reason, quote=True)}: {count}" for reason, count in top) or "لا يوجد"
     return {"key": f"v4_daily_decisions:{previous.isoformat()}",
             "message": (
                 f"📊 <b>Laith V4 — تقرير القرارات {previous.isoformat()}</b>\\n"
