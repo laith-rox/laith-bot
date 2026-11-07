@@ -48,9 +48,17 @@ def verified_news(raw):
                 or not isinstance(payload.get("events"), list)):
             return ()
         events = []
+        seen_ids = set()
         for event in payload["events"]:
-            if not isinstance(event, dict) or not event.get("title"):
+            if (not isinstance(event, dict) or not isinstance(event.get("title"), str)
+                    or not event["title"].strip()):
                 return ()
+            # Duplicate IDs can carry conflicting times and bypass news blackout logic.
+            event_id = event.get("id")
+            if event_id is not None:
+                if not isinstance(event_id, str) or not event_id.strip() or event_id in seen_ids:
+                    return ()
+                seen_ids.add(event_id)
             e = dict(event)
             e["release_at"] = _utc(e["release_at"])
             if e.get("actual_published_at") is not None:
