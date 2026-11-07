@@ -151,3 +151,20 @@ class SaturdayBrokerSessionGuardTests(unittest.TestCase):
         ]})
         self.assertEqual(len(verified_sessions(raw)), 2)
 
+
+
+class VerifiedNewsPublicationTimingTests(unittest.TestCase):
+    def test_actual_before_release_rejects_entire_calendar(self):
+        events = [
+            {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z",
+             "actual_published_at": "2026-11-10T13:29:59Z"},
+            {"id": "ppi", "title": "PPI", "release_at": "2026-11-11T13:30:00Z"},
+        ]
+        self.assertEqual(verified_news(json.dumps({"verified": True, "events": events})), ())
+
+    def test_actual_at_or_after_release_allowed(self):
+        for actual in ("2026-11-10T13:30:00Z", "2026-11-10T13:30:01Z"):
+            with self.subTest(actual=actual):
+                event = {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z",
+                         "actual_published_at": actual}
+                self.assertEqual(len(verified_news(json.dumps({"verified": True, "events": [event]}))), 1)
