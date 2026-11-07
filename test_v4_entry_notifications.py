@@ -99,3 +99,42 @@ class EntryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrokerGuardToTelegramIntegrationTests(unittest.TestCase):
+    def test_stale_quote_blocks_manual_telegram_entry(self):
+        from datetime import datetime, timedelta, timezone
+        from v4_broker_entry_guard import broker_entry_eligibility
+        now = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
+        sessions = ((now - timedelta(hours=1), now + timedelta(hours=1)),)
+        store, notifier = Store(), Notifier()
+        signal = dict(state="READY", side="BUY", horizon="SCALP",
+                      entry=4000, stop=3995, target=4010)
+        stale = now - timedelta(minutes=3)
+        allowed, reason = broker_entry_eligibility(now, sessions, stale,
+            bar_end_at=now - timedelta(minutes=5))
+        self.assertFalse(allowed, reason)
+        planned = plan_entry_notification(store, signal, session_id="verified-session",
+            market_state="OPEN" if allowed else "WAIT", quote_verified=allowed,
+            news_safe=True)
+        self.assertIsNone(planned)
+        self.assertFalse(publish_entry_notification(store, notifier, planned))
+        self.assertEqual(notifier.sent, [])
+
+    def test_fresh_quote_allows_one_manual_telegram_entry(self):
+        from datetime import datetime, timedelta, timezone
+        from v4_broker_entry_guard import broker_entry_eligibility
+        now = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
+        sessions = ((now - timedelta(hours=1), now + timedelta(hours=1)),)
+        allowed, reason = broker_entry_eligibility(now, sessions,
+            now - timedelta(seconds=5), bar_end_at=now - timedelta(minutes=5))
+        self.assertTrue(allowed, reason)
+        store, notifier = Store(), Notifier()
+        signal = dict(state="READY", side="BUY", horizon="SCALP",
+                      entry=4000, stop=3995, target=4010)
+        planned = plan_entry_notification(store, signal, session_id="verified-session",
+            market_state="OPEN", quote_verified=allowed, news_safe=True)
+        self.assertIsNotNone(planned)
+        self.assertTrue(publish_entry_notification(store, notifier, planned))
+        self.assertFalse(publish_entry_notification(store, notifier, planned))
+        self.assertEqual(len(notifier.sent), 1)
