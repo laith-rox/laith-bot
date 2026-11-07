@@ -23,6 +23,14 @@ class PostReleaseTests(unittest.TestCase):
         self.assertEqual(len(plan_verified_news_notices(now, [self.event])), 1)
         self.assertEqual(plan_verified_news_notices(now, [self.event], already_sent_keys=[notice["key"]]), [])
 
+    def test_telegram_html_escapes_ampersands_and_quotes(self):
+        event = dict(self.event, title='CPI & <core> "release"',
+                     actual_source='Official & <feed> "A"')
+        message = plan_post_news_alert(self.at + timedelta(minutes=1), event)["message"]
+        self.assertIn("CPI &amp; &lt;core&gt; &quot;release&quot;", message)
+        self.assertIn("Official &amp; &lt;feed&gt; &quot;A&quot;", message)
+        self.assertNotIn("Official & <feed>", message)
+
     def test_no_lookahead_or_unverified_release(self):
         self.assertIsNone(plan_post_news_alert(self.at, self.event))
         for field in ("calendar_verified", "actual_verified"):
