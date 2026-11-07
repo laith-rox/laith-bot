@@ -77,6 +77,13 @@ class NewsIdentityIntegrityTests(unittest.TestCase):
         ]
         self.assertEqual(verified_news(json.dumps({"verified": True, "events": events})), ())
 
+    def test_duplicate_news_ids_with_whitespace_and_case_fail_closed(self):
+        events = [
+            {"id": "CPI", "title": "CPI", "release_at": "2026-11-10T13:30:00Z"},
+            {"id": " cpi ", "title": "Inflation revised", "release_at": "2026-11-10T14:30:00Z"},
+        ]
+        self.assertEqual(verified_news(json.dumps({"verified": True, "events": events})), ())
+
     def test_invalid_event_identity_and_blank_title_fail_closed(self):
         for changes in ({"id": []}, {"id": ""}, {"title": "  "}, {"title": 123}):
             with self.subTest(changes=changes):
