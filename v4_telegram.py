@@ -143,6 +143,26 @@ def quick_stats_message(store):
     )
 
 
+def manual_risk_line(trade, broker_specs=None, risk_budget_usd=None):
+    """Manual-only lot ceiling; never infer contract details or silently size orders."""
+    from v4_manual_risk_budget import manual_risk_budget
+    if not isinstance(broker_specs, dict) or risk_budget_usd is None:
+        return "📐 حجم اللوت: غير محسوب — مواصفات عقد الوسيط وميزانية المخاطرة غير موثقة."
+    result = manual_risk_budget(
+        side=trade.get("side"), entry=trade.get("entry"), stop=trade.get("stop"),
+        risk_budget_usd=risk_budget_usd,
+        contract_oz_per_lot=broker_specs.get("contract_oz_per_lot"),
+        usd_per_quote_unit=broker_specs.get("usd_per_quote_unit"),
+        lot_step=broker_specs.get("lot_step"), min_lot=broker_specs.get("min_lot"),
+        max_lot=broker_specs.get("max_lot"),
+    )
+    if result["status"] != "ADVISORY":
+        return "📐 حجم اللوت: انتظار — لا توجد مواصفات/ميزانية موثوقة أو حجم آمن ضمن الحد."
+    return (f"📐 سقف اللوت اليدوي: {result['lot_ceiling']:.4f} | "
+            f"مخاطرة الوقف التقديرية: ${result['estimated_stop_risk_usd']:.2f} "
+            "(لا تشمل السبريد والانزلاق والعمولات؛ ليست أمر تنفيذ).")
+
+
 def quick_message(trade):
     """Compact color-priority quick alert; strategy and trade logic are untouched."""
     risk_level = trade.get("risk_level", "—")
@@ -160,6 +180,7 @@ def quick_message(trade):
         f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
         f"{risk_number} المخاطرة: <b>{risk_level}</b>{reason_text}\n"
         f"🔵⑥ الشروط: <b>{trade.get('score', '—')}/7</b>\n"
+        f"{manual_risk_line(trade, trade.get('verified_broker_specs'), trade.get('risk_budget_usd'))}\\n"
         "📄 إشارة ورقية فقط، ليست أمر تنفيذ؛ تحقق من السعر الحالي قبل أي صفقة."
     )
 
