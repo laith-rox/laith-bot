@@ -111,3 +111,21 @@ class NewsIdentityIntegrityTests(unittest.TestCase):
             {"id": "ppi", "title": "PPI", "release_at": "2026-11-11T13:30:00Z"},
         ]
         self.assertEqual(len(verified_news(json.dumps({"verified": True, "events": events}))), 2)
+
+
+class BrokerSessionDurationSafetyTests(unittest.TestCase):
+    def test_weeklong_verified_session_cannot_authorize_weekend(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-06T00:00:00Z", "close": "2026-11-13T00:00:00Z"}]})
+        self.assertEqual(verified_sessions(raw), ())
+
+    def test_overnight_broker_session_under_24h_remains_valid(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-09T22:00:00Z", "close": "2026-11-10T21:00:00Z"}]})
+        self.assertEqual(len(verified_sessions(raw)), 1)
+
+    def test_long_session_invalidates_entire_calendar(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-09T00:00:00Z", "close": "2026-11-09T12:00:00Z"},
+            {"open": "2026-11-10T00:00:00Z", "close": "2026-11-12T00:00:00Z"}]})
+        self.assertEqual(verified_sessions(raw), ())
