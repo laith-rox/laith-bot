@@ -31,12 +31,16 @@ def plan_entry_notification(store, candidate, *, session_id, market_state,
         "⚠️ راجع السعر الحالي والسبريد قبل التنفيذ؛ لا يوجد تنفيذ تلقائي."
     ) % (label, horizon, entry, stop, target)
     return {"message": message, "identity": signal_identity(candidate),
-            "session_id": session_id, "candidate": candidate}
+            "session_id": session_id, "candidate": dict(candidate)}
 
 
 def publish_entry_notification(store, notifier, planned):
     """Mark as sent only after Telegram reports delivery success."""
     if not planned:
+        return False
+    # A planned message must never be sent after its entry/stop/target changed.
+    # The caller must replan using freshly verified market conditions instead.
+    if signal_identity(planned.get("candidate")) != planned.get("identity"):
         return False
     if not should_publish_signal(store, planned["candidate"], session_id=planned["session_id"]):
         return False
