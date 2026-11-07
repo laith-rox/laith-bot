@@ -40,7 +40,7 @@ class BrokerEntryEligibilityTests(unittest.TestCase):
         allowed, reason = broker_entry_eligibility(self.now, self.sessions,
             quote, bar_end_at=bar_end)
         self.assertFalse(allowed)
-        self.assertEqual(reason, "indicator_bar_from_previous_session")
+        self.assertEqual(reason, "indicator_bar_newer_than_quote")
 
     def test_future_indicator_bar_blocked(self):
         allowed, _ = broker_entry_eligibility(self.now, self.sessions, self.now,
