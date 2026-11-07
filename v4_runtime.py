@@ -30,7 +30,7 @@ from v4_verified_calendar import verified_sessions, verified_news
 from v4_market_guard import market_guard
 from v4_regime_scenarios import analyze_regime, scenario_hypotheses
 from v4_liquidity_events import detect_liquidity_event
-from v4_decision_journal import record_candidate
+from v4_decision_journal import record_candidate, JOURNAL_KEY
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
@@ -546,7 +546,8 @@ def run(args):
                 try:
                     run_alert_cycle(now, store=store, notifier=telegram,
                                     broker_sessions=broker_sessions, quote_at=None,
-                                    verified_news_events=news_events)
+                                    verified_news_events=news_events,
+                                    decision_events=store.get(JOURNAL_KEY) or ())
                 except Exception:
                     LOG.exception('verified_alert_cycle_failed')
                 next_alert = time.time() + 15
