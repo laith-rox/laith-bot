@@ -7,7 +7,8 @@ NY = ZoneInfo("America/New_York")
 
 
 def pending_entry_retry_allowed(pending, now, *, market_closed, news_allowed):
-    if not isinstance(pending, dict) or not isinstance(now, datetime):
+    if (not isinstance(pending, dict) or not isinstance(now, datetime)
+            or now.tzinfo is None or now.utcoffset() is None):
         return False
     if market_closed or not news_allowed:
         return False
