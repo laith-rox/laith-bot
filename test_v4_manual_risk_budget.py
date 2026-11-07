@@ -46,6 +46,14 @@ class ManualRiskBudgetTests(unittest.TestCase):
         self.assertEqual(self.calc(side="SELL", stop=3995)["reason"], "invalid_stop_direction")
         self.assertEqual(self.calc(side="SELL", stop=4005)["status"], "ADVISORY")
 
+    def test_boolean_broker_specs_never_authorize_lot(self):
+        for field in ("entry", "stop", "risk_budget_usd", "contract_oz_per_lot",
+                      "usd_per_quote_unit", "lot_step", "min_lot", "max_lot"):
+            with self.subTest(field=field):
+                result = self.calc(**{field: True})
+                self.assertEqual(result["status"], "WAIT")
+                self.assertTrue(result["manual_only"])
+
     def test_rejects_nonfinite_and_invalid_limits(self):
         self.assertEqual(self.calc(entry=float("nan"))["status"], "WAIT")
         self.assertEqual(self.calc(min_lot=1, max_lot=0.1)["status"], "WAIT")
