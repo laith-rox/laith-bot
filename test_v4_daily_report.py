@@ -14,7 +14,7 @@ class DailyReportTests(unittest.TestCase):
         ]
         result = plan_daily_decision_report(now, events)
         self.assertEqual(result["key"], "v4_daily_decisions:2026-11-06")
-        self.assertIn("جاهزة: 0", result["message"])
+        self.assertIn("جاهزة: 1", result["message"])
         self.assertIn("مرفوضة: 1", result["message"])
         self.assertNotIn("نسبة نجاح: 100", result["message"])
 
