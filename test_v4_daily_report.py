@@ -18,6 +18,14 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("مرفوضة: 1", result["message"])
         self.assertNotIn("نسبة نجاح: 100", result["message"])
 
+    def test_telegram_html_escapes_untrusted_block_reasons(self):
+        now = datetime(2026, 11, 7, 8, tzinfo=UTC)
+        events = [{"observed_at": "2026-11-06T19:30:00Z",
+                   "state": "WAIT", "reason": "<b>spoofed</b> & \"fake\""}]
+        message = plan_daily_decision_report(now, events)["message"]
+        self.assertIn("&lt;b&gt;spoofed&lt;/b&gt; &amp; &quot;fake&quot;", message)
+        self.assertNotIn("<b>spoofed</b>", message)
+
     def test_quiet_before_morning_and_empty(self):
         events = [{"observed_at": "2026-11-06T19:30:00Z", "state": "READY", "reason": "ok"}]
         self.assertIsNone(plan_daily_decision_report(datetime(2026,11,7,3,tzinfo=UTC),events))
