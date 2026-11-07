@@ -3,7 +3,10 @@
 This is a pure state machine. Live quote and broker session verification must
 be supplied by adapters; it never sends orders or assumes market hours.
 """
+import logging
 from v4_signal_dedupe import signal_identity, should_publish_signal, mark_signal_published
+
+LOG = logging.getLogger(__name__)
 
 
 def plan_entry_notification(store, candidate, *, session_id, market_state,
@@ -37,7 +40,12 @@ def publish_entry_notification(store, notifier, planned):
         return False
     if not should_publish_signal(store, planned["candidate"], session_id=planned["session_id"]):
         return False
-    if notifier.send(planned["message"]) is not True:
+    try:
+        delivered = notifier.send(planned["message"])
+    except (OSError, TimeoutError, ConnectionError) as exc:
+        LOG.warning("v4_manual_telegram_delivery_failed error=%s", type(exc).__name__)
+        return False
+    if delivered is not True:
         return False
     mark_signal_published(store, planned["candidate"], session_id=planned["session_id"])
     return True
