@@ -39,6 +39,20 @@ class EntryTests(unittest.TestCase):
         self.assertTrue(publish_entry_notification(self.store, notifier, planned))
         self.assertIsNone(self.plan())
 
+    def test_original_candidate_mutation_cannot_change_planned_levels(self):
+        planned = self.plan()
+        self.signal["entry"] = 3100
+        self.signal["stop"] = 3090
+        self.assertEqual(planned["candidate"]["entry"], 3000)
+        self.assertTrue(publish_entry_notification(self.store, Notifier(), planned))
+
+    def test_mutated_planned_candidate_never_sends_mismatched_message(self):
+        planned = self.plan()
+        planned["candidate"]["entry"] = 3100
+        notifier = Notifier()
+        self.assertFalse(publish_entry_notification(self.store, notifier, planned))
+        self.assertEqual(notifier.sent, [])
+
     def test_market_closed(self):
         self.assertIsNone(self.plan(market_state="CLOSED"))
 
