@@ -21,7 +21,8 @@ def verified_sessions(raw):
         return ()
     try:
         payload = json.loads(raw)
-        if payload.get("verified") is not True or not isinstance(payload.get("sessions"), list):
+        if (not isinstance(payload, dict) or payload.get("verified") is not True
+                or not isinstance(payload.get("sessions"), list)):
             return ()
         intervals = []
         for entry in payload["sessions"]:
@@ -43,7 +44,8 @@ def verified_news(raw):
         return ()
     try:
         payload = json.loads(raw)
-        if payload.get("verified") is not True or not isinstance(payload.get("events"), list):
+        if (not isinstance(payload, dict) or payload.get("verified") is not True
+                or not isinstance(payload.get("events"), list)):
             return ()
         events = []
         for event in payload["events"]:
