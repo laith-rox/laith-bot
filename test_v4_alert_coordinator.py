@@ -106,3 +106,32 @@ class VerifiedCalendarCoordinatorIntegrationTests(unittest.TestCase):
             verified_news_events=verified_news(json.dumps({"verified": True, "events": events})))
         self.assertEqual(delivered, [])
         self.assertEqual(notifier.sent, [])
+
+
+class NewsTransportRecoveryIntegrationTests(unittest.TestCase):
+    def test_failed_news_retries_without_resending_successful_close(self):
+        now = datetime(2026, 11, 6, 13, 40, tzinfo=timezone.utc)
+        sessions = [(now - timedelta(hours=2), now + timedelta(minutes=30))]
+        news = [dict(id="cpi", title="CPI", release_at=now + timedelta(minutes=20),
+                     importance="high", calendar_verified=True)]
+        class FailSecondSend:
+            def __init__(self):
+                self.calls = 0
+                self.sent = []
+            def send(self, message):
+                self.calls += 1
+                if self.calls == 2:
+                    raise TimeoutError("news transport timeout")
+                self.sent.append(message)
+                return True
+        store, notifier = MemoryStore(), FailSecondSend()
+        kwargs = dict(store=store, notifier=notifier, broker_sessions=sessions,
+                      quote_at=now, verified_news_events=news)
+        first = run_alert_cycle(now, **kwargs)
+        self.assertEqual(len(first), 1)
+        second = run_alert_cycle(now, **kwargs)
+        self.assertEqual(len(second), 1)
+        self.assertNotEqual(first[0], second[0])
+        self.assertEqual(run_alert_cycle(now, **kwargs), [])
+        self.assertEqual(notifier.calls, 3)
+        self.assertEqual(len(notifier.sent), 2)
