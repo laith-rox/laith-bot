@@ -207,7 +207,12 @@ class V4PaperResilientQuick(V4Paper):
                 ):
                     self.store.set("v4_pending_quick_telegram", None)
                 elif should_publish_signal(self.store, pending_candidate, session_id=pending_session):
-                    if self.notifier.send(pending_message) is True:
+                    try:
+                        delivered = self.notifier.send(pending_message)
+                    except (OSError, TimeoutError, ConnectionError) as exc:
+                        LOG.warning("pending_quick_telegram_transport_error error=%s", type(exc).__name__)
+                        delivered = False
+                    if delivered is True:
                         mark_signal_published(self.store, pending_candidate, session_id=pending_session)
                         self.store.set("v4_pending_quick_telegram", None)
                 else:
