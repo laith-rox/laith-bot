@@ -23,3 +23,18 @@ class CalendarAdapterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifiedEntryCalendarAvailabilityTests(unittest.TestCase):
+    def test_missing_and_unverified_fail_closed(self):
+        from v4_verified_calendar import verified_entry_calendar_available
+        self.assertFalse(verified_entry_calendar_available(None))
+        self.assertFalse(verified_entry_calendar_available(''))
+        self.assertFalse(verified_entry_calendar_available('{}'))
+        self.assertFalse(verified_entry_calendar_available('{"verified":false,"sessions":[]}'))
+        self.assertFalse(verified_entry_calendar_available('{"verified":true,"sessions":[]}'))
+        self.assertFalse(verified_entry_calendar_available('{"verified":true,"sessions":[{"open":"2026-11-07T00:00:00Z","close":"bad"}]}'))
+
+    def test_explicit_valid_session_required(self):
+        from v4_verified_calendar import verified_entry_calendar_available
+        self.assertTrue(verified_entry_calendar_available('{"verified":true,"sessions":[{"open":"2026-11-09T00:00:00Z","close":"2026-11-09T22:00:00Z"}]}'))
