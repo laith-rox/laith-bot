@@ -77,6 +77,11 @@ def verified_news(raw):
             e["release_at"] = _utc(e["release_at"])
             if e.get("actual_published_at") is not None:
                 e["actual_published_at"] = _utc(e["actual_published_at"])
+                # A reported actual cannot precede its scheduled release.
+                # Treat inconsistent verified feeds as unsafe rather than
+                # promoting premature news surprises into entry decisions.
+                if e["actual_published_at"] < e["release_at"]:
+                    return ()
             # An event without an ID can otherwise be duplicated under the same
             # release and title, generating repeated alerts from one calendar.
             release_key = (e["title"].strip().casefold(), e["release_at"])
