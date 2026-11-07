@@ -180,7 +180,7 @@ def quick_message(trade):
         f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
         f"{risk_number} المخاطرة: <b>{risk_level}</b>{reason_text}\n"
         f"🔵⑥ الشروط: <b>{trade.get('score', '—')}/7</b>\n"
-        f"{manual_risk_line(trade, trade.get('verified_broker_specs'), trade.get('risk_budget_usd'))}\\n"
+        f"{manual_risk_line(trade, trade.get('verified_broker_specs'), trade.get('risk_budget_usd'))}\n"
         "📄 إشارة ورقية فقط، ليست أمر تنفيذ؛ تحقق من السعر الحالي قبل أي صفقة."
     )
 
