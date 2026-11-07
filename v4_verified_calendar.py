@@ -54,3 +54,8 @@ def verified_news(raw):
         return tuple(events)
     except (ValueError, TypeError, KeyError, AttributeError):
         return ()
+
+
+def verified_entry_calendar_available(raw):
+    """No new or retried manual-entry alert without an explicit verified session."""
+    return bool(verified_sessions(raw))
