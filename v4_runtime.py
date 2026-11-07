@@ -191,7 +191,9 @@ class V4PaperResilientQuick(V4Paper):
                 pending_message = pending["message"]
                 configured_raw = os.environ.get("V4_VERIFIED_BROKER_SESSIONS")
                 configured_sessions = verified_sessions(configured_raw)
-                verified_closed = bool(configured_raw and not configured_sessions)
+                # Fail closed: a missing verified broker calendar is not evidence
+                # that the market is open. Never replay an old Telegram entry.
+                verified_closed = not bool(configured_sessions)
                 if configured_sessions:
                     try:
                         quote_at = datetime.fromtimestamp(float(pending["observed_at"]), UTC)
