@@ -69,6 +69,10 @@ class V4Telegram(BaseV4Telegram):
             return
 
         for update in updates:
+            # A malformed update must not crash the worker or advance its cursor.
+            if not isinstance(update, dict):
+                LOG.warning("telegram_update_invalid type=non_object")
+                continue
             uid = update.get("update_id")
             # Skip replays before commands, not just when advancing the cursor.
             if type(uid) is not int:
