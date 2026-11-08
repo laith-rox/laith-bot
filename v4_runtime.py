@@ -36,6 +36,7 @@ from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
 from v4_bitcoin_signals import BitcoinSignalPublisher
+from v4_btc_m5_quick import BTCQuickPublisher
 from v4_btc_followups import follow_observation
 
 LOG = logging.getLogger("laith.v4")
@@ -567,6 +568,8 @@ def run(args):
     # BTC is Telegram-only and independent of the gold broker session. It is
     # enabled exclusively for explicitly opted-in deployments.
     btc = BitcoinSignalPublisher(store, telegram) if os.getenv("V4_BTC_SIGNALS_ENABLED") == "1" else None
+    # Experimental separate BTC M5 Telegram-only lane, 19:00-23:00 Palestine.
+    btc_quick = BTCQuickPublisher(store, telegram) if os.getenv("V4_BTC_M5_QUICK_ENABLED") == "1" else None
     LOG.info(
         "starting independent V4 resilient worker db=%s experiment=%s telegram=%s quick_interval=%ss",
         args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
@@ -582,6 +585,7 @@ def run(args):
     next_alert = 0.0
     next_btc = 0.0
     next_btc_follow = 0.0
+    next_btc_quick = 0.0
     LOG.info('verified_calendar_sessions=%s verified_news_events=%s', len(broker_sessions), len(news_events))
     try:
         while True:
@@ -597,6 +601,13 @@ def run(args):
                     LOG.exception("btc_follow_observation_failed")
                 current = time.time()
                 next_btc_follow = (int(current) // 300 + 1) * 300 + 35
+            if btc_quick is not None and time.time() >= next_btc_quick:
+                try:
+                    btc_quick.cycle(now)
+                except Exception:
+                    LOG.exception("btc_m5_quick_cycle_failed")
+                current = time.time()
+                next_btc_quick = (int(current) // 300 + 1) * 300 + 30
             if btc is not None and time.time() >= next_btc:
                 try:
                     btc.cycle(now)
