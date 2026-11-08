@@ -83,5 +83,39 @@ class GroupTelegramTests(unittest.TestCase):
             store.close(); tmp.cleanup()
 
 
+class TelegramReadDiagnosticsTests(unittest.TestCase):
+    def test_poll_conflict_is_classified_without_exposing_token(self):
+        from transport import Telegram
+
+        class Response:
+            status_code = 409
+            def json(self):
+                return {"ok": False, "error_code": 409, "description": "Conflict: secret-token"}
+
+        class Session:
+            def get(self, *args, **kwargs):
+                return Response()
+
+        client = Telegram("secret-token", "111", session=Session())
+        with self.assertRaisesRegex(RuntimeError, "^telegram_poll_conflict_or_webhook$") as caught:
+            client.read("getUpdates", offset=0)
+        self.assertNotIn("secret-token", str(caught.exception))
+
+    def test_unauthorized_is_classified_without_exposing_token(self):
+        from transport import Telegram
+
+        class Response:
+            status_code = 401
+            def json(self):
+                return {"ok": False, "error_code": 401}
+
+        class Session:
+            def get(self, *args, **kwargs):
+                return Response()
+
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_unauthorized$"):
+            Telegram("secret-token", "111", session=Session()).read("getUpdates")
+
+
 if __name__ == "__main__":
     unittest.main()
