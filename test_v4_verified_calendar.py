@@ -186,3 +186,19 @@ class VerifiedCalendarTimezoneBoundaryTests(unittest.TestCase):
             {"open": "2026-11-09T10:00:00Z", "close": "2026-11-09T12:00:00Z"},
             {"open": "2026-11-09T11:59:59Z", "close": "2026-11-09T13:00:00Z"}]})
         self.assertEqual(verified_sessions(raw), ())
+
+
+class CalendarOverflowSafetyTests(unittest.TestCase):
+    def test_session_timestamp_overflow_fails_closed(self):
+        from unittest.mock import patch
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-09T00:00:00Z", "close": "2026-11-09T22:00:00Z"}]})
+        with patch("v4_verified_calendar._utc", side_effect=OverflowError("timestamp")):
+            self.assertEqual(verified_sessions(raw), ())
+
+    def test_news_timestamp_overflow_fails_closed(self):
+        from unittest.mock import patch
+        raw = json.dumps({"verified": True, "events": [
+            {"title": "CPI", "release_at": "2026-11-10T13:30:00Z"}]})
+        with patch("v4_verified_calendar._utc", side_effect=OverflowError("timestamp")):
+            self.assertEqual(verified_news(raw), ())
