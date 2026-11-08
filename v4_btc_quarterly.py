@@ -63,30 +63,47 @@ def weak_preview(now, provider, state, aggregate):
         close15 = [b.close for b in m15]
         fast, slow = ema(close15, 20)[-1], ema(close15, 50)[-1]
         h1, h4 = state.get("h1_trend"), state.get("h4_trend")
-        # H4 contextual bias is preferred; H1 / M15 are only fallback hypotheses.
-        side = (h4 if h4 in ("BUY", "SELL")
-                else h1 if h1 in ("BUY", "SELL")
-                else "BUY" if fast > slow else "SELL" if fast < slow else "WAIT")
-        if side == "WAIT":
-            return {"side": side, "score": 0, "price": None}
-        up = side == "BUY"
-        rsi5 = rsi([b.close for b in bars[-70:]])
-        prev15 = m15[-9:-1]
+        # No timeframe has unilateral veto/power over a research hypothesis.
+        # Tally symmetric BUY vs SELL evidence; inactive/neutral checks abstain.
+        # The 7 slots are H4, H1, M15 EMA, M15 candle, M5 candle,
+        # M5 RSI and completed M15 breakout. Counts are NOT probabilities.
         last15, last5 = m15[-1], bars[-1]
-        breakout = (last15.close > max(b.high for b in prev15)
-                    if up else last15.close < min(b.low for b in prev15))
-        checks = [
-            h4 == side, h1 == side,
-            fast > slow if up else fast < slow,
-            last15.close > last15.open if up else last15.close < last15.open,
-            last5.close > last5.open if up else last5.close < last5.open,
-            48 <= rsi5 <= 72 if up else 28 <= rsi5 <= 52,
-            breakout,
+        rsi5 = rsi([b.close for b in bars[-70:]])
+        recent = m15[-9:-1]
+        upper = max(b.high for b in recent)
+        lower = min(b.low for b in recent)
+        def compare(a, b):
+            return "BUY" if a > b else "SELL" if a < b else "WAIT"
+        rsi_side = "BUY" if rsi5 >= 55 else "SELL" if rsi5 <= 45 else "WAIT"
+        breakout_side = ("BUY" if last15.close > upper
+                         else "SELL" if last15.close < lower else "WAIT")
+        votes = [
+            h4 if h4 in ("BUY", "SELL") else "WAIT",
+            h1 if h1 in ("BUY", "SELL") else "WAIT",
+            compare(fast, slow),
+            compare(last15.close, last15.open),
+            compare(last5.close, last5.open),
+            rsi_side, breakout_side,
         ]
+        buy = votes.count("BUY")
+        sell = votes.count("SELL")
+        # Require a clear 2-vote lead and 3 supporting observations.
+        # Neither BUY nor SELL is forced when the evidence is tied/thin.
+        side = ("BUY" if buy >= 3 and buy - sell >= 2 else
+                "SELL" if sell >= 3 and sell - buy >= 2 else "WAIT")
+        conflict = side in ("BUY", "SELL") and h4 in ("BUY", "SELL") and side != h4
         result = {
-            "side": side, "score": sum(bool(check) for check in checks),
+            "side": side, "score": (buy if side == "BUY" else sell if side == "SELL" else max(buy, sell)),
+            "buy_votes": buy, "sell_votes": sell,
+            "h4_conflict": bool(conflict),
+            "m15_trend": votes[2], "m5_momentum": votes[5],
             "price": None, "sl": None, "tp1": None, "tp2": None,
         }
+        if side == "WAIT":
+            # Explicit neutral research outcome: no one-sided trade geometry.
+            result["reason"] = "mixed_or_insufficient_votes"
+            return result
+        up = side == "BUY"
         # Live Coinbase spot quote only; never present prior candle close as live entry.
         try:
             price = _num(provider.ticker(now))
@@ -136,9 +153,15 @@ def quarterly_message(now, state, preview, note=None):
          else "⛔ <b>صفقة ضعيفة / غير مؤهلة — لا تدخل الآن</b>"),
         f"📈 الميل الافتراضي: <b>{chosen}</b>",
         f"🧠 الشروط الاسترشادية: <b>{score_str}</b> (ليست نسبة نجاح)",
+        f"⚖️ تصويت 7 عوامل: شراء {preview.get('buy_votes', '—')}/7 | بيع {preview.get('sell_votes', '—')}/7",
         f"🕓 H1: {_trend_label(state.get('h1_trend'))} | H4: {_trend_label(state.get('h4_trend'))}",
+        f"📊 اتجاه M15: {_trend_label(preview.get('m15_trend'))} | زخم RSI M5: {_trend_label(preview.get('m5_momentum'))}",
         f"🟡 سبب عدم الدخول: {reason}",
     ]
+    if preview.get("h4_conflict"):
+        lines.append("⚠️ الميل المقترح عكس H4؛ احتمال تصحيح قصير، وليس انعكاسًا مؤكدًا. لا تدخل.")
+    if preview.get("side") == "WAIT" and preview.get("reason") == "mixed_or_insufficient_votes":
+        lines.append("⚪ لا توجد أغلبية كافية بين الشراء والبيع؛ لا نفرض صفقة افتراضية باتجاه واحد.")
     price = _num(preview.get("price"))
     sl, tp1, tp2 = [_num(preview.get(x)) for x in ("sl", "tp1", "tp2")]
     if price and sl and tp1 and tp2:
