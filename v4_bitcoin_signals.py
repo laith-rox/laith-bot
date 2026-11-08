@@ -240,16 +240,28 @@ def analyze_btc(now, provider):
     if score < 6 or not confirmation:
         return {"status": "WAIT", "reason": "btc_conditions_not_met", "score": score}
 
-    sign = 1 if up else -1
-    stop = price - sign * 1.4 * volatility
-    first = price + sign * 1.8 * volatility
-    second = price + sign * 2.8 * volatility
-    if not (min(stop, first, second) > 0):
-        raise DataError("btc_levels_invalid")
+    quality = quality_gate(
+        now, direction, price, m5, m15, volatility,
+        getattr(provider, "last_volumes", None), provider.book(), provider.derivatives(),
+    )
+    if quality["status"] != "OK":
+        return {"status": quality["status"], "reason": quality.get("reason"), "score": score}
+    midpoint = (quality["book"]["bid"] + quality["book"]["ask"]) / 2
+    if abs(midpoint - price) / midpoint > .001:
+        return {"status": "WAIT", "reason": "btc_quote_orderbook_mismatch", "score": score}
+    risk = quality["risk"]
     return {
         "status": "SIGNAL", "side": direction, "score": score,
-        "entry": price, "sl": stop, "tp1": first, "tp2": second,
+        "entry": price, "sl": risk["sl"], "tp1": risk["tp1"], "tp2": risk["tp2"],
         "atr15": volatility, "time": now.isoformat(),
+        "liquidity": quality["liquidity"],
+        "volume_ratio": quality["volume"]["ratio"],
+        "spot_spread_bps": quality["book"]["spread_bps"],
+        "derivatives": quality["derivatives"],
+        "session": quality["session"],
+        "rr_reference": risk["rr_reference"],
+        "risk_distance": risk["sl_distance"],
+        "volatility_regime": risk["volatility_regime"],
     }
 
 
