@@ -1,0 +1,228 @@
+"""Zero-LLM-cost, owner-only Telegram conversation router for experimental Laith.
+
+Uses saved bot data and deterministic Arabic intent matching. Never claims to be
+ChatGPT, never invokes an AI API, and never changes trading settings or orders.
+Only v4_group_telegram's paired private-owner path may call this router.
+"""
+import html
+import os
+import re
+from datetime import datetime, timezone
+
+from v4_telegram import status_message, stats_message, quick_stats_message
+from v4_btc_followups import btc_stats_message
+
+UTC = timezone.utc
+
+REASON = {
+    "h1_h4_not_aligned": "اتجاه الساعة والأربع ساعات مش متوافق، لذلك ما في دخول مؤكد.",
+    "btc_conditions_not_met": "شروط الدخول الفني مش مكتملة.",
+    "btc_price_moved_too_far": "السعر ابتعد عن نقطة الدخول المرجعية.",
+    "btc_false_breakout": "رُصد احتمال اختراق وهمي.",
+    "btc_liquidity_not_confirmed": "السيولة والكسر أو إعادة الاختبار مش مؤكدين.",
+    "btc_sniper_not_confirmed": "توقيت الدخول على M5 مش مؤكد.",
+    "low_volume": "حجم التداول الحالي ضعيف مقارنة بالعينة.",
+    "volume_unavailable": "بيانات الحجم مش متوفرة.",
+    "btc_book_spread_or_imbalance": "سبريد أو اختلال دفتر الأوامر مش مناسب.",
+    "btc_crowded_derivatives": "بيانات العقود تشير لازدحام مراكز باتجاه الإشارة.",
+    "btc_quote_orderbook_mismatch": "في اختلاف بين السعر المعلن ودفتر الأوامر.",
+    "btc_extreme_volatility": "التذبذب مرتفع جدًا للمخاطرة المرجعية.",
+    "btc_spread_adjusted_rr_low": "العائد المتوقع مقابل المخاطرة مش كافٍ بعد السبريد الفوري.",
+    "btc_quote_stale": "سعر البيتكوين قديم ولا يصلح للدخول.",
+    "btc_recent_data_gap": "في انقطاع حديث ببيانات الشموع.",
+    "btc_insufficient_history": "عدد الشموع غير كافٍ لتحليل موثوق.",
+    "btc_connection_failed": "مصدر بيانات البيتكوين مش متصل حاليًا.",
+    "btc_provider_unavailable": "مصدر بيانات البيتكوين غير متاح حاليًا.",
+    "btc_volume_invalid": "بيانات حجم التداول غير صالحة.",
+    "btc_futures_source_unavailable": "بيانات العقود الآجلة غير متوفرة.",
+}
+CLOSED = {
+    "WEEKEND_CLOSED": "سوق الذهب مغلق بالويكند وفق حارس الإغلاق.",
+    "DAILY_BREAK_CLOSED": "الذهب داخل فترة الإغلاق اليومية.",
+    "BROKER_SESSION_UNVERIFIED": "جلسة الوسيط غير متحققة؛ لا نسمح بإشارة دخول جديدة.",
+}
+
+
+def _safe(value):
+    return html.escape(str(value), quote=False)
+
+
+def _normalize(text):
+    # Normalize common Arabic spelling and remove diacritics, not user details.
+    value = re.sub(r"[\u064b-\u065f\u0670]", "", str(text or "").lower())
+    value = value.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه", "ـ": ""}))
+    return re.sub(r"\s+", " ", value).strip()[:600]
+
+
+def _has(words, *terms):
+    return any(term in words for term in terms)
+
+
+def _enabled_btc():
+    return os.getenv("V4_BTC_SIGNALS_ENABLED") == "1"
+
+
+def _help():
+    return (
+        "❤️ <b>جيجي — مساعد ليث بالأوامر المجانية</b>\n"
+        "بحكي معك بالخاص عن بيانات البوت المحفوظة، بدون ربط ChatGPT أو API مدفوع.\n\n"
+        "🥇 /gold — حالة تحليل الذهب\n"
+        "₿ /btcstatus — حالة تحليل البيتكوين\n"
+        "🔎 /whybtc — ليش البيتكوين ما بعت صفقة؟\n"
+        "🔎 /whygold — ليش الذهب ما بعت صفقة؟\n"
+        "📍 /last — آخر إشارة محفوظة\n"
+        "📊 /stats — نتائج الذهب الورقية\n"
+        "📊 /btcstats — نتائج إشارات البيتكوين الورقية\n"
+        "⚡ /quickstats — إحصاءات الصفقات السريعة\n"
+        "📡 /status — حالة نظام الذهب\n"
+        "🧭 /menu — الأوامر المتاحة\n\n"
+        "بتقدر كمان تكتب: جيجي شو وضع الذهب؟ أو ليش البيتكوين ما دخل؟\n"
+        "⚠️ الأجوبة قواعد ثابتة من بيانات البوت وليست محادثة GPT حقيقية؛ "
+        "ولا تفتح أو تغلق صفقات أو تغيّر إعدادات التداول."
+    )
+
+
+def _btc_status(store):
+    if not _enabled_btc():
+        return (
+            "₿ <b>إشارات البيتكوين التلقائية متوقفة حاليًا على هذه الخدمة.</b>\n"
+            "كود التحليل موجود، بس إعداد التشغيل معطّل. "
+            "ما رح أقولك إنه شغال وهو مش شغال.\n"
+            "📄 لا توجد أوامر تداول تلقائية."
+        )
+    state = store.get("v4_btc_status") or {}
+    if not state:
+        return "₿ نظام البيتكوين مفعّل، لكن ما عندي تحليل محفوظ بعد. ما بقدر أفترض اتجاه أو دخول."
+    status = _safe(state.get("status", "غير متاح"))
+    reason = state.get("reason")
+    explanation = REASON.get(str(reason), "ما في معلومات كافية عن سبب الانتظار.")
+    strength = state.get("score", "—")
+    return (
+        "₿ <b>حالة بيتكوين من بيانات البوت</b>\n"
+        f"النتيجة المسجلة: <b>{status}</b>\n"
+        f"الشروط: {_safe(strength)}/7\n"
+        f"السبب: {_safe(explanation if reason else 'لا يوجد سبب انتظار محفوظ')}\n"
+        "⚠️ هذا آخر فحص محفوظ، مش سعر لحظي من البورصة ولا إشارة جديدة."
+    )
+
+
+def _why_btc(store):
+    if not _enabled_btc():
+        return "₿ السبب الحالي: نشر إشارات البيتكوين التلقائية معطّل بإعداد الخدمة؛ مش رفض فني من السوق."
+    state = store.get("v4_btc_status") or {}
+    if not state:
+        return "₿ لسه ما في نتيجة تحليل مسجلة حتى أحدد سبب رفض الدخول."
+    if state.get("status") == "SIGNAL":
+        return "₿ آخر تحليل سجّل فرصة مؤهلة، لكن هذا مش إثبات وصول رسالة تلغرام. راجع سجل الإرسال."
+    reason = state.get("reason", "")
+    return "₿ <b>ليش ما في صفقة؟</b>\n" + _safe(
+        REASON.get(str(reason), "التحليل رجع انتظار؛ السبب الفني غير موثّق بالتفصيل.")
+    ) + "\n📄 ما بنخترع صفقة لما شروطها مش متوفرة."
+
+
+def _gold_reason(store):
+    market = str(store.get("v4_market_status") or "")
+    analysis = store.get("v4_last_analysis") or {}
+    reason = analysis.get("reason")
+    if market in CLOSED:
+        return "🥇 <b>وضع الذهب:</b> " + CLOSED[market] + "\nولا يتم تأكيد دخول من إغلاق السوق."
+    if market and market != "OPEN":
+        return "🥇 <b>حالة جلسة الذهب:</b> " + _safe(market) + \
+               "\nما عندي إثبات أن الجلسة مفتوحة للدخول."
+    if not analysis:
+        return "🥇 ما في تحليل ذهب محفوظ جديد؛ ما بقدر أقولك اشتري أو بيع بدون بيانات موثوقة."
+    return (
+        "🥇 <b>آخر قرار مسجل:</b> " + _safe(analysis.get("side", "WAIT")) +
+        "\nالسبب المسجل: " + _safe(reason or "غير موثّق") +
+        "\n⚠️ حالة تحليل محفوظ، وليست توصية جديدة بسعر مباشر."
+    )
+
+
+def _last(store):
+    active = store.get("v4_active") or {}
+    btc = store.get("v4_btc_observed_active") or {}
+    out = ["📍 <b>الإشارات المسجلة (تجريبية/مرجعية)</b>"]
+    if active:
+        out.append(
+            "🥇 ذهب: " + _safe(active.get("side", "—")) +
+            " | دخول " + _safe(active.get("entry", "—")) +
+            " | وقف " + _safe(active.get("stop", "—")) +
+            " | هدف " + _safe(active.get("tp1", "—"))
+        )
+    else:
+        out.append("🥇 ذهب: لا توجد إشارة رسمية ورقية نشطة محفوظة.")
+    if btc:
+        out.append(
+            "₿ بيتكوين: " + _safe(btc.get("side", "—")) +
+            " | " + _safe(btc.get("status", "—")) +
+            " | دخول " + _safe(btc.get("entry", "—")) +
+            " | وقف " + _safe(btc.get("sl", "—")) +
+            " | هدف " + _safe(btc.get("tp1", "—"))
+        )
+        if not _enabled_btc():
+            out.append("⚠️ إرسال إشارات البيتكوين التلقائي متوقف؛ قد تكون البيانات القديمة محفوظة.")
+    else:
+        out.append("₿ بيتكوين: لا توجد إشارة محفوظة.")
+    out.append("الأرقام تاريخية/ورقية وليست أسعار تنفيذ مباشرة.")
+    return "\n".join(out)
+
+
+def respond(message, store):
+    """Private paired owner only. No external calls, model API, trading or mutations."""
+    text = _normalize(message)
+    if not text:
+        return None
+    command = text.split()[0].split("@")[0]
+    if command in ("/start", "/help", "/menu", "/commands", "/gigi", "/جيجي"):
+        return _help()
+    if command in ("/btcstatus", "/btc", "/bitcoin"):
+        return _btc_status(store)
+    if command == "/whybtc":
+        return _why_btc(store)
+    if command in ("/gold", "/xau"):
+        return "🥇 <b>آخر حالة محفوظة للذهب</b>\n" + status_message(store) + \
+               "\n⚠️ ليست قراءة سعر لحظي."
+    if command == "/whygold":
+        return _gold_reason(store)
+    if command in ("/status",):
+        return status_message(store)
+    if command in ("/stats",):
+        return stats_message(store)
+    if command in ("/quickstats",):
+        return quick_stats_message(store)
+    if command == "/btcstats":
+        return btc_stats_message(store)
+    if command in ("/last", "/lastsignal"):
+        return _last(store)
+    if command.startswith("/"):
+        return "الأمر مش موجود أو غير مفعّل. ابعت /menu حتى تشوف الأوامر المتاحة."
+    if _has(text, "وقف", "شغل", "فعل", "الغي", "صفقه تلقائي", "افتح صفقه", "بيعلي", "اشتريلي") and _has(
+        text, "بوت", "روبوت", "صفقه", "تداول", "نظام"
+    ):
+        return "🔒 هالمساعد للقراءة والشرح فقط. ما بوقف ولا بشغّل أنظمة التداول، وما بفتح صفقات. ابعت /menu."
+    if _has(text, "من انت", "مين انت", "عقلك", "ذكاء اصطناعي", "شات جي بي تي", "chatgpt"):
+        return "❤️ أنا مساعد جيجي المجاني داخل ليث، برد من أوامر وبيانات محفوظة. مش نفس ChatGPT ولا عندي ذاكرة محادثاتك هون."
+    if _has(text, "مساعده", "ساعديني", "اوامر", "شو بتعملي", "قائمه", "منيو"):
+        return _help()
+    btc = _has(text, "بيتكوين", "بتكوين", "بيت كوين", "بت كوين", "btc", "bitcoin")
+    gold = _has(text, "ذهب", "الذهب", "xau", "gold")
+    why = _has(text, "ليش", "لماذا", "سبب", "ما دخل", "ما بعت", "رفض", "انتظار", "واقف")
+    stats = _has(text, "نتائج", "احصائي", "اداء", "ارباح", "كم ربح", "خسائر")
+    last = _has(text, "اخر صفق", "آخر صفق", "الصفقات المفتوح", "وين الدخول", "وقف الخساره", "اهداف")
+    if last:
+        return _last(store)
+    if btc:
+        return btc_stats_message(store) if stats else _why_btc(store) if why else _btc_status(store)
+    if gold:
+        return stats_message(store) if stats else _gold_reason(store) if why else \
+               "🥇 <b>آخر حالة محفوظة للذهب</b>\n" + status_message(store) + \
+               "\n⚠️ ليست قراءة سعر لحظي."
+    if _has(text, "شو وضع", "شغال", "حاله البوت", "حال البوت", "التجريبي", "روبوت", "البوت"):
+        return "📡 <b>حالة ليث من آخر بيانات محفوظة</b>\n" + \
+               _gold_reason(store) + "\n\n" + _btc_status(store)
+    if _has(text, "مرحبا", "اهلا", "هلا", "صباح", "مسا", "جيجي", "كيفك", "شكرا", "يسلمو"):
+        return "أهلين يا غالي ❤️ أنا هون بأوامر ليث المجانية. احكيلي عن الذهب أو البيتكوين، أو ابعت /menu."
+    return (
+        "فهمت رسالتك، بس ما بقدر أجاوب عليها بحرية زي ChatGPT بدون ربط API.\n"
+        "اسألني عن الذهب، البيتكوين، أسباب انتظار الدخول أو النتائج، أو ابعت /menu."
+    )
