@@ -36,6 +36,7 @@ from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
 from v4_bitcoin_signals import BitcoinSignalPublisher
+from v4_btc_followups import follow_observation
 
 LOG = logging.getLogger("laith.v4")
 
@@ -580,6 +581,7 @@ def run(args):
     next_quick = 0.0
     next_alert = 0.0
     next_btc = 0.0
+    next_btc_follow = 0.0
     LOG.info('verified_calendar_sessions=%s verified_news_events=%s', len(broker_sessions), len(news_events))
     try:
         while True:
@@ -588,6 +590,13 @@ def run(args):
                 telegram.poll()
             except Exception:
                 LOG.exception("telegram_cycle_failed")
+            if btc is not None and time.time() >= next_btc_follow:
+                try:
+                    follow_observation(store, telegram, btc.provider, now)
+                except Exception:
+                    LOG.exception("btc_follow_observation_failed")
+                current = time.time()
+                next_btc_follow = (int(current) // 300 + 1) * 300 + 35
             if btc is not None and time.time() >= next_btc:
                 try:
                     btc.cycle(now)
