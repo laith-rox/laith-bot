@@ -24,6 +24,7 @@ class ExperimentalEntrypointTests(unittest.TestCase):
                 self.assertEqual(os.environ["V4_DB_PATH"], "/data/laith_v4_experiment.db")
                 self.assertEqual(os.environ["V4_BTC_SIGNALS_ENABLED"], "1")  # Telegram-only, no orders
                 self.assertEqual(os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"], "1")
+                self.assertEqual(os.environ["V4_BTC_M5_QUICK_ENABLED"], "1")  # 19:00–23:00, Telegram only
 
 
 if __name__ == "__main__":
