@@ -45,7 +45,7 @@ def verified_sessions(raw):
         if any(previous[1] > current[0] for previous, current in zip(intervals, intervals[1:])):
             return ()
         return tuple(intervals)
-    except (ValueError, TypeError, KeyError, AttributeError):
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
         return ()
 
 
@@ -91,7 +91,7 @@ def verified_news(raw):
             e["calendar_verified"] = True
             events.append(e)
         return tuple(events)
-    except (ValueError, TypeError, KeyError, AttributeError):
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
         return ()
 
 
