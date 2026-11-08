@@ -70,6 +70,15 @@ class V4Telegram(BaseV4Telegram):
 
         for update in updates:
             uid = update.get("update_id")
+            # Skip replays before commands, not just when advancing the cursor.
+            if type(uid) is not int:
+                continue
+            try:
+                current_offset = max(0, int(self.store.get("v4_telegram_update_offset", 0)))
+            except (TypeError, ValueError):
+                current_offset = 0
+            if uid < current_offset:
+                continue
             message = update.get("message") or {}
             chat = message.get("chat") or {}
             sender = message.get("from") or {}
