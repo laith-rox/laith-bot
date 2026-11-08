@@ -35,6 +35,7 @@ from v4_decision_journal import record_candidate, JOURNAL_KEY
 from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
+from v4_bitcoin_signals import BitcoinSignalPublisher
 
 LOG = logging.getLogger("laith.v4")
 
@@ -562,6 +563,9 @@ def run(args):
     telegram = V4Telegram(args.telegram_token, store, args.telegram_chat, args.telegram_pair_code)
     global_context = GlobalContextProvider(refresh_seconds=args.macro_refresh, twelve_key=args.twelve_key)
     paper = V4PaperResilientQuick(store, market, news, global_context, args.cooldown, notifier=telegram)
+    # BTC is Telegram-only and independent of the gold broker session. It is
+    # enabled exclusively for explicitly opted-in deployments.
+    btc = BitcoinSignalPublisher(store, telegram) if os.getenv("V4_BTC_SIGNALS_ENABLED") == "1" else None
     LOG.info(
         "starting independent V4 resilient worker db=%s experiment=%s telegram=%s quick_interval=%ss",
         args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
@@ -575,6 +579,7 @@ def run(args):
     next_cycle = 0.0
     next_quick = 0.0
     next_alert = 0.0
+    next_btc = 0.0
     LOG.info('verified_calendar_sessions=%s verified_news_events=%s', len(broker_sessions), len(news_events))
     try:
         while True:
@@ -583,6 +588,15 @@ def run(args):
                 telegram.poll()
             except Exception:
                 LOG.exception("telegram_cycle_failed")
+            if btc is not None and time.time() >= next_btc:
+                try:
+                    btc.cycle(now)
+                except Exception:
+                    LOG.exception("btc_signal_cycle_failed")
+                # A fresh 15-minute analysis, never replay a stale alert. BTC
+                # continues on weekends even while XAU is session-blocked.
+                current = time.time()
+                next_btc = (int(current) // 900 + 1) * 900 + 25
             if time.time() >= next_alert:
                 try:
                     run_alert_cycle(now, store=store, notifier=telegram,
