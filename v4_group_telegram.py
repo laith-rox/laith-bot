@@ -6,7 +6,7 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 
-from v4_btc_followups import btc_status_message, btc_stats_message
+from v4_free_chat import respond as free_chat_respond
 
 from v4_telegram import (
     V4Telegram as BaseV4Telegram,
@@ -88,26 +88,19 @@ class V4Telegram(BaseV4Telegram):
                 if self.pair_code and supplied == self.pair_code:
                     self.store.set("v4_telegram_chat_id", chat_id)
                     self.client.chat_id = chat_id
-                    self.client.send(welcome_message())
+                    self.client.send(free_chat_respond("/menu", self.store))
                     LOG.info("telegram_paired chat_id_suffix=%s", chat_id[-4:])
                 elif self.pair_code:
                     self.client.chat_id = chat_id
                     self.client.send("🔐 كود الربط غير صحيح.")
 
             elif private and paired and chat_id == paired:
+                # Owner-only, deterministic offline replies; no GPT API, no
+                # changes to orders, runtime toggles or trade execution.
                 self.client.chat_id = paired
-                if command in ("/start", "/help"):
-                    self.client.send(welcome_message())
-                elif command == "/status":
-                    self.client.send(status_message(self.store))
-                elif command == "/stats":
-                    self.client.send(stats_message(self.store))
-                elif command == "/quickstats":
-                    self.client.send(quick_stats_message(self.store))
-                elif command == "/btcstatus":
-                    self.client.send(btc_status_message(self.store))
-                elif command == "/btcstats":
-                    self.client.send(btc_stats_message(self.store))
+                reply = free_chat_respond(text, self.store)
+                if reply:
+                    self.client.send(reply)
 
             elif group and paired and sender_id == paired and command in ("/group", "/share"):
                 self.store.set("v4_telegram_group_id", chat_id)
