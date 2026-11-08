@@ -80,6 +80,67 @@ class FreeChatTests(unittest.TestCase):
             self.assertIn("مش متوافق", answer)
             self.assertIn("4/7", respond("/btcstatus", self.store))
 
+    def test_screenshot_followup_direction_uses_last_btc_context(self):
+        from datetime import datetime, timezone
+        self.store.set("v4_btc_status", {
+            "status": "WAIT", "reason": "h1_h4_not_aligned", "score": None,
+            "h1_trend": "BUY", "h4_trend": "SELL",
+            "time": datetime.now(timezone.utc).isoformat(),
+        })
+        with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
+            first = respond("جيجي شو وضع البيتكوين؟", self.store)
+            self.assertIn("بيتكوين", first)
+            self.assertEqual(self.store.get("v4_chat_last_market"), "BTC")
+            answer = respond("ع اغلب وين اتجه؟", self.store)
+            self.assertIn("محايد", answer)
+            self.assertIn("H1", answer)
+            self.assertIn("H4", answer)
+            self.assertNotIn("ChatGPT بدون ربط", answer)
+
+    def test_screenshot_next_entry_question_avoids_promising_time(self):
+        with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
+            respond("جيجي شو وضع البيتكوين؟", self.store)
+            reply = respond("متا هيكون في اشاره لدخول", self.store)
+            self.assertIn("كل 15 دقيقة", reply)
+            self.assertIn("ما بقدر أحدد", reply)
+            self.assertNotIn("ChatGPT بدون ربط", reply)
+
+    def test_direction_and_signal_time_when_market_unspecified(self):
+        answer = respond("على الأغلب وين اتجاهه؟", self.store)
+        self.assertIn("الذهب ولا البيتكوين", answer)
+        self.assertIsNone(self.store.get("v4_chat_last_market"))
+        later = respond("متى هيكون في اشارة دخول؟", self.store)
+        self.assertIn("الذهب ولا البيتكوين", later)
+
+    def test_btc_bias_is_not_deduction_from_unstamped_wait(self):
+        self.store.set("v4_chat_last_market", "BTC")
+        self.store.set("v4_btc_status", {
+            "status": "WAIT", "reason": "h1_h4_not_aligned",
+        })
+        with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
+            answer = respond("وين اتجاهه؟", self.store)
+            self.assertIn("بدون توقيت موثّق", answer)
+
+    def test_owner_telegram_followups_and_offline_no_order_writes(self):
+        from datetime import datetime, timezone
+        self.store.set("v4_btc_status", {
+            "status": "WAIT", "reason": "h1_h4_not_aligned",
+            "h1_trend": "BUY", "h4_trend": "SELL",
+            "time": datetime.now(timezone.utc).isoformat()
+        })
+        self.tg.client.updates = [
+            update(50, 111, 111, "جيجي شو وضع البيتكوين؟"),
+            update(51, 111, 111, "ع اغلب وين اتجه؟"),
+            update(52, 111, 111, "متا هيكون في اشاره لدخول"),
+        ]
+        with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
+            self.tg.poll()
+        self.assertEqual(len(self.tg.client.sent), 3)
+        self.assertIn("محايد", self.tg.client.sent[1][1])
+        self.assertIn("كل 15 دقيقة", self.tg.client.sent[2][1])
+        self.assertIsNone(self.store.get("v4_active"))
+        self.assertEqual(self.store.get("v4_telegram_update_offset"), 53)
+
     def test_no_broker_write_from_stop_or_open_requests(self):
         before = dict(self.store.db.execute("SELECT key,value FROM kv").fetchall())
         reply = respond("جيجي شغل البوت وافتح صفقة", self.store)
