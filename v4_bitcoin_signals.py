@@ -12,6 +12,8 @@ import requests
 
 from engine import atr, ema, rsi
 from market import Bar, DataError, require_fresh
+from v4_btc_quality import quality_gate
+from v4_btc_followups import start_observation
 
 LOG = logging.getLogger("laith.v4.btc")
 UTC = timezone.utc
@@ -119,6 +121,18 @@ class CoinbaseBTC:
             granularity=granularity,
         )
         bars = _bars(rows, minutes, now)
+        if minutes == 5:
+            volume_by_stamp = {}
+            for row in rows:
+                if isinstance(row, (list, tuple)) and len(row) >= 6:
+                    try:
+                        stamp, amount = int(float(row[0])), float(row[5])
+                    except (TypeError, ValueError, OverflowError):
+                        raise DataError("btc_volume_invalid") from None
+                    if not math.isfinite(amount) or amount < 0:
+                        raise DataError("btc_volume_invalid")
+                    volume_by_stamp[stamp] = amount
+            self.last_volumes = [volume_by_stamp.get(int(bar.start.timestamp())) for bar in bars]
         require_fresh(bars, now, 600 if minutes == 5 else 3900)
         _continuous_recent(bars, 24 if minutes == 5 else 60)
         return bars
@@ -136,10 +150,40 @@ class CoinbaseBTC:
             raise DataError("btc_quote_stale")
         return price
 
+    def book(self):
+        """Read-only top-15 market depth snapshot."""
+        return self._get("/book", level=2)
+
+    def derivatives(self):
+        """Separate Binance BTCUSDT perpetual context; unavailable is not zero."""
+        base = "https://fapi.binance.com"
+        def get(path, params):
+            try:
+                response = self.session.get(base + path, params=params, timeout=(4, 8))
+                if response.status_code != 200:
+                    raise DataError("btc_futures_source_unavailable")
+                return response.json()
+            except (requests.RequestException, ValueError):
+                raise DataError("btc_futures_source_unavailable") from None
+        try:
+            funding = get("/fapi/v1/premiumIndex", {"symbol": "BTCUSDT"})
+            history = get("/futures/data/openInterestHist",
+                          {"symbol": "BTCUSDT", "period": "5m", "limit": 3})
+            if not isinstance(funding, dict) or not isinstance(history, list) or len(history) < 2:
+                return {"available": False}
+            return {
+                "available": True, "funding": funding["lastFundingRate"],
+                "open_interest": history[-1]["sumOpenInterest"],
+                "previous_open_interest": history[-2]["sumOpenInterest"],
+                "timestamp": min(float(funding["time"]), float(history[-1]["timestamp"])) / 1000.,
+            }
+        except (DataError, TypeError, KeyError, ValueError, OverflowError):
+            return {"available": False}
+
 
 def _trend(bars):
     values = [bar.close for bar in bars]
-    if len(values) < 60:
+    if len(values) < 55:
         raise DataError("btc_insufficient_trend_history")
     fast, slow = ema(values, 20), ema(values, 50)
     if fast[-1] > slow[-1] and fast[-1] > fast[-4]:
