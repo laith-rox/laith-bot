@@ -270,6 +270,8 @@ def _message(signal, now):
     clock = now.astimezone(LOCAL)
     hour = clock.strftime("%I:%M")
     period = "صباحًا" if clock.hour < 12 else "مساءً"
+    derivatives = signal.get("derivatives") or {}
+    context = "بيانات العقود: متاحة" if derivatives.get("available") else "بيانات العقود: غير متاحة"
     return (
         "₿ <b>إشارة بيتكوين مستقلة — BTC/USD</b>\n"
         f"الاتجاه: <b>{side}</b>\n"
@@ -278,8 +280,11 @@ def _message(signal, now):
         f"🎯 الهدف الأول: <b>{signal['tp1']:,.2f}$</b>\n"
         f"🎯 الهدف الثاني: <b>{signal['tp2']:,.2f}$</b>\n"
         f"🧠 الشروط: {signal['score']}/7 | H4 + H1 + M15 + M5\n"
-        f"🕒 {hour} {period} — توقيت فلسطين\n"
-        "📊 المصدر: Coinbase BTC-USD الفوري، وقد يختلف عن BTCUSD في JustMarkets.\n"
+        f"🌊 السيولة: {('سحب سيولة' if (signal.get('liquidity') or {}).get('liquidity_sweep') else 'تأكيد نطاق')}\n"
+        f"📊 الحجم: {signal.get('volume_ratio', '—')}× | السبريد الفوري: {signal.get('spot_spread_bps', '—')} نقطة أساس\n"
+        f"⚖️ العائد/المخاطرة المرجعي: {signal.get('rr_reference', '—')} | تذبذب: {signal.get('volatility_regime', '—')}\n"
+        f"🕘 الجلسة: {signal.get('session', '—')} | {context}\n"        f"🕒 {hour} {period} — توقيت فلسطين\n"
+        "📊 أسعار Coinbase الفورية، وقد تختلف عن BTCUSD في JustMarkets؛ سبريد ورسوم الوسيط غير متحققين.\n"
         "📄 تنبيه يدوي فقط، بدون فتح صفقات أو ضمان للربح."
     )
 
@@ -310,10 +315,23 @@ class BitcoinSignalPublisher:
         last_side = self.store.get("v4_btc_last_sent_side")
         if last_side == signal["side"] and now.timestamp() - last_time < 45 * 60:
             return "cooldown"
+        # One unresolved BTC observation at a time; this never blocks gold.
+        active = self.store.get("v4_btc_observed_active") or {}
+        if active.get("status") == "OPEN":
+            return "active_observation"
+        # Last-second live reference guard before Telegram publishing.
+        if hasattr(self.provider, "ticker") and abs((datetime.now(UTC) - now).total_seconds()) < 90:
+            try:
+                current_price = self.provider.ticker(datetime.now(UTC))
+            except DataError:
+                return "wait_data"
+            if abs(current_price - signal["entry"]) > .25 * abs(signal["entry"] - signal["sl"]):
+                return "price_moved"
         if self.notifier and self.notifier.send(_message(signal, now)) is True:
             self.store.set("v4_btc_last_sent_slot", slot)
             self.store.set("v4_btc_last_sent_at", now.timestamp())
             self.store.set("v4_btc_last_sent_side", signal["side"])
+            start_observation(self.store, signal, now)
             LOG.info("btc_signal_sent side=%s score=%s slot=%s", signal["side"], signal["score"], slot)
             return "sent"
         LOG.warning("btc_signal_delivery_failed")
