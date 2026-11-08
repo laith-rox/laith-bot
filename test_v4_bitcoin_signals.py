@@ -77,6 +77,69 @@ class BitcoinSignalsTests(unittest.TestCase):
         self.assertIn("BTC/USD", self.telegram.messages[0])
         self.assertIn("بدون فتح صفقات", self.telegram.messages[0])
 
+    def test_quarterly_weak_reports_are_no_entry_and_deduped(self):
+        state = {"status": "WAIT", "reason": "h1_h4_not_aligned",
+                 "h1_trend": "WAIT", "h4_trend": "SELL"}
+        preview = {"side": "SELL", "score": 2, "price": 100000.,
+                   "sl": 101500., "tp1": 97300., "tp2": 95800.}
+        import os
+        with patch.dict(os.environ, {"V4_BTC_QUARTERLY_REPORTS_ENABLED": "1"}), \
+             patch("v4_bitcoin_signals.analyze_btc", return_value=state), \
+             patch("v4_bitcoin_signals.weak_preview", return_value=preview):
+            self.assertEqual(self.publisher.cycle(self.now), "weak_sent")
+            self.assertEqual(self.publisher.cycle(self.now), "already_sent")
+        self.assertEqual(len(self.telegram.messages), 1)
+        msg = self.telegram.messages[0]
+        self.assertIn("لا تدخل الآن", msg)
+        self.assertIn("ضعيفة", msg)
+        self.assertIn("100,000.00", msg)
+        self.assertIn("وقف افتراضي", msg)
+        self.assertTrue(self.store.get("v4_btc_quarterly_last")["no_entry"])
+        self.assertIsNone(self.store.get("v4_btc_last_sent_slot"))
+        self.assertIsNone(self.store.get("v4_btc_observed_active"))
+        self.assertIsNone(self.store.get("v4_btc_observed_journal"))
+
+    def test_no_data_still_reports_no_entry_without_price(self):
+        import os
+        with patch.dict(os.environ, {"V4_BTC_QUARTERLY_REPORTS_ENABLED": "1"}), \
+             patch("v4_bitcoin_signals.analyze_btc", side_effect=DataError("btc_quote_stale")):
+            self.assertEqual(self.publisher.cycle(self.now), "weak_sent")
+        self.assertIn("لا تدخل الآن", self.telegram.messages[0])
+        self.assertIn("غير معروضة", self.telegram.messages[0])
+        self.assertNotIn("100,000.00", self.telegram.messages[0])
+        self.assertIsNone(self.store.get("v4_btc_observed_active"))
+
+    def test_weak_send_failure_does_not_lock_slot(self):
+        import os
+        state = {"status": "WAIT", "reason": "h1_h4_not_aligned"}
+        self.telegram.successful = False
+        with patch.dict(os.environ, {"V4_BTC_QUARTERLY_REPORTS_ENABLED": "1"}), \
+             patch("v4_bitcoin_signals.analyze_btc", return_value=state):
+            self.assertEqual(self.publisher.cycle(self.now), "undelivered")
+        self.assertIsNone(self.store.get("v4_btc_quarterly_last_slot"))
+
+    def test_cooldown_gets_no_entry_card_not_fake_weak_trade(self):
+        import os
+        self.store.set("v4_btc_last_sent_side", "BUY")
+        self.store.set("v4_btc_last_sent_at", self.now.timestamp() - 1200)
+        with patch.dict(os.environ, {"V4_BTC_QUARTERLY_REPORTS_ENABLED": "1"}), \
+             patch("v4_bitcoin_signals.analyze_btc", return_value=SIGNAL):
+            self.assertEqual(self.publisher.cycle(self.now), "weak_sent")
+        self.assertIn("فترة التهدئة", self.telegram.messages[0])
+        self.assertIn("لا تدخل الآن", self.telegram.messages[0])
+        self.assertIsNone(self.store.get("v4_btc_observed_active"))
+        self.assertEqual(self.store.get("v4_btc_last_sent_side"), "BUY")
+
+    def test_strong_alert_stays_separate_in_quarterly_mode(self):
+        import os
+        with patch.dict(os.environ, {"V4_BTC_QUARTERLY_REPORTS_ENABLED": "1"}), \
+             patch("v4_bitcoin_signals.analyze_btc", return_value=SIGNAL):
+            self.assertEqual(self.publisher.cycle(self.now), "sent")
+            self.assertEqual(self.publisher.cycle(self.now), "already_sent")
+        self.assertIn("إشارة بيتكوين مستقلة", self.telegram.messages[0])
+        self.assertNotIn("ضعيفة", self.telegram.messages[0])
+        self.assertEqual(len(self.telegram.messages), 1)
+
     def test_no_alert_on_unconfirmed_setup(self):
         with patch("v4_bitcoin_signals.analyze_btc", return_value={"status": "WAIT", "reason": "h1_h4_not_aligned"}):
             self.assertEqual(self.publisher.cycle(self.now), "wait")
