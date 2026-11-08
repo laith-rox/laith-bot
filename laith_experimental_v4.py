@@ -21,6 +21,8 @@ def main():
     os.environ["V4_BTC_SIGNALS_ENABLED"] = "1"
     # One BTC Telegram research idea per quarter-hour; weak ideas say NO ENTRY.
     os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"] = "1"
+    # Evening M5 quick-alert lane: paper/manual only, no broker orders.
+    os.environ["V4_BTC_M5_QUICK_ENABLED"] = "1"
     # No verified broker calendar is fabricated. V4 must fail closed until supplied.
     import v4_group_runtime
     import v4_runtime
