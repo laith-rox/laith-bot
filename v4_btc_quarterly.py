@@ -51,14 +51,14 @@ def weak_preview(now, provider, state, aggregate):
         return {"side": "WAIT", "score": None, "price": None, "reason": "missing_data"}
     try:
         bars = getattr(provider, "last_5m_bars", None)
-        if not bars or (now - bars[-1].end).total_seconds() > 600:
+        if not bars or not 0 <= (now - bars[-1].end).total_seconds() <= 600:
             bars = provider.candles(now, 5)
-        if not bars or (now - bars[-1].end).total_seconds() > 600:
+        if not bars or not 0 <= (now - bars[-1].end).total_seconds() <= 600:
             raise DataError("btc_weak_bars_stale")
         m15 = aggregate(bars, 15)
         if len(m15) < 55 or len(bars) < 70:
             raise DataError("btc_weak_history_short")
-        if (now - m15[-1].end).total_seconds() > 1200:
+        if not 0 <= (now - m15[-1].end).total_seconds() <= 1200:
             raise DataError("btc_weak_m15_stale")
         close15 = [b.close for b in m15]
         fast, slow = ema(close15, 20)[-1], ema(close15, 50)[-1]
@@ -131,7 +131,9 @@ def quarterly_message(now, state, preview, note=None):
         reason = "بيانات أو شروط الدخول غير مكتملة"
     lines = [
         "₿ <b>فكرة بيتكوين كل 15 دقيقة — مراقبة فقط</b>",
-        "⛔ <b>صفقة ضعيفة / غير مؤهلة — لا تدخل الآن</b>",
+        ("⛔ <b>تحديث صفقة سابقة أو فرصة مكررة — لا تدخل الآن</b>"
+         if note in ("cooldown", "active_observation", "price_moved")
+         else "⛔ <b>صفقة ضعيفة / غير مؤهلة — لا تدخل الآن</b>"),
         f"📈 الميل الافتراضي: <b>{chosen}</b>",
         f"🧠 الشروط الاسترشادية: <b>{score_str}</b> (ليست نسبة نجاح)",
         f"🕓 H1: {_trend_label(state.get('h1_trend'))} | H4: {_trend_label(state.get('h4_trend'))}",
