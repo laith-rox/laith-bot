@@ -134,6 +134,8 @@ class M5QuickTests(unittest.TestCase):
         with patch("v4_btc_m5_quick.rsi", return_value=61):
             self.assertEqual(runner.cycle(self.now), "sent")
             self.assertEqual(runner.cycle(self.now), "already_checked")
+            # A new closed M5 candle is required; never recycle the previous bar.
+            runner.provider = Provider(self.now + timedelta(minutes=5), "BUY")
             self.assertEqual(runner.cycle(self.now + timedelta(minutes=5)), "cooldown")
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertIn("إشارة سريعة M5", self.telegram.sent[0])
