@@ -213,3 +213,14 @@ class VerifiedActualPublicationTests(unittest.TestCase):
         event = {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z", "actual": 2.4,
                  "actual_published_at": "2026-11-10T13:31:00Z"}
         self.assertEqual(len(verified_news(json.dumps({"verified": True, "events": [event]}))), 1)
+
+
+class MixedWeekendCalendarFailClosedTests(unittest.TestCase):
+    def test_valid_weekday_cannot_mask_invalid_saturday_session(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-09T08:00:00Z", "close": "2026-11-09T12:00:00Z"},
+            {"open": "2026-11-07T08:00:00Z", "close": "2026-11-07T09:00:00Z"},
+        ]})
+        from v4_verified_calendar import verified_entry_calendar_available
+        self.assertEqual(verified_sessions(raw), ())
+        self.assertFalse(verified_entry_calendar_available(raw))
