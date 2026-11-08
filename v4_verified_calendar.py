@@ -26,6 +26,8 @@ def verified_sessions(raw):
             return ()
         intervals = []
         for entry in payload["sessions"]:
+            if not isinstance(entry, dict):
+                return ()
             opened, closed = _utc(entry["open"]), _utc(entry["close"])
             # One broker session cannot span multiple days. A typo or a
             # week-long interval must never authorize weekend entries.
@@ -74,6 +76,10 @@ def verified_news(raw):
                     return ()
                 seen_ids.add(normalized_id)
             e = dict(event)
+            # Do not treat an unverified actual value as confirmed market news.
+            # The calendar verification covers the schedule, not the result.
+            if e.get("actual") is not None and e.get("actual_published_at") is None:
+                return ()
             e["release_at"] = _utc(e["release_at"])
             if e.get("actual_published_at") is not None:
                 e["actual_published_at"] = _utc(e["actual_published_at"])
