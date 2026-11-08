@@ -40,3 +40,29 @@ def test_read_success_preserves_updates():
     session.get.return_value = response
     client = Telegram("test-token", "123", session=session)
     assert client.read("getUpdates", offset=17) == [{"update_id": 17}]
+
+
+@pytest.mark.parametrize("payload", [[], None, "bad-response", {"ok": True, "result": {}}])
+def test_getupdates_malformed_success_fails_closed(payload):
+    session = Mock()
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = payload
+    session.get.return_value = response
+    client = Telegram("secret-bot-token", "123", session=session)
+    with pytest.raises(RuntimeError) as exc:
+        client.read("getUpdates", offset=17)
+    assert str(exc.value) in ("telegram_read_rejected", "telegram_read_invalid_result")
+    assert "secret-bot-token" not in str(exc.value)
+
+
+@pytest.mark.parametrize("method", ["getMe", "getWebhookInfo"])
+def test_telegram_metadata_rejects_non_object_result(method):
+    session = Mock()
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {"ok": True, "result": []}
+    session.get.return_value = response
+    client = Telegram("secret-bot-token", "123", session=session)
+    with pytest.raises(RuntimeError, match="^telegram_read_invalid_result$"):
+        client.read(method)
