@@ -247,6 +247,7 @@ class BitcoinSignalPublisher:
             LOG.warning("btc_feed_wait reason=%s", exc)
             return "wait_data"
         self.store.set("v4_btc_status", signal)
+        LOG.info("btc_signal_check status=%s reason=%s score=%s", signal.get("status"), signal.get("reason"), signal.get("score"))
         if signal["status"] != "SIGNAL":
             return "wait"
         last_time = float(self.store.get("v4_btc_last_sent_at") or 0)
