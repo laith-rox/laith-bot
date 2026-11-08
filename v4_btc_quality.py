@@ -73,7 +73,10 @@ def volume_confirmation(volumes, session):
     """Require true Coinbase traded-volume data, not synthesized tick volume."""
     if volumes is None or len(volumes) < 22:
         return {"ok": False, "ratio": None, "reason": "volume_unavailable"}
-    valid = [float(v) for v in volumes[-22:]]
+    try:
+        valid = [float(v) for v in volumes[-22:]]
+    except (TypeError, ValueError, OverflowError):
+        return {"ok": False, "ratio": None, "reason": "volume_invalid"}
     if any(not math.isfinite(v) or v < 0 for v in valid):
         return {"ok": False, "ratio": None, "reason": "volume_invalid"}
     baseline = median(valid[-21:-1])
