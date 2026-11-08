@@ -43,19 +43,52 @@ class WeakQuarterlyTests(unittest.TestCase):
             "time": self.now.isoformat(),
         }
 
-    def test_weak_sell_proposes_hypothetical_levels_not_real_signal(self):
+    def test_screenshot_h4_sell_h1_wait_but_m15_m5_buy_is_not_forced_sell(self):
         result = weak_preview(self.now, self.provider, self.wait, _aggregate)
-        self.assertEqual(result["side"], "SELL")
-        self.assertIsInstance(result["score"], int)
-        self.assertLess(result["score"], 7)
-        self.assertGreater(result["sl"], result["price"])
-        self.assertLess(result["tp1"], result["price"])
+        self.assertEqual(result["side"], "BUY")
+        self.assertGreater(result["buy_votes"], result["sell_votes"])
+        self.assertEqual(result["buy_votes"], result["score"])
+        self.assertTrue(result["h4_conflict"])
+        self.assertGreater(result["sl"], 0)
+        self.assertLess(result["sl"], result["price"])
+        self.assertGreater(result["tp1"], result["price"])
         card = quarterly_message(self.now, self.wait, result)
         self.assertIn("لا تدخل الآن", card)
         self.assertIn("صفقة ضعيفة", card)
-        self.assertIn("افتراضي", card)
-        self.assertIn("وقف افتراضي", card)
+        self.assertIn("شراء افتراضي", card)
+        self.assertIn("عكس H4", card)
+        self.assertIn("تصويت 7 عوامل", card)
         self.assertIn("JustMarkets", card)
+
+    def test_symmetric_sell_when_lower_timeframes_actually_bearish(self):
+        self.provider.bars = [
+            Bar(b.start, 101000 - i, 101120 - i, 100890 - i, 100940 - i, 5)
+            for i, b in enumerate(self.provider.bars)
+        ]
+        self.provider.last_5m_bars = self.provider.bars
+        result = weak_preview(self.now, self.provider, self.wait, _aggregate)
+        self.assertEqual(result["side"], "SELL")
+        self.assertGreater(result["sell_votes"], result["buy_votes"])
+        self.assertFalse(result["h4_conflict"])
+        self.assertGreater(result["sl"], result["price"])
+        self.assertLess(result["tp1"], result["price"])
+
+    def test_insufficient_majority_is_neutral_and_has_no_one_sided_levels(self):
+        state = dict(self.wait, h1_trend="BUY")
+        # Force mixed evidence: upward MA, bullish M15/M5 vs H4 bearish and H1 bullish.
+        # With neutral momentum/breakout, votes should be split and NOT forced SELL.
+        original = self.provider.bars
+        self.provider.bars = [
+            Bar(b.start, 100000, 100200, 99800, 100000, 5)
+            for b in original
+        ]
+        self.provider.last_5m_bars = self.provider.bars
+        result = weak_preview(self.now, self.provider, state, _aggregate)
+        self.assertEqual(result["side"], "WAIT")
+        self.assertIsNone(result["price"])
+        card = quarterly_message(self.now, state, result)
+        self.assertIn("لا توجد أغلبية كافية", card)
+        self.assertNotIn("وقف افتراضي", card)
 
     def test_bad_spot_quote_hides_all_levels(self):
         result = weak_preview(self.now, MarketStub(self.now, live=False), self.wait, _aggregate)
