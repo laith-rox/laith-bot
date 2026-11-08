@@ -333,5 +333,12 @@ class V4Telegram:
                 elif command == "/quickstats":
                     self.client.send(quick_stats_message(self.store))
 
-            if isinstance(uid, int):
-                self.store.set("v4_telegram_update_offset", uid + 1)
+            # Never rewind the cursor on overlapping/out-of-order updates.
+            if type(uid) is int:
+                current = self.store.get("v4_telegram_update_offset", 0)
+                try:
+                    current = max(0, int(current))
+                except (TypeError, ValueError):
+                    current = 0
+                if uid + 1 > current:
+                    self.store.set("v4_telegram_update_offset", uid + 1)
