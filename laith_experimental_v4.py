@@ -19,6 +19,8 @@ def main():
     # Explicit owner-approved BTC/USD Telegram signals on experimental Laith only.
     # This opt-in enables market analysis and Telegram alerts, NOT MT5/broker orders.
     os.environ["V4_BTC_SIGNALS_ENABLED"] = "1"
+    # One BTC Telegram research idea per quarter-hour; weak ideas say NO ENTRY.
+    os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"] = "1"
     # No verified broker calendar is fabricated. V4 must fail closed until supplied.
     import v4_group_runtime
     import v4_runtime
