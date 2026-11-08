@@ -23,6 +23,7 @@ class ExperimentalEntrypointTests(unittest.TestCase):
                 self.assertEqual(os.environ["V4_TWELVE_DATA_API_KEY"], "demo-key")
                 self.assertEqual(os.environ["V4_DB_PATH"], "/data/laith_v4_experiment.db")
                 self.assertEqual(os.environ["V4_BTC_SIGNALS_ENABLED"], "1")  # Telegram-only, no orders
+                self.assertEqual(os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"], "1")
 
 
 if __name__ == "__main__":
