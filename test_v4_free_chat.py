@@ -97,7 +97,7 @@ class FreeChatTests(unittest.TestCase):
         self.tg.poll()
         self.assertEqual(len(self.tg.client.sent), 1)
         self.assertEqual(self.tg.client.sent[0][0], "111")
-        self.assertIn("الذهب", self.tg.client.sent[0][1])
+        self.assertIn("للذهب", self.tg.client.sent[0][1])
 
     def test_foreign_private_or_group_message_is_ignored(self):
         self.tg.client.updates = [
