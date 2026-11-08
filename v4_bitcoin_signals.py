@@ -206,12 +206,16 @@ def analyze_btc(now, provider):
         raise DataError("btc_h4_stale")
 
     direction = _trend(h1)
-    if direction == "WAIT" or _trend(h4) != direction:
-        return {"status": "WAIT", "reason": "h1_h4_not_aligned"}
+    four_hour_trend = _trend(h4)
+    trend_context = {"h1_trend": direction, "h4_trend": four_hour_trend,
+                     "bias": direction if direction == four_hour_trend and direction != "WAIT" else "WAIT",
+                     "time": now.isoformat()}
+    if direction == "WAIT" or four_hour_trend != direction:
+        return {"status": "WAIT", "reason": "h1_h4_not_aligned", **trend_context}
     price = provider.ticker(now)
     volatility = atr(m15[-40:])
     if abs(price - m5[-1].close) > max(0.6 * volatility, price * 0.0015):
-        return {"status": "WAIT", "reason": "btc_price_moved_too_far"}
+        return {"status": "WAIT", "reason": "btc_price_moved_too_far", **trend_context}
     m15_fast = ema([b.close for b in m15], 20)[-1]
     m15_slow = ema([b.close for b in m15], 50)[-1]
     five_rsi = rsi([b.close for b in m5[-70:]])
@@ -238,20 +242,24 @@ def analyze_btc(now, provider):
     ]
     score = sum(checks)
     if score < 6 or not confirmation:
-        return {"status": "WAIT", "reason": "btc_conditions_not_met", "score": score}
+        return {"status": "WAIT", "reason": "btc_conditions_not_met", "score": score,
+                **trend_context}
 
     quality = quality_gate(
         now, direction, price, m5, m15, volatility,
         getattr(provider, "last_volumes", None), provider.book(), provider.derivatives(),
     )
     if quality["status"] != "OK":
-        return {"status": quality["status"], "reason": quality.get("reason"), "score": score}
+        return {"status": quality["status"], "reason": quality.get("reason"), "score": score,
+                **trend_context}
     midpoint = (quality["book"]["bid"] + quality["book"]["ask"]) / 2
     if abs(midpoint - price) / midpoint > .001:
-        return {"status": "WAIT", "reason": "btc_quote_orderbook_mismatch", "score": score}
+        return {"status": "WAIT", "reason": "btc_quote_orderbook_mismatch", "score": score,
+                **trend_context}
     risk = quality["risk"]
     return {
         "status": "SIGNAL", "side": direction, "score": score,
+        **trend_context,
         "entry": price, "sl": risk["sl"], "tp1": risk["tp1"], "tp2": risk["tp2"],
         "atr15": volatility, "time": now.isoformat(),
         "liquidity": quality["liquidity"],
@@ -304,7 +312,10 @@ class BitcoinSignalPublisher:
         try:
             signal = analyze_btc(now, self.provider)
         except DataError as exc:
-            self.store.set("v4_btc_status", {"status": "WAIT_DATA", "reason": str(exc)})
+            self.store.set("v4_btc_status", {
+                "status": "WAIT_DATA", "reason": str(exc),
+                "time": now.isoformat(), "bias": "WAIT",
+            })
             LOG.warning("btc_feed_wait reason=%s", exc)
             return "wait_data"
         self.store.set("v4_btc_status", signal)
