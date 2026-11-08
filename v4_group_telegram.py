@@ -6,6 +6,8 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 
+from v4_btc_followups import btc_status_message, btc_stats_message
+
 from v4_telegram import (
     V4Telegram as BaseV4Telegram,
     quick_stats_message,
@@ -102,6 +104,10 @@ class V4Telegram(BaseV4Telegram):
                     self.client.send(stats_message(self.store))
                 elif command == "/quickstats":
                     self.client.send(quick_stats_message(self.store))
+                elif command == "/btcstatus":
+                    self.client.send(btc_status_message(self.store))
+                elif command == "/btcstats":
+                    self.client.send(btc_stats_message(self.store))
 
             elif group and paired and sender_id == paired and command in ("/group", "/share"):
                 self.store.set("v4_telegram_group_id", chat_id)
