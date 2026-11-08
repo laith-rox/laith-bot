@@ -167,12 +167,143 @@ def _last(store):
     return "\n".join(out)
 
 
+
+def _market_topic(text, store):
+    """Use explicit market first, then the owner's last explicit market topic."""
+    btc = _has(text, "بيتكوين", "بتكوين", "بيت كوين", "بت كوين", "btc", "bitcoin")
+    gold = _has(text, "ذهب", "الذهب", "xau", "gold")
+    if btc and not gold:
+        store.set("v4_chat_last_market", "BTC")
+        return "BTC"
+    if gold and not btc:
+        store.set("v4_chat_last_market", "GOLD")
+        return "GOLD"
+    if btc and gold:
+        return None
+    saved = store.get("v4_chat_last_market")
+    return saved if saved in ("BTC", "GOLD") else None
+
+
+def _direction_intent(text):
+    return _has(
+        text,
+        "الاتجاه", "اتجاه", "اتجه", "وين رايح", "وين رايحه",
+        "ع الاغلب", "على الاغلب", "اغلب وين", "شو اغلب", "الارجح",
+        "توقع", "ترجيح", "صاعد", "هابط", "صعود", "نزول",
+        "بطلع", "بنزل", "طلع ولا نزل", "شراء ولا بيع",
+        "بيع ولا شراء", "طالع ولا نازل", "رح يطلع", "رح ينزل",
+    )
+
+
+def _next_signal_intent(text):
+    # Covers Palestinian questions like "متا هيكون في اشارة لدخول".
+    asks_when = _has(text, "متي", "متا", "امتي", "قديش ضايل", "متى", "متى رح")
+    mentions_signal = _has(
+        text, "اشار", "للدخول", "دخول", "صفقه", "فرصه", "توصيه", "الصفقه الجايه",
+    )
+    return (asks_when and mentions_signal) or _has(
+        text, "الاشاره الجايه", "الصفقه الجايه", "موعد الاشاره",
+        "وقت الاشاره", "في اشاره لدخول", "اشاره دخول امتي",
+    )
+
+
+def _btc_direction(store):
+    if not _enabled_btc():
+        return "₿ إرسال إشارات البيتكوين متوقف على هذه الخدمة؛ ما عندي تحليل نشط أعتمد عليه."
+    state = store.get("v4_btc_status") or {}
+    if not state:
+        return "₿ ما عندي نتيجة بيتكوين محفوظة، فمش رح أخمّن صعود أو هبوط."
+    if state.get("status") == "WAIT_DATA":
+        return "₿ البيانات غير كافية لتحديد اتجاه موثوق.\n" + _btc_status(store)
+    date_raw = state.get("checked_at") or state.get("time")
+    if not date_raw:
+        return "₿ عندي حالة تحليل محفوظة بدون توقيت موثّق. ما بقدر أرجّح منها الاتجاه الحالي.\n" + _btc_status(store)
+    try:
+        checked = datetime.fromisoformat(str(date_raw).replace("Z", "+00:00"))
+        age = (datetime.now(UTC) - checked.astimezone(UTC)).total_seconds()
+        if checked.tzinfo is None or not 0 <= age <= 45 * 60:
+            return "₿ آخر تحليل بيتكوين صار قديم أو توقيته غير موثوق. ما بقدر أعطي اتجاه حالي منه.\n" + _btc_status(store)
+    except (TypeError, ValueError, OverflowError, AttributeError):
+        return "₿ توقيت التحليل غير صالح؛ ما بقدر أحدد الاتجاه الحالي."
+    h1, h4 = state.get("h1_trend"), state.get("h4_trend")
+    if h1 and h4 and h1 != h4:
+        return ("₿ <b>الميول الآن: محايد/متعارض بحسب آخر فحص.</b>\n"
+                f"H1: {_safe(h1)} | H4: {_safe(h4)}\n"
+                "الاتجاهين مش متوافقين، فما في ترجيح دخول مؤكد.\n"
+                "⚠️ تحليل فني تجريبي، مش ضمان اتجاه أو سعر لحظي.")
+    side = state.get("side") if state.get("status") == "SIGNAL" else state.get("bias")
+    if side not in ("BUY", "SELL"):
+        return ("₿ <b>الاتجاه مش محسوم حاليًا.</b>\n"
+                + _btc_status(store) + "\nما في نسبة نجاح مؤكدة أو توصية دخول.")
+    label = "صعود/شراء" if side == "BUY" else "هبوط/بيع"
+    if state.get("status") != "SIGNAL":
+        return (f"₿ <b>ميل الاتجاه الأكبر: {label}</b> حسب آخر شموع محفوظة.\n"
+                "لكن شروط M15/M5 أو فلاتر السيولة مش مكتملة، فلا توجد إشارة دخول معتمدة.\n"
+                "⚠️ الاتجاه مش ضمان ربح.")
+    return (f"₿ <b>آخر تحليل مؤهل كان {label}</b>.\n"
+            "هذا لا يثبت وصول إشارة تلغرام أو بقاء السعر صالح للدخول؛ راجع /last.")
+
+
+def _gold_direction(store):
+    market = str(store.get("v4_market_status") or "")
+    if market in CLOSED or (market and market != "OPEN"):
+        return _gold_reason(store) + "\n🥇 ما بقدر أرجّح دخول جديد والسوق غير متحقق من فتحه."
+    return ("🥇 ما عندي تأكيد آني لاتجاه الذهب من بيانات وسيط حديثة.\n"
+            + _gold_reason(store) + "\nالاتجاه المسجل لا يضمن استمرار الحركة.")
+
+
+def _next_signal(store, topic):
+    if topic == "BTC":
+        if not _enabled_btc():
+            return ("₿ إشارات البيتكوين مطفّية في إعداد الخدمة، فما في موعد متوقع للإرسال.\n"
+                    "لآخر وضع: /btcstatus.")
+        state = store.get("v4_btc_status") or {}
+        reason = state.get("reason")
+        detail = REASON.get(str(reason), "الشروط الكاملة للدخول لم تتأكد بعد.")
+        return ("₿ <b>متى إشارة البيتكوين الجاية؟</b>\n"
+                "البوت مبرمج يفحص كل 15 دقيقة، بما فيها الويكند؛"
+                " لكن ما بقدر أحدد متى رح تظهر فرصة مؤهلة.\n"
+                f"آخر سبب انتظار: {_safe(detail)}\n"
+                "إشارة الدخول تنرسل فقط إذا اكتملت الشروط والسعر كان مناسب وقت النشر.\n"
+                "للمتابعة: /btcstatus")
+    if topic == "GOLD":
+        market = str(store.get("v4_market_status") or "")
+        if market != "OPEN":
+            return ("🥇 <b>موعد إشارة الذهب؟</b>\n"
+                    "ما في موعد مؤكد؛ حاليًا ما عندي جلسة وسيط مفتوحة متحققة.\n"
+                    + _gold_reason(store)
+                    + "\nما بقدر أعدك بصفقة في وقت محدد.")
+        return ("🥇 البوت بيقيّم فرص الذهب خلال التشغيل، "
+                "لكن إرسال صفقة مش مضمون كل دورة. لازم جلسة الوسيط والبيانات والاتجاه"
+                " والمخاطرة تكون متحققة. جرّب /gold للآخر وضع.")
+    return ("بتسأل عن موعد إشارة الذهب ولا البيتكوين؟ "
+            "اكتب «متى إشارة البيتكوين؟» أو «متى إشارة الذهب؟».")
+
+
+def _market_direction(store, topic):
+    if topic == "BTC":
+        return _btc_direction(store)
+    if topic == "GOLD":
+        return _gold_direction(store)
+    return ("تقصد اتجاه الذهب ولا البيتكوين؟ "
+            "اكتب «شو اتجاه البيتكوين؟» أو «شو اتجاه الذهب؟».")
+
+
 def respond(message, store):
     """Private paired owner only. No external calls, model API, trading or mutations."""
     text = _normalize(message)
     if not text:
         return None
     command = text.split()[0].split("@")[0]
+    # Store only the owner's explicit market topic for short follow-up questions.
+    # This is the bot's local conversation context, never a broker/settings write.
+    explicit_market = None
+    if command in ("/btcstatus", "/btc", "/bitcoin", "/whybtc", "/btcstats"):
+        explicit_market = "BTC"
+    elif command in ("/gold", "/xau", "/whygold", "/status", "/stats", "/quickstats"):
+        explicit_market = "GOLD"
+    if explicit_market:
+        store.set("v4_chat_last_market", explicit_market)
     if command in ("/start", "/help", "/menu", "/commands", "/gigi", "/جيجي"):
         return _help()
     if command in ("/btcstatus", "/btc", "/bitcoin"):
@@ -200,6 +331,13 @@ def respond(message, store):
         text, "بوت", "روبوت", "صفقه", "تداول", "نظام"
     ):
         return "🔒 هالمساعد للقراءة والشرح فقط. ما بوقف ولا بشغّل أنظمة التداول، وما بفتح صفقات. ابعت /menu."
+    # Check question intents BEFORE greeting/fallback: "جيجي" is a wake word,
+    # not evidence that a market question is just a greeting.
+    if _direction_intent(text) or _next_signal_intent(text):
+        topic = _market_topic(text, store)
+        if _next_signal_intent(text):
+            return _next_signal(store, topic)
+        return _market_direction(store, topic)
     if _has(text, "من انت", "مين انت", "عقلك", "ذكاء اصطناعي", "شات جي بي تي", "chatgpt"):
         return "❤️ أنا مساعد جيجي المجاني داخل ليث، برد من أوامر وبيانات محفوظة. مش نفس ChatGPT ولا عندي ذاكرة محادثاتك هون."
     if _has(text, "مساعده", "ساعديني", "اوامر", "شو بتعملي", "قائمه", "منيو"):
@@ -210,6 +348,8 @@ def respond(message, store):
                 "وتحقق من سعر الوسيط قبل أي دخول.")
     btc = _has(text, "بيتكوين", "بتكوين", "بيت كوين", "بت كوين", "btc", "bitcoin")
     gold = _has(text, "ذهب", "الذهب", "xau", "gold")
+    if btc != gold:
+        store.set("v4_chat_last_market", "BTC" if btc else "GOLD")
     why = _has(text, "ليش", "لماذا", "سبب", "ما دخل", "ما بعت", "رفض", "انتظار", "واقف")
     stats = _has(text, "نتائج", "احصائي", "اداء", "ارباح", "كم ربح", "خسائر")
     last = _has(text, "اخر صفق", "آخر صفق", "الصفقات المفتوح", "وين الدخول", "وقف الخساره", "اهداف")
