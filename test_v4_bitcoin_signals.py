@@ -56,7 +56,7 @@ class BitcoinSignalsTests(unittest.TestCase):
             [epoch, 90, 110, 100, 105, 1],
             [epoch - 300, 90, 110, 100, 105, 1],
         ]
-        result = _bars(rows, 5, self.now)
+        result = _bars(rows, 5, self.now + timedelta(seconds=30))
         self.assertEqual(len(result), 1)
         self.assertEqual(int(result[-1].start.timestamp()), epoch - 300)
 
