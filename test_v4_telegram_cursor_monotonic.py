@@ -42,5 +42,40 @@ class TelegramCursorTests(unittest.TestCase):
         self.assertEqual(store.get("v4_telegram_update_offset"), 103)
 
 
+    def test_replayed_group_command_is_not_executed(self):
+        store = MemoryStore()
+        class ReplayClient(FakeTelegram):
+            sent = []
+            def read(self, method, **params):
+                return [{"update_id": 100, "message": {
+                    "chat": {"id": -456, "type": "supergroup"},
+                    "from": {"id": 123}, "text": "/group"}}]
+            def send(self, message):
+                self.sent.append(message)
+        ReplayClient.sent = []
+        GroupTelegram("fake", store, client_cls=ReplayClient).poll()
+        self.assertIsNone(store.get("v4_telegram_group_id"))
+        self.assertEqual(ReplayClient.sent, [])
+        self.assertEqual(store.get("v4_telegram_update_offset"), 101)
+
+    def test_new_group_command_executes_once(self):
+        store = MemoryStore()
+        class NewClient(FakeTelegram):
+            sent = []
+            def read(self, method, **params):
+                return [{"update_id": 101, "message": {
+                    "chat": {"id": -456, "type": "supergroup"},
+                    "from": {"id": 123}, "text": "/group"}}]
+            def send(self, message):
+                self.sent.append(message)
+        NewClient.sent = []
+        bot = GroupTelegram("fake", store, client_cls=NewClient)
+        bot.poll()
+        bot.poll()
+        self.assertEqual(store.get("v4_telegram_group_id"), "-456")
+        self.assertEqual(len(NewClient.sent), 1)
+        self.assertEqual(store.get("v4_telegram_update_offset"), 102)
+
+
 if __name__ == "__main__":
     unittest.main()
