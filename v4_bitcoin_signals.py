@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import logging
 import math
+import os
 
 import requests
 
@@ -14,6 +15,7 @@ from engine import atr, ema, rsi
 from market import Bar, DataError, require_fresh
 from v4_btc_quality import quality_gate
 from v4_btc_followups import start_observation
+from v4_btc_quarterly import weak_preview, quarterly_message
 
 LOG = logging.getLogger("laith.v4.btc")
 UTC = timezone.utc
@@ -135,6 +137,8 @@ class CoinbaseBTC:
             self.last_volumes = [volume_by_stamp.get(int(bar.start.timestamp())) for bar in bars]
         require_fresh(bars, now, 600 if minutes == 5 else 3900)
         _continuous_recent(bars, 24 if minutes == 5 else 60)
+        if minutes == 5:
+            self.last_5m_bars = bars
         return bars
 
     def ticker(self, now):
@@ -303,11 +307,47 @@ class BitcoinSignalPublisher:
         self.notifier = notifier
         self.provider = provider or CoinbaseBTC()
 
+    def _quarterly_enabled(self):
+        return os.getenv("V4_BTC_QUARTERLY_REPORTS_ENABLED") == "1"
+
+    def _quarterly_report(self, now, slot, state, note=None):
+        """At most one NO-ENTRY research card per 15m slot; never a paper trade."""
+        if self.store.get("v4_btc_quarterly_last_slot") == slot:
+            return "already_sent"
+        preview = weak_preview(now, self.provider, state, _aggregate)
+        # An actionably qualified candidate in cooldown is NOT a weak setup.
+        # Keep it labelled NO ENTRY without inventing fake signal statistics.
+        if state.get("status") == "SIGNAL":
+            preview = {
+                "side": state.get("side", "WAIT"),
+                "score": state.get("score"), "price": None,
+            }
+        message = quarterly_message(now, state, preview, note=note)
+        try:
+            delivered = self.notifier is not None and self.notifier.send(message) is True
+        except Exception:
+            LOG.exception("btc_quarterly_telegram_error")
+            return "undelivered"
+        if not delivered:
+            LOG.warning("btc_quarterly_delivery_failed slot=%s", slot)
+            return "undelivered"
+        self.store.set("v4_btc_quarterly_last_slot", slot)
+        self.store.set("v4_btc_quarterly_last", {
+            "slot": slot, "time": now.isoformat(), "status": state.get("status"),
+            "reason": state.get("reason"), "side": preview.get("side"),
+            "score": preview.get("score"), "no_entry": True,
+        })
+        LOG.info("btc_quarterly_no_entry_sent slot=%s score=%s side=%s reason=%s",
+                 slot, preview.get("score"), preview.get("side"), state.get("reason"))
+        return "weak_sent"
+
     def cycle(self, now):
         if now.tzinfo is None:
             raise ValueError("btc_requires_timezone_aware_now")
         slot = int(now.timestamp() // 900)
         if self.store.get("v4_btc_last_sent_slot") == slot:
+            return "already_sent"
+        if self._quarterly_enabled() and self.store.get("v4_btc_quarterly_last_slot") == slot:
             return "already_sent"
         try:
             signal = analyze_btc(now, self.provider)
@@ -317,26 +357,38 @@ class BitcoinSignalPublisher:
                 "time": now.isoformat(), "bias": "WAIT",
             })
             LOG.warning("btc_feed_wait reason=%s", exc)
+            if self._quarterly_enabled():
+                return self._quarterly_report(now, slot, self.store.get("v4_btc_status"))
             return "wait_data"
         self.store.set("v4_btc_status", signal)
         LOG.info("btc_signal_check status=%s reason=%s score=%s", signal.get("status"), signal.get("reason"), signal.get("score"))
         if signal["status"] != "SIGNAL":
+            if self._quarterly_enabled():
+                return self._quarterly_report(now, slot, signal)
             return "wait"
         last_time = float(self.store.get("v4_btc_last_sent_at") or 0)
         last_side = self.store.get("v4_btc_last_sent_side")
         if last_side == signal["side"] and now.timestamp() - last_time < 45 * 60:
+            if self._quarterly_enabled():
+                return self._quarterly_report(now, slot, signal, note="cooldown")
             return "cooldown"
         # One unresolved BTC observation at a time; this never blocks gold.
         active = self.store.get("v4_btc_observed_active") or {}
         if active.get("status") == "OPEN":
+            if self._quarterly_enabled():
+                return self._quarterly_report(now, slot, signal, note="active_observation")
             return "active_observation"
         # Last-second live reference guard before Telegram publishing.
         if hasattr(self.provider, "ticker") and abs((datetime.now(UTC) - now).total_seconds()) < 90:
             try:
                 current_price = self.provider.ticker(datetime.now(UTC))
             except DataError:
+                if self._quarterly_enabled():
+                    return self._quarterly_report(now, slot, {"status": "WAIT_DATA", "reason": "btc_quote_stale", "time": now.isoformat()})
                 return "wait_data"
             if abs(current_price - signal["entry"]) > .25 * abs(signal["entry"] - signal["sl"]):
+                if self._quarterly_enabled():
+                    return self._quarterly_report(now, slot, signal, note="price_moved")
                 return "price_moved"
         if self.notifier and self.notifier.send(_message(signal, now)) is True:
             self.store.set("v4_btc_last_sent_slot", slot)
