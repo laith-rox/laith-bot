@@ -129,6 +129,10 @@ def analyze_quick(now, provider):
     depth = check_book(book, side)
     if depth["spread_bps"] > 8:
         return dict(result, reason="btc_quick_spread_wide")
+    # A mismatched book/ticker can make an otherwise plausible entry untradeable.
+    midpoint = (depth["bid"] + depth["ask"]) / 2
+    if abs(midpoint - price) / price > .001:
+        return dict(result, reason="btc_quick_quote_book_mismatch")
     spread_cost = price * depth["spread_bps"] / 10000
     distance = 1.2 * volatility
     if distance <= 3 * spread_cost or volatility / price >= .025:
@@ -155,6 +159,9 @@ def message_quick(signal, now):
     direction = "🟢 شراء BUY" if signal["side"] == "BUY" else "🔴 بيع SELL"
     period = "صباحًا" if local.hour < 12 else "مساءً"
     warning = "⚠️ الحركة عكس اتجاه M15؛ مخاطرة تصحيح قصيرة أعلى.\n" if signal["counter_m15"] else ""
+    from datetime import datetime
+    end_time = datetime.fromisoformat(signal["candle_end"]).astimezone(LOCAL)
+    end_period = "صباحًا" if end_time.hour < 12 else "مساءً"
     return (
         "₿ <b>BTC/USD — إشارة سريعة M5</b>\n"
         f"📍 <b>{direction}</b> | {signal['score']}/6 شروط\n"
@@ -164,7 +171,7 @@ def message_quick(signal, now):
         f"🎯 هدف 2: <b>{signal['tp2']:,.2f}$</b>\n"
         f"📊 شراء {signal['buy_score']}/6 | بيع {signal['sell_score']}/6"
         f" | RSI: {signal['rsi']} | حجم: {signal['volume_ratio']}×\n"
-        f"🕔 شمعة M5 مغلقة: {signal['candle_end'][11:16]} UTC\n"
+        f"🕔 آخر شمعة M5 مغلقة: {end_time.strftime('%I:%M')} {end_period} فلسطين\n"
         f"🧭 M15: {signal['m15_bias']} | ATR M5: {signal['atr5']:,.2f}$\n"
         f"{warning}"
         f"🕘 {local.strftime('%I:%M')} {period} — فلسطين (19:00–23:00)\n"
