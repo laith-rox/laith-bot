@@ -202,3 +202,14 @@ class CalendarOverflowSafetyTests(unittest.TestCase):
             {"title": "CPI", "release_at": "2026-11-10T13:30:00Z"}]})
         with patch("v4_verified_calendar._utc", side_effect=OverflowError("timestamp")):
             self.assertEqual(verified_news(raw), ())
+
+
+class VerifiedActualPublicationTests(unittest.TestCase):
+    def test_actual_without_publication_timestamp_fails_closed(self):
+        event = {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z", "actual": 2.4}
+        self.assertEqual(verified_news(json.dumps({"verified": True, "events": [event]})), ())
+
+    def test_actual_with_valid_publication_timestamp_is_allowed(self):
+        event = {"id": "cpi", "title": "CPI", "release_at": "2026-11-10T13:30:00Z", "actual": 2.4,
+                 "actual_published_at": "2026-11-10T13:31:00Z"}
+        self.assertEqual(len(verified_news(json.dumps({"verified": True, "events": [event]}))), 1)
