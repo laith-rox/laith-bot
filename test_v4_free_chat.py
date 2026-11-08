@@ -97,6 +97,49 @@ class FreeChatTests(unittest.TestCase):
             self.assertIn("H4", answer)
             self.assertNotIn("ChatGPT بدون ربط", answer)
 
+    def test_screenshot_forecast_is_not_repeated_direction_card(self):
+        from datetime import datetime, timezone
+        self.store.set("v4_btc_status", {
+            "status": "WAIT", "reason": "h1_h4_not_aligned",
+            "h1_trend": "WAIT", "h4_trend": "SELL",
+            "time": datetime.now(timezone.utc).isoformat()
+        })
+        with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
+            respond("جيجي شو اتجاه البيتكوين؟", self.store)
+            direction = respond("وين متجه؟", self.store)
+            forecast = respond("توقعك شو", self.store)
+        self.assertIn("الضغط الهابط", forecast)
+        self.assertIn("H4", forecast)
+        self.assertIn("H1", forecast)
+        self.assertIn("انتظار", forecast)
+        self.assertNotEqual(forecast, direction)
+        self.assertNotIn("ChatGPT بدون ربط", forecast)
+
+    def test_forecast_without_topic_or_timestamp_does_not_guess(self):
+        self.assertIn("الذهب ولا البيتكوين", respond("توقعك شو", self.store))
+        self.store.set("v4_chat_last_market", "BTC")
+        self.store.set("v4_btc_status", {"h4_trend": "SELL", "h1_trend": "WAIT"})
+        with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
+            text = respond("شو رأيك بالسوق", self.store)
+        self.assertIn("ما عندي فحص", text)
+
+    def test_btc_forecast_fresh_align_and_stale_fail_closed(self):
+        from datetime import datetime, timedelta, timezone
+        self.store.set("v4_chat_last_market", "BTC")
+        with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
+            self.store.set("v4_btc_status", {
+                "status": "WAIT", "h1_trend": "BUY", "h4_trend": "BUY",
+                "time": datetime.now(timezone.utc).isoformat()
+            })
+            aligned = respond("توقعك شو؟", self.store)
+            self.assertIn("صاعد", aligned)
+            self.assertIn("تأكيد", aligned)
+            self.store.set("v4_btc_status", {
+                "status": "WAIT", "h1_trend": "BUY", "h4_trend": "BUY",
+                "time": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+            })
+            self.assertIn("صار قديم", respond("توقعك شو", self.store))
+
     def test_screenshot_next_entry_question_avoids_promising_time(self):
         with patch.dict(os.environ, {"V4_BTC_SIGNALS_ENABLED": "1"}):
             respond("جيجي شو وضع البيتكوين؟", self.store)
