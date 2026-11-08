@@ -195,6 +195,93 @@ def _direction_intent(text):
     )
 
 
+def _forecast_intent(text):
+    """Prediction questions need scenarios, not a repeated trend/status card."""
+    return _has(
+        text, "توقع", "برايك", "برأيك", "شو رايك", "شو رأيك",
+        "شو ممكن يصير", "شو بصير", "شو راح يصير", "شو رح يصير",
+        "السيناريو", "شو ترجح", "شو بترجح", "الاحتمال", "تقديرك",
+    )
+
+
+def _btc_forecast(store):
+    """Conditional scenario based solely on last timestamped BTC analysis."""
+    if not _enabled_btc():
+        return "₿ توقع البيتكوين مش متاح: نشر تحليله التلقائي متوقف على هذه الخدمة."
+    state = store.get("v4_btc_status") or {}
+    stamp = state.get("checked_at") or state.get("time")
+    if not stamp:
+        return ("₿ ما عندي فحص بيتكوين مؤرّخ أقدر أبني عليه توقع. "
+                "ما رح أخمّن اتجاه بدون بيانات؛ جرّب /btcstatus.")
+    try:
+        checked = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        if checked.tzinfo is None:
+            raise ValueError("naive_timestamp")
+        age = (datetime.now(UTC) - checked.astimezone(UTC)).total_seconds()
+        if not 0 <= age <= 45 * 60:
+            return "₿ آخر فحص بيتكوين صار قديم، وما بقدر أعتبره توقع للسوق الحالي. جرّب /btcstatus."
+    except (ValueError, TypeError, OverflowError, AttributeError):
+        return "₿ وقت آخر تحليل مش موثوق، فما رح أبني عليه توقع."
+    if state.get("status") == "WAIT_DATA":
+        return "₿ بيانات الفحص غير كافية لتوقع مشروط؛ ما في ترجيح موثوق حاليًا."
+    h1, h4 = state.get("h1_trend"), state.get("h4_trend")
+    if h1 not in ("BUY", "SELL", "WAIT") or h4 not in ("BUY", "SELL", "WAIT"):
+        return "₿ اتجاهات H1 وH4 مش مكتملة في آخر فحص، فما بقدر أقدّم سيناريو محدد."
+    if h1 == h4 and h1 in ("BUY", "SELL"):
+        direction = "صاعد" if h1 == "BUY" else "هابط"
+        label = "الشراء" if h1 == "BUY" else "البيع"
+        return (
+            f"₿ <b>توقعي المشروط: ميل {direction}.</b>\n"
+            f"الاتجاه على H1 وH4 متوافق باتجاه {label}.\n"
+            "✅ السيناريو يتقوّى فقط بعد تأكيد M15 وM5 والسيولة والسعر وقت الإرسال.\n"
+            "⚠️ لو فشل التأكيد أو انعكس اتجاه الساعة: ننتظر، مش ندخل عالعمياني.\n"
+            "هذا سيناريو تجريبي وليس إشارة دخول أو نسبة نجاح مؤكدة."
+        )
+    if h4 == "SELL" and h1 == "WAIT":
+        return (
+            "₿ <b>توقعي المشروط: ضغط هابط على H4، لكن الدخول البيعي لسه مش مؤكد.</b>\n"
+            "H4: بيع | H1: انتظار.\n"
+            "🔻 احتمال استمرار الضغط الهابط قائم إذا تحوّل H1 للبيع وتأكدت شروط M15/M5.\n"
+            "🔄 وإذا H1 ظل محايد أو تحول للشراء، ممكن نشوف تذبذب أو ارتداد بدل النزول.\n"
+            "⛔ القرار الحالي: انتظار، بدون دخول بيع أو شراء الآن.\n"
+            "مش توقع قطعي ولا سعر لحظي."
+        )
+    if h4 == "BUY" and h1 == "WAIT":
+        return (
+            "₿ <b>توقعي المشروط: ميل صاعد على H4، لكن الدخول الشرائي لسه مش مؤكد.</b>\n"
+            "H4: شراء | H1: انتظار.\n"
+            "🔺 فرصة استمرار الصعود تحتاج تحول H1 للشراء وتأكيد M15/M5.\n"
+            "🔄 وإذا H1 بقي محايد أو تحول للبيع، وارد تذبذب أو تصحيح هابط.\n"
+            "⛔ القرار الحالي: انتظار، بدون دخول شراء أو بيع الآن.\n"
+            "مش توقع قطعي ولا سعر لحظي."
+        )
+    return (
+        "₿ <b>توقعي المشروط: الاتجاه مش محسوم.</b>\n"
+        f"H1: {_safe(h1)} | H4: {_safe(h4)}.\n"
+        "السيناريو الصاعد يحتاج توافق H1/H4 للشراء، والهابط يحتاج توافقهما للبيع، "
+        "وبعدها تأكيد M15/M5 والسيولة.\n"
+        "⛔ ما في إشارة دخول مؤهلة من هالتعارض، وما في ترجيح موثوق الآن."
+    )
+
+
+def _gold_forecast(store):
+    market = str(store.get("v4_market_status") or "")
+    if market != "OPEN":
+        return ("🥇 ما بقدر أقدّم توقع دخول للذهب قبل التحقق من جلسة الوسيط.\n"
+                + _gold_reason(store))
+    return ("🥇 آخر تحليل ذهب محفوظ مش كافي لوحده لتوقع حركة جديدة.\n"
+            + _gold_reason(store)
+            + "\nلازم سعر حديث وتوافق H4/H1 وتأكيد M15/M5.")
+
+
+def _market_forecast(store, topic):
+    if topic == "BTC":
+        return _btc_forecast(store)
+    if topic == "GOLD":
+        return _gold_forecast(store)
+    return "تقصد توقع الذهب ولا البيتكوين؟ احكيلي أي سوق لنشرح السيناريو من آخر فحص محفوظ."
+
+
 def _next_signal_intent(text):
     # Covers Palestinian questions like "متا هيكون في اشارة لدخول".
     asks_when = _has(text, "متي", "متا", "امتي", "قديش ضايل", "متى", "متى رح")
@@ -333,10 +420,12 @@ def respond(message, store):
         return "🔒 هالمساعد للقراءة والشرح فقط. ما بوقف ولا بشغّل أنظمة التداول، وما بفتح صفقات. ابعت /menu."
     # Check question intents BEFORE greeting/fallback: "جيجي" is a wake word,
     # not evidence that a market question is just a greeting.
-    if _direction_intent(text) or _next_signal_intent(text):
+    if _direction_intent(text) or _next_signal_intent(text) or _forecast_intent(text):
         topic = _market_topic(text, store)
         if _next_signal_intent(text):
             return _next_signal(store, topic)
+        if _forecast_intent(text):
+            return _market_forecast(store, topic)
         return _market_direction(store, topic)
     if _has(text, "من انت", "مين انت", "عقلك", "ذكاء اصطناعي", "شات جي بي تي", "chatgpt"):
         return "❤️ أنا مساعد جيجي المجاني داخل ليث، برد من أوامر وبيانات محفوظة. مش نفس ChatGPT ولا عندي ذاكرة محادثاتك هون."
