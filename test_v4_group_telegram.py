@@ -66,6 +66,24 @@ class GroupTelegramTests(unittest.TestCase):
         finally:
             store.close(); tmp.cleanup()
 
+    def test_poll_failure_preserves_offset_and_existing_group(self):
+        tmp, store, tg = self.make()
+        try:
+            store.set("v4_telegram_update_offset", 42)
+            store.set("v4_telegram_group_id", "-999")
+
+            def rejected(*args, **kwargs):
+                raise RuntimeError("telegram_poll_conflict_or_webhook")
+
+            tg.client.read = rejected
+            tg.poll()
+            self.assertEqual(store.get("v4_telegram_update_offset"), 42)
+            self.assertEqual(store.get("v4_telegram_group_id"), "-999")
+            self.assertTrue(tg.send("BTC wait"))
+            self.assertEqual(tg.client.sent[-1], ("-999", "BTC wait"))
+        finally:
+            store.close(); tmp.cleanup()
+
     def test_other_member_cannot_bind_group(self):
         tmp, store, tg = self.make()
         try:
