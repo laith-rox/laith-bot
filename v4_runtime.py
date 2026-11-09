@@ -26,7 +26,7 @@ from v4_opportunity_gate import evaluate_opportunity
 from v4_quote_observation import valid_quote_observation
 from v4_pending_entry import pending_entry_retry_allowed
 from v4_alert_coordinator import run_alert_cycle
-from v4_verified_calendar import verified_sessions, verified_news, verified_entry_calendar_available
+from v4_verified_calendar import verified_sessions, verified_news, verified_entry_calendar_available, verified_news_calendar_available
 from v4_market_guard import market_guard
 from v4_broker_entry_guard import broker_entry_eligibility
 from v4_regime_scenarios import analyze_regime, scenario_hypotheses
@@ -646,6 +646,8 @@ def run(args):
                 LOG.warning("gold_session_gate state=%s verified_sessions=%s verified_news_events=%s",
                             verified_state, len(broker_sessions), len(news_events))
                 last_gold_session_state = verified_state
+            if verified_state == "OPEN" and not verified_news_calendar_available(os.environ.get("V4_VERIFIED_NEWS_EVENTS")):
+                verified_state = "NEWS_CALENDAR_UNVERIFIED"
             if verified_state != "OPEN":
                 store.set("v4_market_status", verified_state)
                 store.set("v4_last_error", None)
