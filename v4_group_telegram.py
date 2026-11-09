@@ -83,10 +83,20 @@ class V4Telegram(BaseV4Telegram):
                 current_offset = 0
             if uid < current_offset:
                 continue
-            message = update.get("message") or {}
-            chat = message.get("chat") or {}
-            sender = message.get("from") or {}
-            text = (message.get("text") or "").strip()
+            message = update.get("message")
+            if not isinstance(message, dict):
+                LOG.warning("telegram_update_invalid type=message_not_object")
+                # Do not replay a permanently malformed update forever.
+                self.store.set("v4_telegram_update_offset", uid + 1)
+                continue
+            chat = message.get("chat")
+            sender = message.get("from")
+            text = message.get("text")
+            if not isinstance(chat, dict) or not isinstance(sender, dict) or not isinstance(text, str):
+                LOG.warning("telegram_update_invalid type=message_fields")
+                self.store.set("v4_telegram_update_offset", uid + 1)
+                continue
+            text = text.strip()
             chat_id = str(chat.get("id") or "")
             sender_id = str(sender.get("id") or "")
             chat_type = chat.get("type")
