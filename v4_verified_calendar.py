@@ -104,3 +104,20 @@ def verified_news(raw):
 def verified_entry_calendar_available(raw):
     """No new or retried manual-entry alert without an explicit verified session."""
     return bool(verified_sessions(raw))
+
+
+def verified_news_calendar_available(raw):
+    """Require an explicitly verified news calendar, even when no events are scheduled.
+
+    An empty *verified* calendar is valid; missing, malformed, or unverified
+    input must not be treated as evidence that the news window is safe.
+    """
+    if not raw:
+        return False
+    try:
+        payload = json.loads(raw)
+        return (isinstance(payload, dict) and payload.get("verified") is True
+                and isinstance(payload.get("events"), list)
+                and len(verified_news(raw)) == len(payload["events"]))
+    except (ValueError, TypeError):
+        return False
