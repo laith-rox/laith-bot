@@ -28,7 +28,7 @@ from v4_pending_entry import pending_entry_retry_allowed
 from v4_alert_coordinator import run_alert_cycle
 from v4_verified_calendar import (verified_sessions, verified_news,
                                   verified_entry_calendar_available,
-                                  verified_news_calendar_available), verified_news_calendar_available
+                                  verified_news_calendar_available)
 from v4_market_guard import market_guard
 from v4_broker_entry_guard import broker_entry_eligibility
 from v4_regime_scenarios import analyze_regime, scenario_hypotheses
