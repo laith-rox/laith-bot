@@ -87,14 +87,14 @@ class V4Telegram(BaseV4Telegram):
             if not isinstance(message, dict):
                 LOG.warning("telegram_update_invalid type=message_not_object")
                 # Do not replay a permanently malformed update forever.
-                self.store.set("v4_telegram_update_offset", uid + 1)
+                self.store.set("v4_telegram_update_offset", max(current_offset, uid + 1))
                 continue
             chat = message.get("chat")
             sender = message.get("from")
             text = message.get("text")
             if not isinstance(chat, dict) or not isinstance(sender, dict) or not isinstance(text, str):
                 LOG.warning("telegram_update_invalid type=message_fields")
-                self.store.set("v4_telegram_update_offset", uid + 1)
+                self.store.set("v4_telegram_update_offset", max(current_offset, uid + 1))
                 continue
             text = text.strip()
             chat_id = str(chat.get("id") or "")
