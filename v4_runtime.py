@@ -642,12 +642,15 @@ def run(args):
             # A weekday heuristic cannot override verified broker sessions.
             # Keep Telegram responsive without fetching data during closure.
             verified_state = verified_runtime_session_state(now, broker_sessions)
+            if verified_state == "OPEN" and not verified_news_calendar_available(os.environ.get("V4_VERIFIED_NEWS_EVENTS")):
+                verified_state = "NEWS_CALENDAR_UNVERIFIED"
+            # Log the final effective gate, including the news veto. Previously
+            # NEWS_CALENDAR_UNVERIFIED was stored but never logged, hiding why
+            # an otherwise open gold session produced no Telegram entries.
             if verified_state != last_gold_session_state:
                 LOG.warning("gold_session_gate state=%s verified_sessions=%s verified_news_events=%s",
                             verified_state, len(broker_sessions), len(news_events))
                 last_gold_session_state = verified_state
-            if verified_state == "OPEN" and not verified_news_calendar_available(os.environ.get("V4_VERIFIED_NEWS_EVENTS")):
-                verified_state = "NEWS_CALENDAR_UNVERIFIED"
             if verified_state != "OPEN":
                 store.set("v4_market_status", verified_state)
                 store.set("v4_last_error", None)
