@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from v4_verified_calendar import (
     verified_entry_calendar_available,
     verified_news,
+    verified_news_calendar_available,
     verified_sessions,
 )
 from v4_runtime import verified_runtime_session_state
@@ -58,6 +59,18 @@ class GoldCalendarGateTests(unittest.TestCase):
     def test_missing_news_is_not_misrepresented_as_verified(self):
         self.assertEqual(verified_news(None), ())
         self.assertEqual(verified_news('{"verified":false,"events":[]}'), ())
+
+    def test_verified_empty_news_calendar_is_valid(self):
+        self.assertTrue(verified_news_calendar_available('{"verified":true,"events":[]}'))
+
+    def test_missing_or_unverified_news_calendar_is_blocked(self):
+        self.assertFalse(verified_news_calendar_available(None))
+        self.assertFalse(verified_news_calendar_available('{"verified":false,"events":[]}'))
+        self.assertFalse(verified_news_calendar_available('not-json'))
+
+    def test_malformed_verified_news_event_is_blocked(self):
+        raw = json.dumps({"verified": True, "events": [{"title": "Sample"}]})
+        self.assertFalse(verified_news_calendar_available(raw))
 
     def test_unpublished_actual_news_is_rejected(self):
         raw = json.dumps({"verified": True, "events": [{
