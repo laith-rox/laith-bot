@@ -33,6 +33,16 @@ class TelegramReadSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "^telegram_read_rate_limited$"):
             self.telegram.read("getUpdates")
 
+    def test_http_unauthorized_overrides_misleading_json_conflict(self):
+        self._response(401, {"ok": False, "error_code": 409})
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_unauthorized$"):
+            self.telegram.read("getUpdates")
+
+    def test_http_conflict_overrides_misleading_json_unauthorized(self):
+        self._response(409, {"ok": False, "error_code": 401})
+        with self.assertRaisesRegex(RuntimeError, "^telegram_poll_conflict_or_webhook$"):
+            self.telegram.read("getUpdates")
+
     def test_successful_poll_preserves_updates(self):
         updates = [{"update_id": 17, "message": {"text": "/status"}}]
         self._response(200, {"ok": True, "result": updates})
