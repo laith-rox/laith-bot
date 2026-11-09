@@ -41,6 +41,20 @@ class GoldCalendarGateTests(unittest.TestCase):
         self.assertFalse(verified_sessions(session(
             "2026-11-06T23:30:00Z", "2026-11-07T00:30:00Z")))
 
+    def test_overlapping_sessions_are_rejected(self):
+        raw = json.dumps({"verified": True, "sessions": [
+            {"open": "2026-11-09T08:00:00Z", "close": "2026-11-09T14:00:00Z"},
+            {"open": "2026-11-09T13:00:00Z", "close": "2026-11-09T20:00:00Z"}]})
+        self.assertFalse(verified_entry_calendar_available(raw))
+
+    def test_naive_broker_timestamps_are_rejected(self):
+        self.assertFalse(verified_sessions(session(
+            "2026-11-09T08:00:00", "2026-11-09T20:00:00")))
+
+    def test_oversized_broker_window_is_rejected(self):
+        self.assertFalse(verified_sessions(session(
+            "2026-11-09T08:00:00Z", "2026-11-10T09:00:00Z")))
+
     def test_missing_news_is_not_misrepresented_as_verified(self):
         self.assertEqual(verified_news(None), ())
         self.assertEqual(verified_news('{"verified":false,"events":[]}'), ())
