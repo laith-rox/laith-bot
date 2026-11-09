@@ -45,5 +45,20 @@ class TelegramReadSafetyTests(unittest.TestCase):
             self.telegram.read("getUpdates")
 
 
+    def test_malformed_updates_result_rejected(self):
+        self._response(200, {"ok": True, "result": {"update_id": 20}})
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_invalid_result$"):
+            self.telegram.read("getUpdates")
+
+    def test_missing_result_fails_closed(self):
+        self._response(200, {"ok": True})
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_failed$"):
+            self.telegram.read("getUpdates")
+
+    def test_webhook_info_requires_object(self):
+        self._response(200, {"ok": True, "result": []})
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_invalid_result$"):
+            self.telegram.read("getWebhookInfo")
+
 if __name__ == "__main__":
     unittest.main()
