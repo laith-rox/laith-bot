@@ -70,5 +70,23 @@ class TelegramReadSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "^telegram_read_invalid_result$"):
             self.telegram.read("getWebhookInfo")
 
+    def test_non_object_response_fails_closed_without_token(self):
+        self._response(200, ["unexpected", "response"])
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_rejected$") as raised:
+            self.telegram.read("getUpdates")
+        self.assertNotIn("test-token-not-real", str(raised.exception))
+
+    def test_http_server_error_is_not_treated_as_valid_updates(self):
+        self._response(503, {"ok": True, "result": [{"update_id": 99}]})
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_rejected$"):
+            self.telegram.read("getUpdates")
+
+    def test_network_timeout_is_classified_without_secret(self):
+        import requests
+        self.session.get.side_effect = requests.Timeout("connection timed out")
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_failed$") as raised:
+            self.telegram.read("getUpdates", offset=7)
+        self.assertNotIn("test-token-not-real", str(raised.exception))
+
 if __name__ == "__main__":
     unittest.main()
