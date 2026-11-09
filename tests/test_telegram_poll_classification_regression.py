@@ -88,5 +88,32 @@ class TelegramReadSafetyTests(unittest.TestCase):
             self.telegram.read("getUpdates", offset=7)
         self.assertNotIn("test-token-not-real", str(raised.exception))
 
+    def test_wrong_bot_identity_blocks_before_webhook_lookup(self):
+        self._response(200, {"ok": True, "result": {"username": "UnexpectedBot"}})
+        with self.assertRaisesRegex(RuntimeError, "^telegram_bot_identity_mismatch$"):
+            self.telegram.verify("@LaithGoldSignalsBot")
+        self.assertEqual(self.session.get.call_count, 1)
+
+    def test_correct_bot_with_webhook_does_not_enable_polling(self):
+        responses = []
+        for payload in ({"ok": True, "result": {"username": "LaithGoldSignalsBot"}},
+                        {"ok": True, "result": {"url": "https://example.invalid/hook"}}):
+            response = Mock(status_code=200)
+            response.json.return_value = payload
+            responses.append(response)
+        self.session.get.side_effect = responses
+        self.assertFalse(self.telegram.verify("@LaithGoldSignalsBot"))
+        self.assertEqual(self.session.get.call_count, 2)
+
+    def test_correct_bot_without_webhook_can_poll(self):
+        responses = []
+        for payload in ({"ok": True, "result": {"username": "LaithGoldSignalsBot"}},
+                        {"ok": True, "result": {"url": ""}}):
+            response = Mock(status_code=200)
+            response.json.return_value = payload
+            responses.append(response)
+        self.session.get.side_effect = responses
+        self.assertTrue(self.telegram.verify("@LaithGoldSignalsBot"))
+
 if __name__ == "__main__":
     unittest.main()
