@@ -10,7 +10,7 @@ from v4_opportunity_followthrough import (
 )
 from v4_quick import advance_quick
 from v4_quick_balance import quick_message as balanced_message
-from v4_group_telegram import V4Telegram
+from v4_group_telegram import V4Telegram, status_with_delivery
 
 UTC = timezone.utc
 T = datetime(2026, 11, 10, 21, 0, tzinfo=UTC)
@@ -96,6 +96,15 @@ class FollowThroughTests(unittest.TestCase):
         self.assertFalse(tg.send("signal"))
         self.assertEqual(len(fake.calls), 1)
         self.assertEqual(s.get("v4_telegram_delivery_counts")["uncertain"], 1)
+
+    def test_23_status_reports_verified_vs_uncertain_delivery(self):
+        store = Store()
+        record_telegram_delivery(store, SimpleNamespace(status="uncertain"), "private", T)
+        record_telegram_delivery(store, SimpleNamespace(status="sent",message_id=72), "private", T)
+        report = status_with_delivery(store)
+        self.assertIn("تأكيد 1", report)
+        self.assertIn("غير مؤكد 1", report)
+        self.assertIn("آخر محاولة: sent", report)
 
     def test_26_tracks_excursion_in_r_not_dollars(self):
         original = {
