@@ -14,6 +14,7 @@ import time
 from v4_entry_policy import assess_entry
 from v4_dual_brain import execution_brain, audit_watch_decisions
 from v4_adaptive_11_20 import adaptive_entry_review, signal_change_review, signal_change_message
+from v4_opportunity_followthrough import remember_watch, record_opportunity
 from engine import advance_trade
 from market import DataError, require_fresh
 from news import NewsGuard
@@ -234,6 +235,7 @@ class V4PaperResilientQuick(V4Paper):
             self.store.set("v4_last_reversal_alert_id", reversal.get("old_id"))
             self.store.set("v4_last_reversal_alert", reversal)
         if not quick5m.get("entry_allowed"):
+            remember_watch(self.store, quick_decision, now)
             self.store.set("v4_quick_last_block", "quick_5m_wait")
             LOG.info(
                 "quick_5m_wait buy=%s/7 sell=%s/7 reason=%s candle_start=%s",
@@ -329,6 +331,10 @@ class V4PaperResilientQuick(V4Paper):
         setup["entry_policy"] = policy
         setup["cautious_entry"] = policy["action"] == "CAUTIOUS"
         setup["entry_action"] = policy["action"]
+        setup["opportunity_transition"] = record_opportunity(
+            self.store, setup["side"], policy["action"], now,
+            score=policy.get("score"), signal_id=setup["id"],
+        )
         journal = self.store.get("v4_entry_decisions", []) or []
         journal.append({"time": now.isoformat(), "side": setup["side"],
                         "entry": setup["entry"], "stop": setup["stop"],

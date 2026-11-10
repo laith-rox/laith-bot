@@ -6,6 +6,8 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 
+from transport import Delivery
+from v4_opportunity_followthrough import record_telegram_delivery
 from v4_telegram import (
     V4Telegram as BaseV4Telegram,
     quick_stats_message,
@@ -17,15 +19,34 @@ from v4_telegram import (
 LOG = logging.getLogger("laith.v4.telegram.group")
 
 
+def status_with_delivery(store):
+    """Owner-visible delivery evidence, not a claim every Telegram send succeeded."""
+    message = status_message(store)
+    counts = store.get("v4_telegram_delivery_counts") or {}
+    last = store.get("v4_telegram_delivery_last") or {}
+    if not counts:
+        return message + "\n\n📨 تيليجرام: لا يوجد سجل تسليم مؤكّد بعد"
+    delivered = int(counts.get("sent") or 0)
+    uncertain = int(counts.get("uncertain") or 0)
+    retry = int(counts.get("retry") or 0)
+    failed = int(counts.get("failed") or 0)
+    suffix = f"📨 تيليجرام: تأكيد {delivered} | غير مؤكد {uncertain} | لإعادة المحاولة {retry} | فشل {failed}"
+    suffix += f"\nآخر محاولة: {last.get('status', 'unknown')} | {last.get('at', '—')}"
+    return message + "\n\n" + suffix
+
+
 class V4Telegram(BaseV4Telegram):
     def group_chat(self):
         return str(self.store.get("v4_telegram_group_id") or "")
 
     def _send_to(self, chat_id, message, label):
         if not self.client or not chat_id:
+            record_telegram_delivery(self.store, Delivery("failed", error="telegram_no_destination"), label)
+            LOG.warning("telegram_%s_delivery status=failed reason=not_configured_or_unpaired", label)
             return False
         self.client.chat_id = str(chat_id)
         outcome = self.client.send(message)
+        record_telegram_delivery(self.store, outcome, label)
         LOG.info(
             "telegram_%s_delivery status=%s message_id=%s error=%s",
             label, outcome.status, outcome.message_id, outcome.error,
@@ -97,7 +118,7 @@ class V4Telegram(BaseV4Telegram):
                 if command in ("/start", "/help"):
                     self.client.send(welcome_message())
                 elif command == "/status":
-                    self.client.send(status_message(self.store))
+                    self.client.send(status_with_delivery(self.store))
                 elif command == "/stats":
                     self.client.send(stats_message(self.store))
                 elif command == "/quickstats":

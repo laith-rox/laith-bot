@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from v4_intelligence import enhance_quick_message
 from v4_telegram import quick_message as _base_quick_message
+from v4_opportunity_followthrough import transition_message
 
 HEBRON = ZoneInfo("Asia/Hebron")
 
@@ -190,6 +191,9 @@ def quick_message(trade):
         note = f"🧠 العقلين: سيناريو {scenario} | قرار {decision} | أسلوب {strategy}"
         insert_at = next((i for i, line in enumerate(lines) if line.startswith("📡 المرجع:")), len(lines))
         lines.insert(insert_at, note)
+    transition = transition_message(trade.get("opportunity_transition"))
+    if transition:
+        lines.insert(next((i for i, line in enumerate(lines) if line.startswith("📡 المرجع:")), len(lines)), transition)
     adaptive = trade.get("adaptive") or {}
     market = trade.get("adaptive_market") or {}
     if adaptive:

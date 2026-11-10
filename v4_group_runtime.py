@@ -18,6 +18,7 @@ from v4_learning import classify_trade_lesson, record_trade_lesson
 from v4_quick_5m import quick_5m_wait_message
 from v4_quick_balance import attach_condition_balance, quick_message as balanced_quick_message
 from v4_quick_guard import guard_alert_message, guard_quick_setup
+from v4_opportunity_followthrough import audit_quick_excursion
 from v4_shared_market import SharedV4Market, closed_bar_reference
 from v4_wait_display import smart_wait_message
 from market import DataError
@@ -32,6 +33,12 @@ _original_continuation_message = v4_runtime.continuation_message
 _original_paper_open_message = v4_service.paper_open_message
 _original_paper_close_message = v4_service.paper_close_message
 _BasePaper = v4_runtime.V4PaperResilientQuick
+_original_advance_quick = v4_service.advance_quick
+
+
+def _advance_with_excursion(trade, bars, now):
+    return audit_quick_excursion(trade, _original_advance_quick(trade, bars, now), bars)
+
 
 DATA_HARD_BLOCKS = {"recent_data_gap", "stale_market_data"}
 
@@ -253,6 +260,7 @@ class V4PaperWithEmergency(_BasePaper):
         return result
 
 
+v4_service.advance_quick = _advance_with_excursion
 v4_runtime.Market = SharedV4Market
 v4_runtime.quick_reference_quote = _shared_quick_reference
 v4_runtime.quick_entry_reference = _shared_quick_entry_reference
