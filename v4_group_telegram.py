@@ -6,6 +6,7 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 
+from transport import Delivery
 from v4_opportunity_followthrough import record_telegram_delivery
 from v4_telegram import (
     V4Telegram as BaseV4Telegram,
@@ -40,6 +41,8 @@ class V4Telegram(BaseV4Telegram):
 
     def _send_to(self, chat_id, message, label):
         if not self.client or not chat_id:
+            record_telegram_delivery(self.store, Delivery("failed", error="telegram_no_destination"), label)
+            LOG.warning("telegram_%s_delivery status=failed reason=not_configured_or_unpaired", label)
             return False
         self.client.chat_id = str(chat_id)
         outcome = self.client.send(message)
