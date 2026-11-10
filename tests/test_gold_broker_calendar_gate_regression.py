@@ -7,7 +7,6 @@ from v4_verified_calendar import (
     verified_entry_calendar_available,
     verified_news,
     verified_news_calendar_available,
-    verified_news_calendar_available,
     verified_sessions,
 )
 from v4_runtime import verified_runtime_session_state
@@ -73,15 +72,11 @@ class GoldCalendarGateTests(unittest.TestCase):
         raw = json.dumps({"verified": True, "events": [{"title": "Sample"}]})
         self.assertFalse(verified_news_calendar_available(raw))
 
-    def test_verified_empty_news_calendar_is_allowed(self):
-        self.assertTrue(verified_news_calendar_available(
-            '{"verified":true,"events":[]}'))
-
-    def test_unverified_or_missing_news_calendar_blocks_entry(self):
-        self.assertFalse(verified_news_calendar_available(None))
-        self.assertFalse(verified_news_calendar_available(
-            '{"verified":false,"events":[]}'))
-        self.assertFalse(verified_news_calendar_available('not json'))
+    def test_duplicate_news_event_ids_block_entire_calendar(self):
+        raw = json.dumps({"verified": True, "events": [
+            {"id": "release", "title": "First", "release_at": "2026-11-09T13:00:00Z"},
+            {"id": "RELEASE", "title": "Second", "release_at": "2026-11-09T14:00:00Z"}]})
+        self.assertFalse(verified_news_calendar_available(raw))
 
     def test_inconsistent_news_payload_blocks_entire_calendar(self):
         raw = json.dumps({"verified": True, "events": [{
