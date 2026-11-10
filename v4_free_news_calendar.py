@@ -12,6 +12,8 @@ def fetch_verified_news(now=None, opener=urlopen):
         payload = json.load(response)
     if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
         raise ValueError("invalid_calendar_payload")
+    if payload.get("count") is not None and payload["count"] != len(payload["events"]):
+        raise ValueError("calendar_count_mismatch")
     clock = payload.get("server_time")
     if not isinstance(clock, (int, float)) or abs(clock - now.timestamp()) > 300:
         raise ValueError("stale_calendar_clock")
@@ -25,10 +27,13 @@ def fetch_verified_news(now=None, opener=urlopen):
     for event in payload["events"]:
         if not isinstance(event, dict) or event.get("currency") != "USD" or event.get("impact") not in ("high", "medium"):
             raise ValueError("unexpected_calendar_event")
-        if event.get("status") == "tentative" or event.get("confidence") not in ("official", "sources_agree"):
+        if event.get("status") not in ("scheduled", "moved") or event.get("confidence") not in ("official", "sources_agree"):
             raise ValueError("uncertain_calendar_event")
         if not event.get("id") or not event.get("title") or not event.get("time"):
             raise ValueError("missing_event_fields")
+        release = datetime.fromisoformat(event["time"].replace("Z", "+00:00"))
+        if release.tzinfo is None:
+            raise ValueError("naive_release_time")
         # Results are not used to generate an entry; schedule only.
         events.append({"id": event["id"], "title": event["title"], "release_at": event["time"],
                        "impact": event["impact"], "currency": "USD"})
