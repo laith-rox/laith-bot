@@ -75,12 +75,10 @@ def quick_market_bars(market, now, cached_bars=None):
 
 
 def degraded_quick_entry_allowed(quick_decision, entry_ref, cached_market=False):
-    """Allow degraded/fallback entry only for a fully confirmed 7/7 setup.
+    """Allow fresh closed-bar candidates from 5/7 with higher direction aligned.
 
-    Live/current-slot references keep the normal Quick rules. When the entry
-    reference is delayed, 5-6/7 candidates are observation-only. A 7/7 setup
-    additionally requires the higher-timeframe side to agree and fresh provider
-    bars (not cached history).
+    Timestamp validation remains in the reference provider. Cached market
+    fallback and unknown/opposing higher direction still block entry.
     """
     if not entry_ref.get("delayed_reference"):
         return True, None
@@ -91,8 +89,8 @@ def degraded_quick_entry_allowed(quick_decision, entry_ref, cached_market=False)
         score = int(quick_decision.get(side.lower(), 0))
     except (TypeError, ValueError):
         score = 0
-    if score < 7:
-        return False, "degraded_reference_requires_7_of_7"
+    if score < 5:
+        return False, "degraded_reference_requires_5_of_7"
     higher_side = ((quick_decision.get("quick5m") or {}).get("higher_side")
                    or quick_decision.get("official_decision")
                    or "WAIT")
@@ -308,6 +306,12 @@ class V4PaperResilientQuick(V4Paper):
             quick5m=quick5m,
             signal_strength=quick5m.get("strength") or setup.get("strength"),
             rule_completion_percent=quick5m.get("rule_completion_percent"),
+        )
+        setup["cautious_entry"] = (
+            setup.get("score", 0) >= 5
+            and quick5m.get("higher_side") == setup.get("side")
+            and bool(entry_ref.get("timing_aligned"))
+            and not cached_market
         )
         calibrate_quick_strength(setup, quick_decision)
         history = quick_history_snapshot(self._quick_rows())

@@ -87,14 +87,26 @@ class V4RuntimeTests(unittest.TestCase):
         self.assertTrue(allowed)
         self.assertIsNone(reason)
 
-    def test_delayed_reference_blocks_five_or_six_of_seven(self):
-        for score in (5, 6):
+    def test_delayed_reference_blocks_below_five(self):
+        for score in (0, 3, 4):
             decision = {"side": "BUY", "buy": score, "sell": 1, "quick5m": {"higher_side": "BUY"}}
             allowed, reason = degraded_quick_entry_allowed(
                 decision, {"delayed_reference": True}, cached_market=False
             )
             self.assertFalse(allowed)
-            self.assertEqual(reason, "degraded_reference_requires_7_of_7")
+            self.assertEqual(reason, "degraded_reference_requires_5_of_7")
+
+    def test_delayed_reference_allows_five_and_six_with_alignment(self):
+        for side in ("BUY", "SELL"):
+            for score in (5, 6, 7):
+                for higher in (side, "WAIT", "SELL" if side == "BUY" else "BUY"):
+                    decision = {"side": side, side.lower(): score,
+                                "quick5m": {"higher_side": higher}}
+                    allowed, reason = degraded_quick_entry_allowed(
+                        decision, {"delayed_reference": True})
+                    self.assertEqual(allowed, higher == side)
+                    self.assertFalse(degraded_quick_entry_allowed(
+                        decision, {"delayed_reference": True}, cached_market=True)[0])
 
     def test_delayed_reference_allows_7_of_7_only_with_higher_alignment(self):
         decision = {"side": "BUY", "buy": 7, "sell": 1, "quick5m": {"higher_side": "BUY"}}

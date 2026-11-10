@@ -1,7 +1,7 @@
 """Arabic display for V4 smart WAIT plans."""
 
 REASON_AR = {
-    "degraded_reference_requires_7_of_7": "السعر الحي غير متاح؛ مرجع الشمعة المغلقة يتطلب اكتمال ٧/٧",
+    "degraded_reference_requires_5_of_7": "السعر الحي غير متاح؛ الدخول الحذر يتطلب ٥/٧ على الأقل وتوافق الاتجاه الأكبر",
     "degraded_reference_requires_higher_alignment": "السعر الحي غير متاح واتجاه M15/H1 غير متوافق مع السريع",
     "degraded_reference_cached_market": "السعر والمؤشرات من بيانات احتياطية؛ انتظار تحديث مباشر",
     "same_side_exposure": "توجد إشارة سريعة مفتوحة بنفس الاتجاه",

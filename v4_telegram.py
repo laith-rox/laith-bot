@@ -149,6 +149,11 @@ def quick_message(trade):
     risk_number = "⛔️⑤" if risk_level in ("مرتفعة", "متوسطة") else "🟢⑤"
     reasons = trade.get("risk_reasons") or []
     reason_text = f" — {str(reasons[0])}" if reasons else ""
+    action = ("🟡 الحالة: <b>ادخل بحذر</b> — بعد مطابقة سعر وسيطك بالمرجع والوقف"
+              if trade.get("cautious_entry") else
+              "⏳ الحالة: مراقبة فقط — شروط الدخول الحذر غير مكتملة")
+    reference = ("إغلاق شمعة 5د؛ ليس سعرًا حيًا"
+                 if trade.get("delayed_reference") else "سعر مرصود")
     return (
         f"⚡ <b>V4 سريع — 5د — {trade.get('side', '—')}</b>\n"
         f"🔵① القوة: <b>{trade.get('strength', '—')}</b> — {trade.get('score', '—')}/7\n"
@@ -157,7 +162,9 @@ def quick_message(trade):
         f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
         f"{risk_number} المخاطرة: <b>{risk_level}</b>{reason_text}\n"
         f"🔵⑥ الشروط: <b>{trade.get('score', '—')}/7</b>\n"
-        "📄 ورقية/بحثية | ⏱️ صلاحية 20د"
+        f"{action}\n"
+        f"📡 المرجع: {reference} | "
+        "📄 إشارة ورقية غير مضمونة | ⏱️ متابعة 20د، وليست صلاحية دخول"
     )
 
 def continuation_message(snapshot):
