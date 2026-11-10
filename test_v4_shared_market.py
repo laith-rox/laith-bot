@@ -77,6 +77,21 @@ class V4SharedMarketTests(unittest.TestCase):
         self.assertEqual(market.provider_fetches, 1)
         self.assertEqual(market.cache_hits, 1)
 
+    def test_cached_forming_bar_keeps_original_observation_time(self):
+        market = SharedV4Market("dummy")
+        market._store_snapshot(self.now, self.bars, self.current)
+        reference = market.current_candle_reference(self.now + timedelta(seconds=70))
+        self.assertEqual(reference["time"], self.now.timestamp())
+        self.assertEqual(reference["observed_at"], self.now.timestamp())
+
+    def test_old_cached_forming_bar_requires_new_quote(self):
+        market = SharedV4Market("dummy")
+        market._store_snapshot(self.now, self.bars, self.current)
+        with patch.object(market, "_quote_slot_reference", return_value={"price": 4305}) as quote:
+            reference = market.current_candle_reference(self.now + timedelta(seconds=91))
+        self.assertEqual(reference["price"], 4305)
+        quote.assert_called_once()
+
     def test_new_five_minute_slot_fetches_once_again(self):
         market = SharedV4Market("dummy")
         next_current = Bar(

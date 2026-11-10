@@ -1,6 +1,13 @@
 """Arabic display for V4 smart WAIT plans."""
 
 REASON_AR = {
+    "degraded_reference_requires_7_of_7": "السعر الحي غير متاح؛ مرجع الشمعة المغلقة يتطلب اكتمال ٧/٧",
+    "degraded_reference_requires_higher_alignment": "السعر الحي غير متاح واتجاه M15/H1 غير متوافق مع السريع",
+    "degraded_reference_cached_market": "السعر والمؤشرات من بيانات احتياطية؛ انتظار تحديث مباشر",
+    "same_side_exposure": "توجد إشارة سريعة مفتوحة بنفس الاتجاه",
+    "max_quick_exposure": "تم بلوغ حد الإشارات السريعة المفتوحة",
+    "stop_cooldown": "مهلة مؤقتة بعد وقفَي خسارة متتاليين",
+
     "compressed_between_support_resistance": "السعر محصور بين دعم ومقاومة قريبين؛ مساحة الحركة غير كافية",
     "opposing_structure_too_close": "يوجد مستوى مقابل قريب يجعل العائد مقابل المخاطرة ضعيفًا",
     "failed_breakout": "ظهر كسر فاشل؛ الدخول الآن معرض للارتداد",
@@ -38,7 +45,7 @@ def smart_wait_message(decision, news_reason=None, nearby=False, extra_reason=No
 
     reasons = list(gate.get("reasons") or [])
     if extra_reason and extra_reason not in reasons:
-        reasons.append(extra_reason)
+        reasons.insert(0, extra_reason)
     if nearby or news_reason == "news_blackout":
         reasons.append("news_blackout")
     elif news_reason == "calendar_unavailable":

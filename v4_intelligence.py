@@ -126,7 +126,7 @@ def _no_trade_zone(decision, research):
             )
             compressed = corridor <= 1.10 * atr
             centered = support_gap <= 0.55 * atr and resistance_gap <= 0.55 * atr
-            if breakout == "LEVEL_INTACT" and compressed and centered:
+            if breakout == "LEVEL_INTACT" and s_high <= price <= r_low and compressed and centered:
                 reasons.append("compressed_between_support_resistance")
 
     correction = research.get("correction") or {}

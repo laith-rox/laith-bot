@@ -33,6 +33,7 @@ class SharedV4Market(Market):
         super().__init__(key, session=session)
         self._shared_bars = None
         self._shared_current_bar = None
+        self._shared_observed_at = None
         self._shared_slot = None
         self._current_retry_slot = None
         self.provider_fetches = 0
@@ -90,6 +91,7 @@ class SharedV4Market(Market):
         slot = self._slot(now)
         self._shared_bars = bars
         self._shared_current_bar = current
+        self._shared_observed_at = now.timestamp()
         self._shared_slot = slot
         self.provider_fetches += 1
         LOG.info(
@@ -246,7 +248,9 @@ class SharedV4Market(Market):
             self._current_retry_slot = slot
             LOG.info("quick_current_candle_retry_skipped reason=provider_omits_forming_bar slot=%s", slot)
 
-        if current is None or current.start != slot_start:
+        if (current is None or current.start != slot_start
+                or self._shared_observed_at is None
+                or now.timestamp() - self._shared_observed_at > 90):
             try:
                 return self._quote_slot_reference(now, slot_start)
             except DataError as exc:
@@ -258,10 +262,10 @@ class SharedV4Market(Market):
             "candle_open": float(current.open),
             "candle_high": float(current.high),
             "candle_low": float(current.low),
-            "time": now.timestamp(),
+            "time": self._shared_observed_at,
             "candle_start": current.start.timestamp(),
             "candle_start_iso": current.start.isoformat(),
-            "observed_at": now.timestamp(),
+            "observed_at": self._shared_observed_at,
             "entry_delay_seconds": round(elapsed, 3),
             "source": "Twelve Data - شمعة 5د الحالية",
             "delayed_reference": False,

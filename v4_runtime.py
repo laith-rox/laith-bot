@@ -233,9 +233,10 @@ class V4PaperResilientQuick(V4Paper):
         if not degraded_allowed:
             self.store.set("v4_quick_last_block", degraded_reason)
             LOG.warning(
-                "quick_entry_block reason=%s side=%s buy=%s/7 sell=%s/7 source=%s",
+                "quick_entry_block reason=%s side=%s buy=%s/7 sell=%s/7 source=%s higher_direction=%s official_entry=%s",
                 degraded_reason, quick_decision.get("side"), quick_decision.get("buy"),
                 quick_decision.get("sell"), entry_ref.get("source"),
+                quick5m.get("higher_side"), quick5m.get("official_entry_side"),
             )
             return
 

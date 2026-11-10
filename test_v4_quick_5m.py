@@ -3,6 +3,7 @@ import unittest
 
 from market import Bar
 from v4_quick_5m import analyze_quick_5m, quick_5m_wait_message
+from v4_runtime import degraded_quick_entry_allowed
 
 UTC = timezone.utc
 
@@ -76,6 +77,28 @@ class V4Quick5mTests(unittest.TestCase):
             # The crafted bar may change EMA/momentum enough to remove the lead;
             # in that case the engine must honestly WAIT rather than force it.
             self.assertEqual(decision["side"], "WAIT")
+
+    def test_official_wait_does_not_erase_confirmed_higher_direction(self):
+        for side, direction in (("BUY", 1), ("SELL", -1)):
+            bars = trend_bars(direction)
+            last = bars[-1]
+            current = {"price": last.close, "candle_open": last.open,
+                       "candle_high": last.high, "candle_low": last.low,
+                       "delayed_reference": True}
+            other = "SELL" if side == "BUY" else "BUY"
+            higher = {"side": "WAIT", "reason": "v4_no_trade_zone",
+                      "buy": 7 if side == "BUY" else 0,
+                      "sell": 7 if side == "SELL" else 0,
+                      "context": {"trend": side},
+                      "checks": {side: [True]*7, other: [False]*7}}
+            decision = analyze_quick_5m(bars, current, higher)
+            self.assertEqual(decision[side.lower()], 7)
+            self.assertEqual(decision["quick5m"]["higher_side"], side)
+            self.assertEqual(decision["quick5m"]["official_entry_side"], "WAIT")
+            self.assertEqual(degraded_quick_entry_allowed(decision, current), (True, None))
+            higher["context"]["trend"] = other
+            decision = analyze_quick_5m(bars, current, higher)
+            self.assertFalse(degraded_quick_entry_allowed(decision, current)[0])
 
     def test_flat_current_candle_becomes_wait_not_forced_trade(self):
         bars = trend_bars(1)

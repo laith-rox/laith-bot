@@ -75,6 +75,16 @@ class V4IntelligenceTests(unittest.TestCase):
         self.assertIn("compressed_between_support_resistance", intel["entry_gate"]["reasons"])
         self.assertTrue(quick_hard_blocked(enriched))
 
+    def test_price_outside_narrow_corridor_is_not_compressed(self):
+        now = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
+        for price in (3999.0, 4003.0):
+            decision = self.decision(price=price)
+            decision["v4"]["nearest_support"] = {"high": 4000.0}
+            decision["v4"]["nearest_resistance"] = {"low": 4002.0}
+            enriched = enrich_decision(decision, self.bars(now), now)
+            self.assertNotIn("compressed_between_support_resistance",
+                             enriched["v4"]["intelligence"]["entry_gate"]["reasons"])
+
     def test_open_space_keeps_actionable_side_and_scores_quality(self):
         now = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
         decision = self.decision()

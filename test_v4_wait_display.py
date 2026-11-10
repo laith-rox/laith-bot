@@ -4,6 +4,14 @@ from v4_wait_display import smart_wait_message
 
 
 class V4WaitDisplayTests(unittest.TestCase):
+    def test_runtime_block_is_first_and_translated(self):
+        decision = {"v4": {"intelligence": {"entry_gate": {"reasons": [
+            "compressed_between_support_resistance", "failed_breakout"]}}}}
+        text = smart_wait_message(decision, extra_reason="degraded_reference_requires_7_of_7")
+        self.assertIn("السعر الحي غير متاح", text)
+        self.assertNotIn("degraded_reference", text)
+        self.assertLess(text.index("السعر الحي غير متاح"), text.index("السعر محصور"))
+
     def test_wait_message_is_actionable_and_arabic(self):
         decision = {
             "v4": {"intelligence": {

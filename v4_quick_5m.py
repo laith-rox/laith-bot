@@ -71,6 +71,24 @@ def _strength(score):
     return "ضعيفة"
 
 
+def higher_timeframe_direction(decision):
+    """Direction is evidence, not the official strategy's permission to enter."""
+    decision = decision or {}
+    checks = decision.get("checks") or {}
+    context = decision.get("context") or {}
+    trend = context.get("trend")
+    for side in ("BUY", "SELL"):
+        evidence = checks.get(side) or []
+        if (len(evidence) == 7 and evidence[0] is True and evidence[1] is True
+                and trend in (None, side)):
+            return side
+    # Compatibility for snapshots without indicator checks. An explicit neutral
+    # or opposing trend must not be overwritten by an official candidate.
+    if not checks:
+        return trend if trend in ("BUY", "SELL", "WAIT") else decision.get("side", "WAIT")
+    return "WAIT"
+
+
 def analyze_quick_5m(bars, current, higher_decision):
     """Return a quick-only decision driven by 5m evidence.
 
@@ -201,7 +219,8 @@ def analyze_quick_5m(bars, current, higher_decision):
         "previous_mid": previous_mid,
         "higher_buy": higher_buy,
         "higher_sell": higher_sell,
-        "higher_side": (higher_decision or {}).get("side", "WAIT"),
+        "higher_side": higher_timeframe_direction(higher_decision),
+        "official_entry_side": (higher_decision or {}).get("side", "WAIT"),
         "timeframe": "5m",
     }
     return decision
