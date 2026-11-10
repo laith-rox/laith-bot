@@ -18,6 +18,22 @@ from v4_telegram import (
 LOG = logging.getLogger("laith.v4.telegram.group")
 
 
+def status_with_delivery(store):
+    """Owner-visible delivery evidence, not a claim every Telegram send succeeded."""
+    message = status_message(store)
+    counts = store.get("v4_telegram_delivery_counts") or {}
+    last = store.get("v4_telegram_delivery_last") or {}
+    if not counts:
+        return message + "\n\n📨 تيليجرام: لا يوجد سجل تسليم مؤكّد بعد"
+    delivered = int(counts.get("sent") or 0)
+    uncertain = int(counts.get("uncertain") or 0)
+    retry = int(counts.get("retry") or 0)
+    failed = int(counts.get("failed") or 0)
+    suffix = f"📨 تيليجرام: تأكيد {delivered} | غير مؤكد {uncertain} | لإعادة المحاولة {retry} | فشل {failed}"
+    suffix += f"\nآخر محاولة: {last.get('status', 'unknown')} | {last.get('at', '—')}"
+    return message + "\n\n" + suffix
+
+
 class V4Telegram(BaseV4Telegram):
     def group_chat(self):
         return str(self.store.get("v4_telegram_group_id") or "")
@@ -99,7 +115,7 @@ class V4Telegram(BaseV4Telegram):
                 if command in ("/start", "/help"):
                     self.client.send(welcome_message())
                 elif command == "/status":
-                    self.client.send(status_message(self.store))
+                    self.client.send(status_with_delivery(self.store))
                 elif command == "/stats":
                     self.client.send(stats_message(self.store))
                 elif command == "/quickstats":
