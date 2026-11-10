@@ -6,6 +6,7 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 
+from v4_opportunity_followthrough import record_telegram_delivery
 from v4_telegram import (
     V4Telegram as BaseV4Telegram,
     quick_stats_message,
@@ -26,6 +27,7 @@ class V4Telegram(BaseV4Telegram):
             return False
         self.client.chat_id = str(chat_id)
         outcome = self.client.send(message)
+        record_telegram_delivery(self.store, outcome, label)
         LOG.info(
             "telegram_%s_delivery status=%s message_id=%s error=%s",
             label, outcome.status, outcome.message_id, outcome.error,
