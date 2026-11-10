@@ -116,7 +116,19 @@ def verified_news_calendar_available(raw):
         return False
     try:
         payload = json.loads(raw)
-        return (isinstance(payload, dict) and payload.get("verified") is True
+        if not isinstance(payload, dict):
+            return False
+        # When the provider supplies a validity window, an expired or not-yet-
+        # valid snapshot must never authorize a manual-entry alert.
+        now = datetime.now(timezone.utc)
+        if payload.get("verified_at") is not None and _utc(payload["verified_at"]) > now:
+            return False
+        if payload.get("expires_at") is not None and _utc(payload["expires_at"]) <= now:
+            return False
+        if payload.get("verified_at") is not None and payload.get("expires_at") is not None:
+            if _utc(payload["verified_at"]) >= _utc(payload["expires_at"]):
+                return False
+        return (payload.get("verified") is True
                 and isinstance(payload.get("events"), list)
                 and len(verified_news(raw)) == len(payload["events"]))
     except (ValueError, TypeError):
