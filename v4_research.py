@@ -6,6 +6,7 @@ V3 paper worker.
 """
 from v3_research import analyze_v3
 from v4_intelligence import enrich_decision
+from v4_dual_brain import market_brain
 from v4_quick import strength_label
 
 
@@ -83,4 +84,6 @@ def analyze_v4(bars, now, macro=None):
         result["signal_strength"] = strength_label(score)
 
     result["v4"] = research
-    return enrich_decision(result, bars, now)
+    enriched = enrich_decision(result, bars, now)
+    enriched["v4"]["dual_brain_market"] = market_brain(enriched, bars, now)
+    return enriched
