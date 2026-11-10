@@ -12,6 +12,7 @@ import math
 import time
 
 from v4_entry_policy import assess_entry
+from v4_dual_brain import execution_brain, audit_watch_decisions
 from engine import advance_trade
 from market import DataError, require_fresh
 from news import NewsGuard
@@ -160,6 +161,8 @@ class V4PaperResilientQuick(V4Paper):
         if not cached_market:
             self._last_quick_bars = bars
         self._advance_quicks(bars, now)
+        # Review past WATCH moves as hindsight only; never tune live rules automatically.
+        audit_watch_decisions(self.store, bars, now)
 
         slot = int(now.timestamp() // 300)
         if self.store.get("v4_quick_last_slot") == slot:
@@ -297,6 +300,15 @@ class V4PaperResilientQuick(V4Paper):
         )
         policy = assess_entry(quick_decision, setup, entry_ref, datetime.now(UTC),
                               cached=cached_market, news_clear=allowed_news and not nearby)
+        dual = execution_brain(
+            quick_decision, setup, entry_ref, datetime.now(UTC), policy,
+            closed_trades=self._quick_rows()[-200:],
+            learning_summary=self.store.get("v4_learning_summary", {}),
+            news_clear=allowed_news and not nearby,
+        )
+        policy = dual["entry_policy"]
+        setup["dual_brain"] = dual
+        self.store.set("v4_dual_brain_last", dual)
         setup["entry_policy"] = policy
         setup["cautious_entry"] = policy["action"] == "CAUTIOUS"
         setup["entry_action"] = policy["action"]
