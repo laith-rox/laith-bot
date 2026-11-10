@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from v4_free_news_calendar import fetch_verified_news
 from v4_verified_calendar import verified_news_calendar_available
 
-NOW = datetime(2026, 11, 10, 21, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc)
 
 class Response(io.BytesIO):
     def __enter__(self): return self
