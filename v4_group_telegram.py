@@ -6,6 +6,8 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 
+from v4_free_chat import respond as free_chat_respond
+
 from v4_telegram import (
     V4Telegram as BaseV4Telegram,
     quick_stats_message,
@@ -67,11 +69,34 @@ class V4Telegram(BaseV4Telegram):
             return
 
         for update in updates:
+            # A malformed update must not crash the worker or advance its cursor.
+            if not isinstance(update, dict):
+                LOG.warning("telegram_update_invalid type=non_object")
+                continue
             uid = update.get("update_id")
-            message = update.get("message") or {}
-            chat = message.get("chat") or {}
-            sender = message.get("from") or {}
-            text = (message.get("text") or "").strip()
+            # Skip replays before commands, not just when advancing the cursor.
+            if type(uid) is not int:
+                continue
+            try:
+                current_offset = max(0, int(self.store.get("v4_telegram_update_offset", 0)))
+            except (TypeError, ValueError):
+                current_offset = 0
+            if uid < current_offset:
+                continue
+            message = update.get("message")
+            if not isinstance(message, dict):
+                LOG.warning("telegram_update_invalid type=message_not_object")
+                # Do not replay a permanently malformed update forever.
+                self.store.set("v4_telegram_update_offset", max(current_offset, uid + 1))
+                continue
+            chat = message.get("chat")
+            sender = message.get("from")
+            text = message.get("text")
+            if not isinstance(chat, dict) or not isinstance(sender, dict) or not isinstance(text, str):
+                LOG.warning("telegram_update_invalid type=message_fields")
+                self.store.set("v4_telegram_update_offset", max(current_offset, uid + 1))
+                continue
+            text = text.strip()
             chat_id = str(chat.get("id") or "")
             sender_id = str(sender.get("id") or "")
             chat_type = chat.get("type")
@@ -86,22 +111,19 @@ class V4Telegram(BaseV4Telegram):
                 if self.pair_code and supplied == self.pair_code:
                     self.store.set("v4_telegram_chat_id", chat_id)
                     self.client.chat_id = chat_id
-                    self.client.send(welcome_message())
+                    self.client.send(free_chat_respond("/menu", self.store))
                     LOG.info("telegram_paired chat_id_suffix=%s", chat_id[-4:])
                 elif self.pair_code:
                     self.client.chat_id = chat_id
                     self.client.send("🔐 كود الربط غير صحيح.")
 
             elif private and paired and chat_id == paired:
+                # Owner-only, deterministic offline replies; no GPT API, no
+                # changes to orders, runtime toggles or trade execution.
                 self.client.chat_id = paired
-                if command in ("/start", "/help"):
-                    self.client.send(welcome_message())
-                elif command == "/status":
-                    self.client.send(status_message(self.store))
-                elif command == "/stats":
-                    self.client.send(stats_message(self.store))
-                elif command == "/quickstats":
-                    self.client.send(quick_stats_message(self.store))
+                reply = free_chat_respond(text, self.store)
+                if reply:
+                    self.client.send(reply)
 
             elif group and paired and sender_id == paired and command in ("/group", "/share"):
                 self.store.set("v4_telegram_group_id", chat_id)
@@ -124,5 +146,12 @@ class V4Telegram(BaseV4Telegram):
                     )
                     LOG.info("telegram_group_unpaired chat_id_suffix=%s", chat_id[-4:])
 
-            if isinstance(uid, int):
-                self.store.set("v4_telegram_update_offset", uid + 1)
+            # Never rewind the cursor on overlapping/out-of-order updates.
+            if type(uid) is int:
+                current = self.store.get("v4_telegram_update_offset", 0)
+                try:
+                    current = max(0, int(current))
+                except (TypeError, ValueError):
+                    current = 0
+                if uid + 1 > current:
+                    self.store.set("v4_telegram_update_offset", uid + 1)

@@ -9,6 +9,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
 import math
+import os
 import time
 
 from engine import advance_trade
@@ -20,9 +21,25 @@ from v4_quick import advance_quick, build_quick, continuation_snapshot
 from v4_quick_5m import analyze_quick_5m
 from v4_research import analyze_v4
 from v4_service import V4Paper, UTC, parser
-from v4_telegram import V4Telegram, continuation_message, quick_message
+from v4_telegram import V4Telegram, continuation_message, quick_message, quick_no_entry_message
+from v4_opportunity_gate import evaluate_opportunity
+from v4_quote_observation import valid_quote_observation
+from v4_pending_entry import pending_entry_retry_allowed
+from v4_alert_coordinator import run_alert_cycle
+from v4_verified_calendar import (verified_sessions, verified_news,
+                                  verified_entry_calendar_available,
+                                  verified_news_calendar_available)
+from v4_market_guard import market_guard
+from v4_broker_entry_guard import broker_entry_eligibility
+from v4_regime_scenarios import analyze_regime, scenario_hypotheses
+from v4_liquidity_events import detect_liquidity_event
+from v4_decision_journal import record_candidate, JOURNAL_KEY
+from v4_signal_dedupe import should_publish_signal, mark_signal_published
 from market import Market
 from v4_minute_safety import start as start_minute_safety
+from v4_bitcoin_signals import BitcoinSignalPublisher
+from v4_btc_m5_quick import BTCQuickPublisher
+from v4_btc_followups import follow_observation
 
 LOG = logging.getLogger("laith.v4")
 
@@ -35,6 +52,24 @@ QUICK_BAR_FALLBACK_ERRORS = {
     "market_http_429",
     "market_connection_failed",
 }
+
+
+def verified_runtime_session_state(now, sessions):
+    """Gate market polling on an authoritative broker schedule; fail closed."""
+    if now.tzinfo is None:
+        raise ValueError("aware UTC time required")
+    if not sessions:
+        return "BROKER_CALENDAR_UNVERIFIED"
+    current = now.astimezone(UTC)
+    for opened, closes in sessions:
+        if opened.tzinfo and closes.tzinfo and opened <= current < closes:
+            return "OPEN"
+    return "BROKER_SESSION_CLOSED"
+
+
+def verified_safety_market_closed(now, sessions):
+    """No independent minute fetches outside verified broker sessions."""
+    return trading_guard_closed(now) or verified_runtime_session_state(now, sessions) != "OPEN"
 
 
 def quick_reference_quote(market, bars, now):
@@ -153,8 +188,62 @@ def calibrate_quick_strength(setup, decision):
 
 
 class V4PaperResilientQuick(V4Paper):
+    def _set_quick_entry_state(self, status, reason=None):
+        """Notify only when actionable entry status changes, not every five minutes."""
+        old = self.store.get("v4_quick_entry_state")
+        self.store.set("v4_quick_entry_state", status)
+        if status == "WAIT" and self.notifier:
+            pending = self.store.get("v4_quick_wait_notice_pending")
+            if old != "WAIT" or pending:
+                if self.notifier.send(quick_no_entry_message(reason)) is True:
+                    self.store.set("v4_quick_wait_notice_pending", False)
+                else:
+                    self.store.set("v4_quick_wait_notice_pending", True)
+        elif status != "WAIT":
+            self.store.set("v4_quick_wait_notice_pending", False)
+
     def quick_cycle(self, now):
         """Five-minute stream: expose weak/medium/strong candidates when data is current enough."""
+        # Retry an undelivered Telegram signal before processing a new slot.
+        # This is a delivery retry only: never create another market setup.
+        pending = self.store.get("v4_pending_quick_telegram")
+        if pending and self.notifier:
+            try:
+                pending_candidate = pending["candidate"]
+                pending_session = pending["session_id"]
+                pending_message = pending["message"]
+                configured_raw = os.environ.get("V4_VERIFIED_BROKER_SESSIONS")
+                configured_sessions = verified_sessions(configured_raw)
+                # Fail closed: a missing verified broker calendar is not evidence
+                # that the market is open. Never replay an old Telegram entry.
+                verified_closed = not verified_entry_calendar_available(configured_raw)
+                if configured_sessions:
+                    try:
+                        quote_at = datetime.fromtimestamp(float(pending["observed_at"]), UTC)
+                        verified_closed = not broker_entry_eligibility(
+                            now, configured_sessions, quote_at)[0]
+                    except (KeyError, ValueError, TypeError, OverflowError):
+                        verified_closed = True
+                if not pending_entry_retry_allowed(
+                    pending, now, market_closed=trading_guard_closed(now) or verified_closed,
+                    news_allowed=self.news.check(now)[0]
+                ):
+                    self.store.set("v4_pending_quick_telegram", None)
+                elif should_publish_signal(self.store, pending_candidate, session_id=pending_session):
+                    try:
+                        delivered = self.notifier.send(pending_message)
+                    except (OSError, TimeoutError, ConnectionError) as exc:
+                        LOG.warning("pending_quick_telegram_transport_error error=%s", type(exc).__name__)
+                        delivered = False
+                    if delivered is True:
+                        mark_signal_published(self.store, pending_candidate, session_id=pending_session)
+                        self.store.set("v4_pending_quick_telegram", None)
+                else:
+                    self.store.set("v4_pending_quick_telegram", None)
+            except (KeyError, TypeError, ValueError):
+                LOG.warning("invalid_pending_quick_telegram_cleared")
+                self.store.set("v4_pending_quick_telegram", None)
+
         bars, cached_market = quick_market_bars(
             self.market, now, getattr(self, "_last_quick_bars", None)
         )
@@ -165,11 +254,30 @@ class V4PaperResilientQuick(V4Paper):
         slot = int(now.timestamp() // 300)
         if self.store.get("v4_quick_last_slot") == slot:
             return
-        self.store.set("v4_quick_last_slot", slot)
+        # Do not commit the slot before analysis: transient provider failures
+        # must remain retryable rather than silently skipping the whole window.
 
         macro = self.store.get("v4_macro")
         decision = analyze_v4(bars, now, macro=macro)
+        self.store.set("v4_quick_last_slot", slot)
         self.store.set("v4_quick_last_analysis", decision)
+        # Separate intelligence stream: analyze completed candles only, no
+        # trade execution and no fabricated probabilities.
+        regime = analyze_regime(bars)
+        self.store.set("v4_market_regime", regime)
+        self.store.set("v4_liquidity_event", detect_liquidity_event(bars))
+        if regime.get("actionable"):
+            recent = bars[-20:]
+            try:
+                support = min(float(b.low) for b in recent)
+                resistance = max(float(b.high) for b in recent)
+                self.store.set("v4_scenarios", list(scenario_hypotheses(
+                    regime, support=support, resistance=resistance,
+                    last_price=float(bars[-1].close))))
+            except (ValueError, TypeError, AttributeError):
+                self.store.set("v4_scenarios", [])
+        else:
+            self.store.set("v4_scenarios", [])
 
         active = self.store.get("v4_active")
         monitor_quote = None
@@ -196,8 +304,16 @@ class V4PaperResilientQuick(V4Paper):
                     snap.get("side"), snap.get("state"), snap.get("score"),
                     snap.get("price"), snap.get("rsi"), snap.get("quote_source"),
                 )
-                if self.notifier:
-                    self.notifier.send(continuation_message(snap))
+                # Publish continuation only on a meaningful change in state.
+                # The latest snapshot remains available in Store on every cycle.
+                continuation_key = "%s:%s:%s" % (
+                    active.get("id"), snap.get("state"), snap.get("side")
+                )
+                if self.notifier and self.store.get("v4_continuation_notice_key") != continuation_key:
+                    if self.notifier.send(continuation_message(snap)) is True:
+                        self.store.set("v4_continuation_notice_key", continuation_key)
+                    else:
+                        LOG.warning("continuation_telegram_delivery_failed key=%s", continuation_key)
 
         if not quick_entry_window(now):
             self.store.set("v4_quick_last_block", "outside_quick_entry_window")
@@ -211,11 +327,13 @@ class V4PaperResilientQuick(V4Paper):
         except DataError as exc:
             reason = str(exc)
             self.store.set("v4_quick_last_block", reason)
+            self._set_quick_entry_state("WAIT", reason)
             LOG.warning("quick_entry_block reason=%s", reason)
             return
 
         if not entry_ref.get("timing_aligned"):
             self.store.set("v4_quick_last_block", "quick_candle_time_not_aligned")
+            self._set_quick_entry_state("WAIT", "quick_candle_time_not_aligned")
             LOG.warning("quick_entry_block reason=quick_candle_time_not_aligned")
             return
 
@@ -225,6 +343,7 @@ class V4PaperResilientQuick(V4Paper):
         quick5m = quick_decision.get("quick5m") or {}
         if not quick5m.get("entry_allowed"):
             self.store.set("v4_quick_last_block", "quick_5m_wait")
+            self._set_quick_entry_state("WAIT", "quick_5m_wait")
             LOG.info(
                 "quick_5m_wait buy=%s/7 sell=%s/7 reason=%s candle_start=%s",
                 quick_decision.get("buy"), quick_decision.get("sell"),
@@ -237,6 +356,7 @@ class V4PaperResilientQuick(V4Paper):
         )
         if not degraded_allowed:
             self.store.set("v4_quick_last_block", degraded_reason)
+            self._set_quick_entry_state("WAIT", degraded_reason)
             LOG.warning(
                 "quick_entry_block reason=%s side=%s buy=%s/7 sell=%s/7 source=%s higher_direction=%s official_entry=%s",
                 degraded_reason, quick_decision.get("side"), quick_decision.get("buy"),
@@ -245,11 +365,55 @@ class V4PaperResilientQuick(V4Paper):
             )
             return
 
-        observed_at = float(entry_ref.get("observed_at", now.timestamp()))
-        quote_now = datetime.fromtimestamp(observed_at, UTC)
+        opportunity_ok, opportunity_reason = evaluate_opportunity(
+            quick_decision, entry_ref, cached_market=cached_market,
+            news_clear=bool(allowed_news and not nearby),
+        )
+        if not opportunity_ok:
+            record_candidate(
+                self.store, observed_at=entry_ref.get("observed_at"),
+                slot=entry_ref.get("candle_start_iso") or "unknown",
+                side=quick_decision.get("side") if quick_decision.get("side") in ("BUY", "SELL") else "WAIT",
+                state="REJECTED", reason=str(opportunity_reason or "opportunity_gate"),
+                entry=entry_ref.get("price"))
+            self.store.set("v4_quick_last_block", opportunity_reason)
+            self._set_quick_entry_state("WAIT", opportunity_reason)
+            LOG.info("quick_opportunity_wait reason=%s side=%s", opportunity_reason, quick_decision.get("side"))
+            return
+
+        # When an independently verified broker schedule is configured, require
+        # an OPEN session and a fresh quote (including the final 30m close gate).
+        configured_sessions = verified_sessions(os.environ.get("V4_VERIFIED_BROKER_SESSIONS"))
+        if os.environ.get("V4_VERIFIED_BROKER_SESSIONS") and not configured_sessions:
+            self.store.set("v4_quick_last_block", "invalid_verified_broker_calendar")
+            self._set_quick_entry_state("WAIT", "invalid_verified_broker_calendar")
+            return
+        if not verified_entry_calendar_available(os.environ.get("V4_VERIFIED_BROKER_SESSIONS")):
+            self.store.set("v4_quick_last_block", "unverified_broker_calendar")
+            self._set_quick_entry_state("WAIT", "unverified_broker_calendar")
+            return
+        if configured_sessions:
+            try:
+                observed_quote = datetime.fromtimestamp(float(entry_ref["observed_at"]), UTC)
+                last_bar_end = getattr(bars[-1], "end", None)
+                verified_allowed, verified_reason = broker_entry_eligibility(
+                    now, configured_sessions, observed_quote, bar_end_at=last_bar_end)
+            except (KeyError, ValueError, TypeError, OverflowError):
+                verified_allowed, verified_reason = False, "invalid_verified_quote"
+            if not verified_allowed:
+                self.store.set("v4_quick_last_block", verified_reason)
+                self._set_quick_entry_state("WAIT", verified_reason)
+                return
+
+        if not valid_quote_observation(entry_ref.get("observed_at"), now.timestamp()):
+            self.store.set("v4_quick_last_block", "stale_or_future_quote_observation")
+            self._set_quick_entry_state("WAIT", "stale_or_future_quote_observation")
+            return
+        quote_now = datetime.fromtimestamp(float(entry_ref["observed_at"]), UTC)
         setup = build_quick(quick_decision, quote_now, quote_price=entry_ref["price"])
         if setup is None:
             self.store.set("v4_quick_last_block", "quick_recheck_failed")
+            self._set_quick_entry_state("WAIT", "quick_recheck_failed")
             return
 
         condition_names = quick_decision.get("quick_condition_names") or []
@@ -318,6 +482,14 @@ class V4PaperResilientQuick(V4Paper):
             historical_flat=history["flat"],
             historical_positive_rate=history["positive_rate"],
         )
+        # A fallback to a closed candle is useful for analysis, but must never
+        # create an actionable Telegram entry or paper-open announcement.
+        if setup.get("delayed_reference") or not setup.get("current_five_minute_candle"):
+            self.store.set("v4_quick_last_block", "live_current_candle_unverified")
+            self._set_quick_entry_state("WAIT", "live_current_candle_unverified")
+            LOG.warning("quick_entry_block reason=live_current_candle_unverified")
+            return
+        self._set_quick_entry_state("ENTRY", "verified_live_current_candle")
         self._save_quick(setup)
         self.store.set("v4_quick_last", setup)
         self.store.set("v4_quick_last_block", None)
@@ -329,8 +501,33 @@ class V4PaperResilientQuick(V4Paper):
             setup["strength"], setup.get("risk_level"), setup.get("quote_source"),
             setup.get("timing_aligned"), bool(cached_market), bool(active),
         )
-        if self.notifier:
-            self.notifier.send(quick_message(setup))
+        # Signal publishing is event-driven even though analysis is polled.
+        # A session key scopes duplicate prevention without changing trade state.
+        signal_candidate = {
+            "state": "READY", "side": setup["side"], "horizon": "SCALP",
+            "entry": setup["entry"], "stop": setup["stop"],
+            "target": setup["target"],
+        }
+        record_candidate(
+            self.store, observed_at=entry_ref.get("observed_at"),
+            slot=entry_ref.get("candle_start_iso") or "unknown",
+            side=setup["side"], state="READY", reason="validated_quick_setup",
+            entry=setup["entry"], score=setup.get("score"))
+        session_id = now.astimezone(NY_TZ).date().isoformat()
+        if (self.notifier and not trading_guard_closed(datetime.now(UTC))
+                and valid_quote_observation(entry_ref.get("observed_at"), datetime.now(UTC).timestamp())
+                and should_publish_signal(self.store, signal_candidate, session_id=session_id)):
+            if self.notifier.send(quick_message(setup)) is True:
+                mark_signal_published(
+                    self.store, signal_candidate, session_id=session_id
+                )
+            else:
+                self.store.set("v4_pending_quick_telegram", {
+                    "candidate": signal_candidate, "session_id": session_id,
+                    "message": quick_message(setup),
+                    "observed_at": entry_ref.get("observed_at"),
+                })
+                LOG.warning("quick_telegram_delivery_failed id=%s", setup["id"])
 
 
 NY_TZ = ZoneInfo("America/New_York")
@@ -383,13 +580,29 @@ def run(args):
     telegram = V4Telegram(args.telegram_token, store, args.telegram_chat, args.telegram_pair_code)
     global_context = GlobalContextProvider(refresh_seconds=args.macro_refresh, twelve_key=args.twelve_key)
     paper = V4PaperResilientQuick(store, market, news, global_context, args.cooldown, notifier=telegram)
+    # BTC is Telegram-only and independent of the gold broker session. It is
+    # enabled exclusively for explicitly opted-in deployments.
+    btc = BitcoinSignalPublisher(store, telegram) if os.getenv("V4_BTC_SIGNALS_ENABLED") == "1" else None
+    # Experimental separate BTC M5 Telegram-only lane, 19:00-23:00 Palestine.
+    btc_quick = BTCQuickPublisher(store, telegram) if os.getenv("V4_BTC_M5_QUICK_ENABLED") == "1" else None
     LOG.info(
         "starting independent V4 resilient worker db=%s experiment=%s telegram=%s quick_interval=%ss",
         args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
     )
-    safety_stop = start_minute_safety(args, trading_guard_closed)
+    broker_sessions = verified_sessions(os.environ.get('V4_VERIFIED_BROKER_SESSIONS'))
+    news_events = verified_news(os.environ.get('V4_VERIFIED_NEWS_EVENTS'))
+    # Independent safety must use the same broker-session gate as main polling.
+    safety_stop = start_minute_safety(
+        args, lambda at: verified_safety_market_closed(at, broker_sessions)
+    )
     next_cycle = 0.0
     next_quick = 0.0
+    next_alert = 0.0
+    next_btc = 0.0
+    next_btc_follow = 0.0
+    next_btc_quick = 0.0
+    last_gold_session_state = None
+    LOG.info('verified_calendar_sessions=%s verified_news_events=%s', len(broker_sessions), len(news_events))
     try:
         while True:
             now = datetime.now(UTC)
@@ -397,6 +610,38 @@ def run(args):
                 telegram.poll()
             except Exception:
                 LOG.exception("telegram_cycle_failed")
+            if btc is not None and time.time() >= next_btc_follow:
+                try:
+                    follow_observation(store, telegram, btc.provider, now)
+                except Exception:
+                    LOG.exception("btc_follow_observation_failed")
+                current = time.time()
+                next_btc_follow = (int(current) // 300 + 1) * 300 + 35
+            if btc_quick is not None and time.time() >= next_btc_quick:
+                try:
+                    btc_quick.cycle(now)
+                except Exception:
+                    LOG.exception("btc_m5_quick_cycle_failed")
+                current = time.time()
+                next_btc_quick = (int(current) // 300 + 1) * 300 + 30
+            if btc is not None and time.time() >= next_btc:
+                try:
+                    btc.cycle(now)
+                except Exception:
+                    LOG.exception("btc_signal_cycle_failed")
+                # A fresh 15-minute analysis, never replay a stale alert. BTC
+                # continues on weekends even while XAU is session-blocked.
+                current = time.time()
+                next_btc = (int(current) // 900 + 1) * 900 + 25
+            if time.time() >= next_alert:
+                try:
+                    run_alert_cycle(now, store=store, notifier=telegram,
+                                    broker_sessions=broker_sessions, quote_at=None,
+                                    verified_news_events=news_events,
+                                    decision_events=store.get(JOURNAL_KEY) or ())
+                except Exception:
+                    LOG.exception('verified_alert_cycle_failed')
+                next_alert = time.time() + 15
             if trading_guard_closed(now):
                 # Keep Telegram polling alive while all market-driven V4 activity is paused.
                 # No automatic educational lessons are published; teaching happens only on request.
@@ -405,6 +650,26 @@ def run(args):
                 store.set("v4_last_error", None)
                 store.set("v4_quick_last_error", None)
                 store.set("v4_weekend_education_error", None)
+                next_cycle = time.time() + args.interval
+                next_quick = time.time() + args.quick_interval
+                time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
+                continue
+            # A weekday heuristic cannot override verified broker sessions.
+            # Keep Telegram responsive without fetching data during closure.
+            verified_state = verified_runtime_session_state(now, broker_sessions)
+            if verified_state == "OPEN" and not verified_news_calendar_available(os.environ.get("V4_VERIFIED_NEWS_EVENTS")):
+                verified_state = "NEWS_CALENDAR_UNVERIFIED"
+            # Log the final effective gate, including the news veto. Previously
+            # NEWS_CALENDAR_UNVERIFIED was stored but never logged, hiding why
+            # an otherwise open gold session produced no Telegram entries.
+            if verified_state != last_gold_session_state:
+                LOG.warning("gold_session_gate state=%s verified_sessions=%s verified_news_events=%s",
+                            verified_state, len(broker_sessions), len(news_events))
+                last_gold_session_state = verified_state
+            if verified_state != "OPEN":
+                store.set("v4_market_status", verified_state)
+                store.set("v4_last_error", None)
+                store.set("v4_quick_last_error", None)
                 next_cycle = time.time() + args.interval
                 next_quick = time.time() + args.quick_interval
                 time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))

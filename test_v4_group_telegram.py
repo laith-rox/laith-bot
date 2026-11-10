@@ -66,6 +66,24 @@ class GroupTelegramTests(unittest.TestCase):
         finally:
             store.close(); tmp.cleanup()
 
+    def test_poll_failure_preserves_offset_and_existing_group(self):
+        tmp, store, tg = self.make()
+        try:
+            store.set("v4_telegram_update_offset", 42)
+            store.set("v4_telegram_group_id", "-999")
+
+            def rejected(*args, **kwargs):
+                raise RuntimeError("telegram_poll_conflict_or_webhook")
+
+            tg.client.read = rejected
+            tg.poll()
+            self.assertEqual(store.get("v4_telegram_update_offset"), 42)
+            self.assertEqual(store.get("v4_telegram_group_id"), "-999")
+            self.assertTrue(tg.send("BTC wait"))
+            self.assertEqual(tg.client.sent[-1], ("-999", "BTC wait"))
+        finally:
+            store.close(); tmp.cleanup()
+
     def test_other_member_cannot_bind_group(self):
         tmp, store, tg = self.make()
         try:
@@ -81,6 +99,40 @@ class GroupTelegramTests(unittest.TestCase):
             self.assertFalse(store.get("v4_telegram_group_id"))
         finally:
             store.close(); tmp.cleanup()
+
+
+class TelegramReadDiagnosticsTests(unittest.TestCase):
+    def test_poll_conflict_is_classified_without_exposing_token(self):
+        from transport import Telegram
+
+        class Response:
+            status_code = 409
+            def json(self):
+                return {"ok": False, "error_code": 409, "description": "Conflict: secret-token"}
+
+        class Session:
+            def get(self, *args, **kwargs):
+                return Response()
+
+        client = Telegram("secret-token", "111", session=Session())
+        with self.assertRaisesRegex(RuntimeError, "^telegram_poll_conflict_or_webhook$") as caught:
+            client.read("getUpdates", offset=0)
+        self.assertNotIn("secret-token", str(caught.exception))
+
+    def test_unauthorized_is_classified_without_exposing_token(self):
+        from transport import Telegram
+
+        class Response:
+            status_code = 401
+            def json(self):
+                return {"ok": False, "error_code": 401}
+
+        class Session:
+            def get(self, *args, **kwargs):
+                return Response()
+
+        with self.assertRaisesRegex(RuntimeError, "^telegram_read_unauthorized$"):
+            Telegram("secret-token", "111", session=Session()).read("getUpdates")
 
 
 if __name__ == "__main__":

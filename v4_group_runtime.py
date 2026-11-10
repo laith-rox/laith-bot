@@ -189,8 +189,10 @@ class V4PaperWithEmergency(_BasePaper):
         reference = self.store.get("v4_quick_5m_reference") or {}
         message = quick_5m_wait_message(decision, reference)
         if message:
-            self.notifier.send(message)
-            self.store.set("v4_quick_5m_wait_slot", slot)
+            if self.notifier.send(message) is True:
+                self.store.set("v4_quick_5m_wait_slot", slot)
+            else:
+                LOG.warning("quick_5m_wait_telegram_delivery_failed slot=%s", slot)
 
     def _send_smart_wait(self, decision, now):
         # Do not send a generic higher-timeframe WAIT on top of a valid quick
@@ -207,7 +209,7 @@ class V4PaperWithEmergency(_BasePaper):
             allowed_news, news_reason, nearby = self.news.check(now)
         except Exception:
             allowed_news, news_reason, nearby = False, "calendar_unavailable", []
-        self.notifier.send(
+        delivered = self.notifier.send(
             smart_wait_message(
                 decision,
                 news_reason=news_reason,
@@ -215,6 +217,9 @@ class V4PaperWithEmergency(_BasePaper):
                 extra_reason=last_block,
             )
         )
+        if delivered is not True:
+            LOG.warning("smart_wait_telegram_delivery_failed slot=%s", slot)
+            return
         self.store.set("v4_smart_wait_slot", slot)
         self.store.set(
             "v4_last_wait_plan",

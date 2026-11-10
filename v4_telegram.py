@@ -44,18 +44,18 @@ def _strength_adjustment_line(trade):
 
 def welcome_message():
     return (
-        "🥇 <b>Laith V4 — مختبر الذهب</b>\n\n"
-        "تم ربط تيليجرام بالنسخة التجريبية المستقلة.\n"
-        "⚡ يفحص صفقة سريعة كل 5 دقائق، وتبقى السريعة مستقلة حتى لو كانت صفقة V4 الرسمية قائمة.\n"
-        "🔴 إذا كانت الظروف خطرة لا تختفي الصفقة السريعة؛ يظهر عليها مستوى المخاطرة وأسباب التحذير.\n"
-        "🧭 كلمة قوية تُعاير الآن: لا تبقى قوية إذا كانت المخاطرة مرتفعة أو القرار الرسمي WAIT.\n"
-        "📚 تظهر النتائج المرصودة من الصفقات السريعة السابقة كبيانات تاريخية، وليست احتمال نجاح.\n"
-        "🔄 الصفقة الرسمية القائمة تحصل على تحديث استمرارية كل 5 دقائق.\n"
-        "📄 كل الصفقات هنا <b>ورقية/بحثية فقط</b> وليست تنفيذًا على حساب حقيقي.\n\n"
+        "🧠 <b>Laith V4 — النظام التحليلي الجديد</b>\n\n"
+        "📡 إشارات الذهب عبر Telegram فقط؛ تنفيذ الصفقات يدوي على MT5.\n"
+        "🎯 نبحث عن فرص السوق ولا نفرض صفقة في كل فترة.\n"
+        "🟢 الدخول لا يُعرض إلا بعد التحقق من السعر والاتجاه والمخاطرة.\n"
+        "🟡 عند عدم اكتمال الشروط: انتظار، وليس أمر دخول.\n"
+        "⚠️ لا توجد صفقات مضمونة ولا توصيات فول مارجن.\n"
+        "🔧 قدرات تحليل الجلسات والأخبار والحماية المتقدمة قيد التطوير والاختبار؛ "
+        "لن نعرضها كأنها مفعّلة قبل اكتمالها.\n\n"
         "الأوامر:\n"
         "/status — آخر تحليل وحالة V4\n"
-        "/stats — نتائج الصفقات الرسمية الورقية\n"
-        "/quickstats — نتائج الصفقات السريعة الورقية"
+        "/stats — نتائج الصفقات الرسمية المسجلة\n"
+        "/quickstats — نتائج الصفقات السريعة المسجلة"
     )
 
 
@@ -70,8 +70,21 @@ def status_message(store):
     continuation = store.get("v4_last_continuation") or {}
     side = decision.get("side", "WAIT")
     reason = decision.get("reason", "—")
+    market_state = store.get("v4_market_status") or "UNKNOWN"
+    gold_gate_reasons = {
+        "BROKER_CALENDAR_UNVERIFIED": "جلسات وسيط الذهب غير موثقة",
+        "BROKER_SESSION_CLOSED": "جلسة وسيط الذهب مغلقة",
+        "NEWS_CALENDAR_UNVERIFIED": "تقويم الأخبار غير موثق",
+        "WEEKEND_CLOSED": "إغلاق نهاية الأسبوع",
+        "DAILY_BREAK_CLOSED": "استراحة السوق اليومية",
+    }
     lines = [
         "📊 <b>حالة Laith V4</b>",
+        f"حالة سوق الذهب: <b>{market_state if market_state in gold_gate_reasons or market_state == 'OPEN' else 'UNKNOWN'}</b>",
+    ]
+    if market_state in gold_gate_reasons:
+        lines.append(f"⛔️ لا توجد إشارة دخول ذهب: {gold_gate_reasons[market_state]}.")
+    lines.extend([
         f"القرار الرسمي: <b>{side}</b>",
         f"السبب: {reason}",
         f"الجلسة: {research.get('session', '—')}",
@@ -81,7 +94,7 @@ def status_message(store):
         f"المقاومة: {_fmt((structure.get('resistance') or {}).get('center'))}",
         f"التصحيح: {correction.get('direction', '—')} / {correction.get('strength', '—')}",
         f"وقف هيكلي مرجعي: {_fmt(risk.get('stop'))}",
-    ]
+    ])
     if active:
         lines.extend([
             "",
@@ -143,22 +156,60 @@ def quick_stats_message(store):
     )
 
 
+def manual_risk_line(trade, broker_specs=None, risk_budget_usd=None):
+    """Manual-only lot ceiling; never infer contract details or silently size orders."""
+    from v4_manual_risk_budget import manual_risk_budget
+    if not isinstance(broker_specs, dict) or risk_budget_usd is None:
+        return "📐 حجم اللوت: غير محسوب — مواصفات عقد الوسيط وميزانية المخاطرة غير موثقة."
+    result = manual_risk_budget(
+        side=trade.get("side"), entry=trade.get("entry"), stop=trade.get("stop"),
+        risk_budget_usd=risk_budget_usd,
+        contract_oz_per_lot=broker_specs.get("contract_oz_per_lot"),
+        usd_per_quote_unit=broker_specs.get("usd_per_quote_unit"),
+        lot_step=broker_specs.get("lot_step"), min_lot=broker_specs.get("min_lot"),
+        max_lot=broker_specs.get("max_lot"),
+    )
+    if result["status"] != "ADVISORY":
+        return "📐 حجم اللوت: انتظار — لا توجد مواصفات/ميزانية موثوقة أو حجم آمن ضمن الحد."
+    return (f"📐 سقف اللوت اليدوي: {result['lot_ceiling']:.4f} | "
+            f"مخاطرة الوقف التقديرية: ${result['estimated_stop_risk_usd']:.2f} "
+            "(لا تشمل السبريد والانزلاق والعمولات؛ ليست أمر تنفيذ).")
+
+
 def quick_message(trade):
     """Compact color-priority quick alert; strategy and trade logic are untouched."""
     risk_level = trade.get("risk_level", "—")
     risk_number = "⛔️⑤" if risk_level in ("مرتفعة", "متوسطة") else "🟢⑤"
     reasons = trade.get("risk_reasons") or []
+    entry_status = ("🔴 <b>لا تدخل الآن — سعر حي غير مؤكد</b>"
+                    if trade.get("delayed_reference") or not trade.get("current_five_minute_candle")
+                    else f"🟢 <b>دخول الآن — {trade.get('side', '—')}</b>")
     reason_text = f" — {str(reasons[0])}" if reasons else ""
     return (
-        f"⚡ <b>V4 سريع — 5د — {trade.get('side', '—')}</b>\n"
+        f"{entry_status} | V4 سريع 5د\n"
         f"🔵① القوة: <b>{trade.get('strength', '—')}</b> — {trade.get('score', '—')}/7\n"
-        f"🟠② الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🟠② سعر الدخول المرجعي: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
         f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
         f"{risk_number} المخاطرة: <b>{risk_level}</b>{reason_text}\n"
         f"🔵⑥ الشروط: <b>{trade.get('score', '—')}/7</b>\n"
-        "📄 ورقية/بحثية | ⏱️ صلاحية 20د"
+        f"{manual_risk_line(trade, trade.get('verified_broker_specs'), trade.get('risk_budget_usd'))}\n"
+        "📄 إشارة ورقية فقط، ليست أمر تنفيذ؛ تحقق من السعر الحالي قبل أي صفقة."
     )
+
+def quick_no_entry_message(reason=None):
+    """Plain-language WAIT notice, sent only on state transitions."""
+    descriptions = {
+        "quick_5m_wait": "شروط الدخول غير مكتملة",
+        "quick_candle_time_not_aligned": "توقيت السعر غير موثوق",
+        "degraded_reference_requires_7_of_7": "السعر الحي غير متاح وقوة الإشارة أقل من 7/7",
+        "degraded_reference_requires_higher_alignment": "الاتجاه الأكبر لا يؤكد الدخول",
+        "degraded_reference_cached_market": "بيانات السوق مخزنة وليست حديثة بما يكفي",
+        "market_quote_stale": "السعر الحالي غير موثوق",
+    }
+    detail = descriptions.get(reason, "لا توجد فرصة مؤكدة حاليًا")
+    return f"🔴 <b>لا تدخل الآن — V4 سريع 5د</b>\nالسبب: {detail}\n📄 متابعة إشارات ورقية فقط"
+
 
 def continuation_message(snapshot):
     state = snapshot.get("state", "—")
@@ -262,7 +313,20 @@ class V4Telegram:
         if not isinstance(updates, list):
             return
         for update in updates:
+            # A malformed update must not crash the worker or advance its cursor.
+            if not isinstance(update, dict):
+                LOG.warning("telegram_update_invalid type=non_object")
+                continue
             uid = update.get("update_id")
+            # Skip replays before commands, not just when advancing the cursor.
+            if type(uid) is not int:
+                continue
+            try:
+                current_offset = max(0, int(self.store.get("v4_telegram_update_offset", 0)))
+            except (TypeError, ValueError):
+                current_offset = 0
+            if uid < current_offset:
+                continue
             message = update.get("message") or {}
             chat = message.get("chat") or {}
             sender = message.get("from") or {}
@@ -295,5 +359,12 @@ class V4Telegram:
                 elif command == "/quickstats":
                     self.client.send(quick_stats_message(self.store))
 
-            if isinstance(uid, int):
-                self.store.set("v4_telegram_update_offset", uid + 1)
+            # Never rewind the cursor on overlapping/out-of-order updates.
+            if type(uid) is int:
+                current = self.store.get("v4_telegram_update_offset", 0)
+                try:
+                    current = max(0, int(current))
+                except (TypeError, ValueError):
+                    current = 0
+                if uid + 1 > current:
+                    self.store.set("v4_telegram_update_offset", uid + 1)

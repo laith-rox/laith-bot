@@ -55,9 +55,22 @@ class Telegram:
         try:
             response = self.session.get(self.base + "/" + method, params=params, timeout=(5, 15))
             data = response.json()
-            if response.status_code != 200 or data.get("ok") is not True:
+            if not isinstance(data, dict) or response.status_code != 200 or data.get("ok") is not True:
+                # Diagnose poll conflicts without exposing response bodies or secrets.
+                code = response.status_code if response.status_code != 200 else data.get("error_code", 200)
+                if code == 409:
+                    raise RuntimeError("telegram_poll_conflict_or_webhook")
+                if code in (401, 403):
+                    raise RuntimeError("telegram_read_unauthorized")
+                if code == 429:
+                    raise RuntimeError("telegram_read_rate_limited")
                 raise RuntimeError("telegram_read_rejected")
-            return data["result"]
+            result = data["result"]
+            if method == "getUpdates" and not isinstance(result, list):
+                raise RuntimeError("telegram_read_invalid_result")
+            if method != "getUpdates" and not isinstance(result, dict):
+                raise RuntimeError("telegram_read_invalid_result")
+            return result
         except (requests.RequestException, ValueError, KeyError, TypeError):
             raise RuntimeError("telegram_read_failed") from None
 

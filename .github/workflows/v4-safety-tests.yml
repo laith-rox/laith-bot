@@ -1,0 +1,52 @@
+name: V4 safety modules
+on:
+  pull_request:
+    paths:
+      - 'v4_opportunity_plan.py'
+      - 'v4_market_guard.py'
+      - 'v4_broker_entry_guard.py'
+      - 'v4_news_intelligence.py'
+      - 'v4_news_surprise.py'
+      - 'v4_alert_planner.py'
+      - 'v4_alert_delivery.py'
+      - 'v4_alert_coordinator.py'
+      - 'v4_signal_dedupe.py'
+      - 'v4_entry_notifications.py'
+      - 'v4_runtime.py'
+      - 'v4_bitcoin_signals.py'
+      - 'v4_btc_quarterly.py'
+      - 'v4_btc_m5_quick.py'
+      - 'v4_btc_quality.py'
+      - 'v4_btc_followups.py'
+      - 'v4_group_telegram.py'
+      - 'v4_free_chat.py'
+      - 'laith_experimental_v4.py'
+      - 'v4_opportunity_gate.py'
+      - 'v4_quote_observation.py'
+      - 'v4_pending_entry.py'
+      - 'v4_verified_calendar.py'
+      - 'v4_risk_advisor.py'
+      - 'v4_manual_risk_budget.py'
+      - 'v4_telegram.py'
+      - 'v4_regime_scenarios.py'
+      - 'v4_liquidity_events.py'
+      - 'v4_decision_journal.py'
+      - 'v4_daily_report.py'
+      - 'v4_excursion_audit.py'
+      - 'test_v4_*.py'
+      - '.github/workflows/v4-safety-tests.yml'
+  workflow_dispatch:
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime dependencies for Telegram integration tests
+        run: python -m pip install -r requirements.txt
+      - name: Compile V4 safety modules
+        run: python -m py_compile v4_telegram.py v4_runtime.py v4_bitcoin_signals.py v4_btc_quarterly.py v4_btc_m5_quick.py v4_btc_quality.py v4_btc_followups.py v4_group_telegram.py v4_free_chat.py v4_opportunity_gate.py v4_quote_observation.py v4_pending_entry.py v4_verified_calendar.py v4_risk_advisor.py v4_manual_risk_budget.py v4_regime_scenarios.py v4_liquidity_events.py v4_decision_journal.py v4_daily_report.py v4_excursion_audit.py v4_opportunity_plan.py v4_market_guard.py v4_broker_entry_guard.py v4_news_intelligence.py v4_news_surprise.py v4_alert_planner.py v4_alert_delivery.py v4_alert_coordinator.py v4_signal_dedupe.py v4_entry_notifications.py
+      - name: Run safety tests
+        run: python -m unittest -v test_v4_bitcoin_signals test_v4_btc_quarterly test_v4_btc_m5_quick test_v4_btc_quality test_v4_free_chat test_v4_group_telegram test_v4_opportunity_plan test_v4_opportunity_gate test_v4_opportunity_malformed test_v4_quote_observation test_v4_pending_entry test_v4_verified_calendar test_v4_risk_advisor test_v4_manual_risk_budget test_v4_telegram_manual_risk test_v4_regime_scenarios test_v4_liquidity_events test_v4_decision_journal test_v4_daily_report test_v4_excursion_audit test_v4_market_guard test_v4_broker_entry_guard test_v4_news_intelligence test_v4_news_surprise test_v4_alert_planner test_v4_alert_delivery test_v4_alert_coordinator test_v4_signal_dedupe test_v4_entry_notifications test_v4_manual_signal_integration test_v4_verified_runtime_session test_v4_experimental_entrypoint test_v4_verified_minute_safety
