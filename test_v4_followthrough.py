@@ -97,6 +97,13 @@ class FollowThroughTests(unittest.TestCase):
         self.assertEqual(len(fake.calls), 1)
         self.assertEqual(s.get("v4_telegram_delivery_counts")["uncertain"], 1)
 
+    def test_23_unpaired_bot_is_audited_as_failed(self):
+        s = Store()
+        tg = V4Telegram("fake", s)
+        self.assertFalse(tg.send("paper signal"))
+        self.assertEqual(s.get("v4_telegram_delivery_counts")["failed"], 1)
+        self.assertEqual(s.get("v4_telegram_delivery_last")["status"], "failed")
+
     def test_23_status_reports_verified_vs_uncertain_delivery(self):
         store = Store()
         record_telegram_delivery(store, SimpleNamespace(status="uncertain"), "private", T)
