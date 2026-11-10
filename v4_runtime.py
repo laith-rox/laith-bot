@@ -633,7 +633,7 @@ def run(args):
                 except Exception as exc:
                     os.environ.pop("V4_VERIFIED_NEWS_EVENTS", None)
                     news_events = ()
-                    LOG.warning("free_news_calendar_unavailable reason=%s", type(exc).__name__)
+                    LOG.warning("free_news_calendar_unavailable reason=%s detail=%s", type(exc).__name__, str(exc)[:120])
                 next_free_news_refresh = time.time() + 900
             if time.time() >= next_alert:
                 try:
