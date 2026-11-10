@@ -11,6 +11,7 @@ import logging
 import math
 import time
 
+from v4_entry_policy import assess_entry
 from engine import advance_trade
 from market import DataError, require_fresh
 from news import NewsGuard
@@ -230,19 +231,6 @@ class V4PaperResilientQuick(V4Paper):
             )
             return
 
-        degraded_allowed, degraded_reason = degraded_quick_entry_allowed(
-            quick_decision, entry_ref, cached_market=cached_market
-        )
-        if not degraded_allowed:
-            self.store.set("v4_quick_last_block", degraded_reason)
-            LOG.warning(
-                "quick_entry_block reason=%s side=%s buy=%s/7 sell=%s/7 source=%s higher_direction=%s official_entry=%s",
-                degraded_reason, quick_decision.get("side"), quick_decision.get("buy"),
-                quick_decision.get("sell"), entry_ref.get("source"),
-                quick5m.get("higher_side"), quick5m.get("official_entry_side"),
-            )
-            return
-
         observed_at = float(entry_ref.get("observed_at", now.timestamp()))
         quote_now = datetime.fromtimestamp(observed_at, UTC)
         setup = build_quick(quick_decision, quote_now, quote_price=entry_ref["price"])
@@ -307,12 +295,24 @@ class V4PaperResilientQuick(V4Paper):
             signal_strength=quick5m.get("strength") or setup.get("strength"),
             rule_completion_percent=quick5m.get("rule_completion_percent"),
         )
-        setup["cautious_entry"] = (
-            setup.get("score", 0) >= 5
-            and quick5m.get("higher_side") == setup.get("side")
-            and bool(entry_ref.get("timing_aligned"))
-            and not cached_market
-        )
+        policy = assess_entry(quick_decision, setup, entry_ref, datetime.now(UTC),
+                              cached=cached_market, news_clear=allowed_news and not nearby)
+        setup["entry_policy"] = policy
+        setup["cautious_entry"] = policy["action"] == "CAUTIOUS"
+        setup["entry_action"] = policy["action"]
+        journal = self.store.get("v4_entry_decisions", []) or []
+        journal.append({"time": now.isoformat(), "side": setup["side"],
+                        "entry": setup["entry"], "stop": setup["stop"],
+                        "target": setup["target"], "id": setup["id"], **policy})
+        self.store.set("v4_entry_decisions", journal[-1000:])
+        LOG.info("quick_entry_policy action=%s score=%s essentials=%s reasons=%s warnings=%s",
+                 policy["action"], policy.get("score"), policy.get("essentials"),
+                 policy["reasons"], policy["warnings"])
+        if policy["action"] == "WATCH":
+            self.store.set("v4_quick_last_block", "entry_policy_watch")
+            if self.notifier:
+                self.notifier.send(quick_message(setup))
+            return
         calibrate_quick_strength(setup, quick_decision)
         history = quick_history_snapshot(self._quick_rows())
         setup.update(

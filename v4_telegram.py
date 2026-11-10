@@ -152,6 +152,11 @@ def quick_message(trade):
     action = ("🟡 الحالة: <b>ادخل بحذر</b> — بعد مطابقة سعر وسيطك بالمرجع والوقف"
               if trade.get("cautious_entry") else
               "⏳ الحالة: مراقبة فقط — شروط الدخول الحذر غير مكتملة")
+    if trade.get("entry_action") == "ENTER_NOW":
+        action = "🟢 الحالة: <b>ادخل الآن</b> — وفق شروط النموذج وبعد مطابقة سعر وسيطك"
+    policy_reasons = (trade.get("entry_policy") or {}).get("reasons") or []
+    if trade.get("entry_action") == "WATCH" and policy_reasons:
+        action = "👀 الحالة: <b>فرصة تحت المراقبة</b> — " + policy_reasons[0]
     reference = ("إغلاق شمعة 5د؛ ليس سعرًا حيًا"
                  if trade.get("delayed_reference") else "سعر مرصود")
     return (
