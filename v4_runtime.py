@@ -13,6 +13,7 @@ import time
 
 from v4_entry_policy import assess_entry
 from v4_dual_brain import execution_brain, audit_watch_decisions
+from v4_adaptive_11_20 import adaptive_entry_review, signal_change_review, signal_change_message
 from engine import advance_trade
 from market import DataError, require_fresh
 from news import NewsGuard
@@ -225,6 +226,13 @@ class V4PaperResilientQuick(V4Paper):
         self.store.set("v4_quick_5m_analysis", quick_decision)
         self.store.set("v4_quick_5m_reference", entry_ref)
         quick5m = quick_decision.get("quick5m") or {}
+        # Alert once if a recent entry recommendation reverses; do not touch paper trades.
+        reversal = signal_change_review(self.store.get("v4_quick_last"), quick_decision, now)
+        if reversal and self.store.get("v4_last_reversal_alert_id") != reversal.get("old_id"):
+            if self.notifier:
+                self.notifier.send(signal_change_message(reversal))
+            self.store.set("v4_last_reversal_alert_id", reversal.get("old_id"))
+            self.store.set("v4_last_reversal_alert", reversal)
         if not quick5m.get("entry_allowed"):
             self.store.set("v4_quick_last_block", "quick_5m_wait")
             LOG.info(
@@ -306,7 +314,16 @@ class V4PaperResilientQuick(V4Paper):
             learning_summary=self.store.get("v4_learning_summary", {}),
             news_clear=allowed_news and not nearby,
         )
-        policy = dual["entry_policy"]
+        adaptive = adaptive_entry_review(
+            quick_decision, setup, entry_ref, datetime.now(UTC), dual["entry_policy"],
+            quick_trades=self._quick_rows(), official_trade=active,
+        )
+        policy = adaptive["entry_policy"]
+        dual["entry_policy"] = policy
+        dual["execution"]["action"] = policy["action"]
+        setup["adaptive"] = adaptive
+        setup["adaptive_market"] = ((quick_decision.get("v4") or {}).get("adaptive") or {})
+        self.store.set("v4_adaptive_last", {"market": setup["adaptive_market"], "execution": adaptive})
         setup["dual_brain"] = dual
         self.store.set("v4_dual_brain_last", dual)
         setup["entry_policy"] = policy
