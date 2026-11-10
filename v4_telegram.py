@@ -70,8 +70,21 @@ def status_message(store):
     continuation = store.get("v4_last_continuation") or {}
     side = decision.get("side", "WAIT")
     reason = decision.get("reason", "—")
+    market_state = store.get("v4_market_status") or "UNKNOWN"
+    gold_gate_reasons = {
+        "BROKER_CALENDAR_UNVERIFIED": "جلسات وسيط الذهب غير موثقة",
+        "BROKER_SESSION_CLOSED": "جلسة وسيط الذهب مغلقة",
+        "NEWS_CALENDAR_UNVERIFIED": "تقويم الأخبار غير موثق",
+        "WEEKEND_CLOSED": "إغلاق نهاية الأسبوع",
+        "DAILY_BREAK_CLOSED": "استراحة السوق اليومية",
+    }
     lines = [
         "📊 <b>حالة Laith V4</b>",
+        f"حالة سوق الذهب: <b>{market_state if market_state in gold_gate_reasons or market_state == 'OPEN' else 'UNKNOWN'}</b>",
+    ]
+    if market_state in gold_gate_reasons:
+        lines.append(f"⛔️ لا توجد إشارة دخول ذهب: {gold_gate_reasons[market_state]}.")
+    lines.extend([
         f"القرار الرسمي: <b>{side}</b>",
         f"السبب: {reason}",
         f"الجلسة: {research.get('session', '—')}",
@@ -81,7 +94,7 @@ def status_message(store):
         f"المقاومة: {_fmt((structure.get('resistance') or {}).get('center'))}",
         f"التصحيح: {correction.get('direction', '—')} / {correction.get('strength', '—')}",
         f"وقف هيكلي مرجعي: {_fmt(risk.get('stop'))}",
-    ]
+    ])
     if active:
         lines.extend([
             "",
