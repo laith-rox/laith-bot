@@ -31,6 +31,8 @@ def fetch_verified_news(now=None, opener=urlopen):
             raise ValueError("uncertain_calendar_event")
         if not event.get("id") or not event.get("title") or not event.get("time"):
             raise ValueError("missing_event_fields")
+        if not isinstance(event["time"], str):
+            raise ValueError("invalid_release_time")
         release = datetime.fromisoformat(event["time"].replace("Z", "+00:00"))
         if release.tzinfo is None:
             raise ValueError("naive_release_time")
