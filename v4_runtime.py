@@ -578,6 +578,9 @@ def run(args):
     )
     broker_sessions = verified_sessions(os.environ.get('V4_VERIFIED_BROKER_SESSIONS'))
     news_events = verified_news(os.environ.get('V4_VERIFIED_NEWS_EVENTS'))
+    # Experimental free USD calendar. Failure never authorizes a gold entry.
+    free_news_enabled = os.environ.get("V4_FREE_NEWS_CALENDAR_ENABLED") == "1"
+    next_free_news_refresh = 0.0
     # Independent safety must use the same broker-session gate as main polling.
     safety_stop = start_minute_safety(
         args, lambda at: verified_safety_market_closed(at, broker_sessions)
@@ -620,6 +623,18 @@ def run(args):
                 # continues on weekends even while XAU is session-blocked.
                 current = time.time()
                 next_btc = (int(current) // 900 + 1) * 900 + 25
+            if free_news_enabled and time.time() >= next_free_news_refresh:
+                try:
+                    from v4_free_news_calendar import fetch_verified_news
+                    fresh_calendar = fetch_verified_news(now)
+                    os.environ["V4_VERIFIED_NEWS_EVENTS"] = fresh_calendar
+                    news_events = verified_news(fresh_calendar)
+                    LOG.info("free_news_calendar_refreshed events=%s", len(news_events))
+                except Exception as exc:
+                    os.environ.pop("V4_VERIFIED_NEWS_EVENTS", None)
+                    news_events = ()
+                    LOG.warning("free_news_calendar_unavailable reason=%s", type(exc).__name__)
+                next_free_news_refresh = time.time() + 900
             if time.time() >= next_alert:
                 try:
                     run_alert_cycle(now, store=store, notifier=telegram,
