@@ -196,7 +196,7 @@ class V4PaperWithEmergency(_BasePaper):
         # Do not send a generic higher-timeframe WAIT on top of a valid quick
         # candidate or a dedicated Quick-5m WAIT; that was confusing in Telegram.
         last_block = self.store.get("v4_quick_last_block")
-        if last_block in (None, "quick_5m_wait"):
+        if last_block in (None, "quick_5m_wait", "outside_quick_entry_window"):
             return
         if not self.notifier or not decision or not quick_hard_blocked(decision):
             return

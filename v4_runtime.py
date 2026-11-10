@@ -199,6 +199,11 @@ class V4PaperResilientQuick(V4Paper):
                 if self.notifier:
                     self.notifier.send(continuation_message(snap))
 
+        if not quick_entry_window(now):
+            self.store.set("v4_quick_last_block", "outside_quick_entry_window")
+            LOG.info("quick_entry_window_closed window=20:00-23:30 timezone=Asia/Hebron")
+            return
+
         allowed_news, news_reason, nearby = self.news.check(now)
 
         try:
@@ -356,6 +361,13 @@ def market_daily_break_closed(now):
     local = now.astimezone(PALESTINE_TZ)
     minute = local.hour * 60 + local.minute
     return minute >= DAILY_BREAK_START_MINUTE or minute < DAILY_BREAK_END_MINUTE
+
+
+def quick_entry_window(now):
+    """New Quick signals: 20:00 inclusive to 23:30 exclusive, Palestine time."""
+    local = now.astimezone(PALESTINE_TZ)
+    minute = local.hour * 60 + local.minute
+    return 20 * 60 <= minute < 23 * 60 + 30 and not trading_guard_closed(now)
 
 
 def trading_guard_closed(now):
