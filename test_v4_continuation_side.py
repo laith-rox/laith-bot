@@ -1,5 +1,5 @@
 import unittest
-from v4_telegram import continuation_message
+from v4_telegram import continuation_message, paper_open_message
 
 
 class V4ContinuationMessageTests(unittest.TestCase):
@@ -24,6 +24,20 @@ class V4ContinuationMessageTests(unittest.TestCase):
 
     def test_unknown_side_does_not_guess(self):
         self.assertIn("اتجاه غير متاح", continuation_message(self.snapshot(None)))
+
+
+class OfficialPaperMessageTests(unittest.TestCase):
+    def test_buy_in_headline(self):
+        message = paper_open_message({"side": "BUY", "entry": 4056.14, "stop": 4047.77, "tp1": 4066.89, "tp2": 4071.68, "signal_score": 5})
+        self.assertIn("V4 | شراء 🟢⬆️ — صفقة رسمية", message)
+        self.assertIn("4056.14", message)
+        self.assertIn("ليست تنفيذًا حقيقيًا", message)
+
+    def test_sell_in_headline(self):
+        self.assertIn("V4 | بيع 🔴⬇️ — صفقة رسمية", paper_open_message({"side": "SELL"}))
+
+    def test_unknown_direction_not_guessed(self):
+        self.assertIn("اتجاه غير متاح", paper_open_message({}))
 
 
 if __name__ == "__main__":
