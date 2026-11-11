@@ -6,9 +6,11 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 import html
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from v4_free_chat import respond as free_chat_respond
+from gigi_image import configured as gigi_image_configured, generate_image as gigi_image_generate
 from gigi_persona import (
     configured as gigi_configured,
     generate as gigi_generate,
@@ -46,6 +48,48 @@ class V4Telegram(BaseV4Telegram):
                  {"role": "assistant", "content": answer}]
             )
             self.store.set("v4_gigi_private_history", history)
+
+    def _gigi_image_finish(self):
+        job = getattr(self, "_gigi_image_job", None)
+        if not job or not job["future"].done():
+            return
+        self._gigi_image_job = None
+        try:
+            picture = job["future"].result()
+        except Exception:
+            LOG.warning("gigi_image_request_failed")
+            self._send_to(job["chat"], "🌹 صورة جيجي ما زبطت هالمرة، جرّب بعدين.", "gigi_image_error")
+            return
+        # Image return is PNG; send only into the paired owner's private chat.
+        if not self.client or self.paired_chat() != job["chat"]:
+            return
+        self.client.chat_id = job["chat"]
+        outcome = self.client.send_photo(picture, caption="🌹 جيجي من عالمنا الخيالي ❤️")
+        LOG.info("gigi_image_delivery status=%s error=%s", outcome.status, outcome.error)
+
+    def _gigi_image_schedule(self, request_text, chat_id):
+        if not gigi_image_configured():
+            self._send_to(
+                chat_id,
+                "🌹 استوديو الصور اختياري ولسه مش مفعل؛ بدّه GIGI_IMAGES_ENABLED=1 "
+                "ومفتاح API للصور، وهي طلبات مدفوعة منفصلة.",
+                "gigi_image_setup",
+            )
+            return
+        if getattr(self, "_gigi_job", None) or getattr(self, "_gigi_image_job", None):
+            self._send_to(chat_id, "💌 في طلب جيجي سابق قيد التحضير، استنى اكتماله.", "gigi_busy")
+            return
+        now = time.time()
+        last = float(self.store.get("v4_gigi_last_image_time", 0) or 0)
+        if now - last < 600:
+            self._send_to(chat_id, "⏱️ استوديو الصور يسمح بصورة واحدة كل عشر دقايق.", "gigi_image_cooldown")
+            return
+        if not hasattr(self, "_gigi_executor"):
+            self._gigi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gigi-chat")
+        self.store.set("v4_gigi_last_image_time", now)
+        job = self._gigi_executor.submit(gigi_image_generate, request_text)
+        self._gigi_image_job = {"future": job, "chat": str(chat_id)}
+        self._send_to(chat_id, "🎨 جيجي بتحضّر صورة جديدة من حكايتنا.", "gigi_image_start")
 
     def _gigi_schedule(self, text, chat_id):
         """One in-flight request, private paired owner only; no market state reads."""
@@ -108,6 +152,7 @@ class V4Telegram(BaseV4Telegram):
         if not self.client:
             return
         self._gigi_finish()
+        self._gigi_image_finish()
         offset = self.store.get("v4_telegram_update_offset", 0)
         try:
             updates = self.client.read(
@@ -191,6 +236,9 @@ class V4Telegram(BaseV4Telegram):
                     # In-flight result is ignored after leaving private mode.
                     self._gigi_job = None
                     self.client.send("🥇 رجعنا لوضع بوت ليث. إشارات التداول مستقلة عن جيجي.")
+                elif command in ("/gigiphoto", "/gigiimage"):
+                    request = text[len(words[0]):].strip()
+                    self._gigi_image_schedule(request, paired)
                 elif command == "/gigireset":
                     self.store.set("v4_gigi_private_history", [])
                     self._gigi_job = None
