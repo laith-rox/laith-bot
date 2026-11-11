@@ -173,6 +173,12 @@ def quick_message(trade):
     )
 
 def continuation_message(snapshot):
+    side = snapshot.get("side")
+    side_label = "شراء 🟢⬆️" if side == "BUY" else "بيع 🔴⬇️" if side == "SELL" else "اتجاه غير متاح"
+    def correction_label(value):
+        if value is None or str(value).strip().upper() in ("", "NONE", "UNAVAILABLE"):
+            return "غير متاح"
+        return {"UP": "صاعد", "DOWN": "هابط", "STRONG": "قوي", "MEDIUM": "متوسط", "WEAK": "ضعيف"}.get(str(value).upper(), str(value))
     state = snapshot.get("state", "—")
     marker = "✅" if state == "قوية" else "🟡" if state == "متوسطة" else "🟠" if state == "ضعيفة" else "🔴"
     notes = []
@@ -185,13 +191,13 @@ def continuation_message(snapshot):
     warning = ("\n⚠️ " + " — ".join(notes[:2])) if notes else ""
     tp1_text = "✅" if snapshot.get("tp1_hit") else "⏳"
     return (
-        "🔄 <b>تحديث 5د — صفقة V4</b>\n"
+        f"🔄 <b>تحديث 5د — صفقة V4 {side_label}</b>\n"
         f"🔴① الوقف الحالي: <b>{_fmt(snapshot.get('stop'))}</b>\n"
         f"🔵② الاستمرارية: <b>{state}</b> {marker} — {snapshot.get('score', '—')}/7\n"
         f"🟠③ السعر / الدخول: {_fmt(snapshot.get('price'))} / {_fmt(snapshot.get('entry'))}\n"
         f"🟢④ TP1: {_fmt(snapshot.get('tp1'))} {tp1_text}\n"
         f"🟢⑤ TP2: {_fmt(snapshot.get('tp2'))}\n"
-        f"🟡⑥ التصحيح: {snapshot.get('correction_direction', '—')} / {snapshot.get('correction_strength', '—')}"
+        f"🟡⑥ التصحيح: {correction_label(snapshot.get('correction_direction'))} / {correction_label(snapshot.get('correction_strength'))}"
         f"{warning}\n"
         "📄 تحديث متابعة ورقي — بدون ضمان"
     )
