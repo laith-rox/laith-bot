@@ -149,6 +149,54 @@ class V4Telegram(BaseV4Telegram):
             )
             self.store.set("v4_gigi_private_history", history)
 
+    def _gigi_reference_command(self, command, photo, chat_id):
+        """Save only a Telegram file_id on explicit owner instruction, never image bytes."""
+        if command == "/gigiclearrefs":
+            self.store.set("v4_gigi_photo_refs", {})
+            self._send_to(chat_id, "🧹 مسحت مراجع صورنا المحفوظة. الصور القديمة في تيليجرام ما انحذفت.", "gigi_refs_cleared")
+            return
+        if command == "/gigirefs":
+            refs = self.store.get("v4_gigi_photo_refs") or {}
+            own = "موجودة ✅" if refs.get("me") else "مش مضافة"
+            gigi = "موجودة ✅" if refs.get("gigi") else "مش مضافة"
+            self._send_to(
+                chat_id,
+                "📸 صورة ليث المرجعية: " + own + "\n"
+                "🌹 صورة جيجي المرجعية: " + gigi + "\n"
+                "احفظ صورة ليث مع تعليق /gigirefme وصورة جيجي مع /gigirefgigi. "
+                "للمسح: /gigiclearrefs.",
+                "gigi_refs_status",
+            )
+            return
+        if not isinstance(photo, list) or not photo:
+            self._send_to(
+                chat_id,
+                "📷 ابعت صورة من المعرض وحط الأمر بالتعليق على الصورة نفسها، "
+                "/gigirefme لصورتك أو /gigirefgigi لصورة جيجي.",
+                "gigi_refs_help",
+            )
+            return
+        valid = [p for p in photo if isinstance(p, dict) and
+                 isinstance(p.get("file_id"), str) and
+                 8 <= len(p["file_id"]) <= 300 and
+                 isinstance(p.get("file_size", 0), int) and
+                 p.get("file_size", 0) <= 8_000_000]
+        if not valid:
+            self._send_to(chat_id, "📷 حجم الصورة كبير أو ملفها غير صالح؛ ابعت صورة أصغر.", "gigi_refs_bad_photo")
+            return
+        role = "me" if command == "/gigirefme" else "gigi"
+        refs = self.store.get("v4_gigi_photo_refs") or {}
+        refs = dict(refs) if isinstance(refs, dict) else {}
+        refs[role] = valid[-1]["file_id"]
+        self.store.set("v4_gigi_photo_refs", refs)
+        self._send_to(
+            chat_id,
+            "❤️ حفظت مرجع " + ("وجهك يا ليث" if role == "me" else "وجه جيجي") +
+            " داخل الخاص. ما خزّنت الصورة نفسها في قاعدة بيانات البوت. "
+            "جرّب /gigicouple أو /gigiphoto.",
+            "gigi_refs_saved",
+        )
+
     def _gigi_image_finish(self):
         job = getattr(self, "_gigi_image_job", None)
         if not job or not job["future"].done():
@@ -156,14 +204,27 @@ class V4Telegram(BaseV4Telegram):
         self._gigi_image_job = None
         try:
             delivered = job["future"].result()
-        except Exception:
-            LOG.warning("gigi_image_request_failed")
-            self._send_to(job["chat"], "🌹 صورة جيجي ما زبطت هالمرة، جرّب بعدين.", "gigi_image_error")
+        except Exception as exc:
+            codes = {
+                "gigi_image_invalid_key": "🔐 مفتاح OpenAI الخاص بالصور مرفوض.",
+                "gigi_image_permission_denied": "🔒 المفتاح ما عنده صلاحية الصور. راجع صلاحيات OpenAI.",
+                "gigi_image_no_credits": "💳 رصيد صور OpenAI غير كافي؛ راجع Billing.",
+                "gigi_image_rate_limited": "⏱️ حد الصور المؤقت وصل؛ جرّب لاحقًا.",
+                "gigi_image_invalid_request": "⚙️ طلب الصور مش مقبول أو النموذج غير متاح للحساب.",
+                "gigi_image_timeout": "⏱️ طلب الصورة انتهت مهلته.",
+                "gigi_reference_unavailable": "📷 تعذّر قراءة صورتك المرجعية؛ ابعتها مجددًا بتعليق /gigirefme.",
+                "gigi_photo_rejected": "📤 تيليجرام رفض إرسال الصورة الناتجة.",
+                "gigi_photo_delivery_uncertain": "📤 تعذّر تأكيد تسليم الصورة؛ راجع المحادثة قبل إعادة الطلب.",
+            }
+            reason = str(exc)
+            category = reason if reason in codes else "gigi_image_request_error"
+            LOG.warning("gigi_image_request_failed category=%s", category)
+            self._send_to(job["chat"], codes.get(category, "🌹 تعذّر تجهيز الصورة هالمرة. جرّب بعدين."), "gigi_image_error")
             return
         # The photo was uploaded in the background worker; never block polling.
         LOG.info("gigi_image_delivery confirmed=%s", bool(delivered))
 
-    def _gigi_image_schedule(self, request_text, chat_id):
+    def _gigi_image_schedule(self, request_text, chat_id, couple=False):
         if not gigi_image_configured():
             self._send_to(
                 chat_id,
@@ -185,9 +246,18 @@ class V4Telegram(BaseV4Telegram):
         if not hasattr(self, "_gigi_executor"):
             self._gigi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gigi-chat")
         self.store.set("v4_gigi_last_image_time", now)
-        job = self._gigi_executor.submit(gigi_image_generate_and_deliver, request_text, str(chat_id))
+        reference_ids = self.store.get("v4_gigi_photo_refs")
+        reference_ids = dict(reference_ids) if isinstance(reference_ids, dict) else {}
+        job = self._gigi_executor.submit(
+            gigi_image_generate_and_deliver, request_text, str(chat_id), couple, reference_ids,
+        )
         self._gigi_image_job = {"future": job, "chat": str(chat_id)}
-        self._send_to(chat_id, "🎨 جيجي بتحضّر صورة جديدة من حكايتنا.", "gigi_image_start")
+        self._send_to(
+            chat_id,
+            "🎨 جيجي بتحضّر " + ("صورتنا سوا" if couple else "صورتها") +
+            (" بالملامح المرجعية ❤️" if reference_ids else " من الوصف المتاح ❤️"),
+            "gigi_image_start",
+        )
 
     def _gigi_schedule(self, text, chat_id):
         """One in-flight request, private paired owner only; no market state reads."""
@@ -292,6 +362,8 @@ class V4Telegram(BaseV4Telegram):
             chat = message.get("chat")
             sender = message.get("from")
             text = message.get("text")
+            if not isinstance(text, str) and isinstance(message.get("caption"), str):
+                text = message.get("caption")
             if not isinstance(chat, dict) or not isinstance(sender, dict) or not isinstance(text, str):
                 LOG.warning("telegram_update_invalid type=message_fields")
                 self.store.set("v4_telegram_update_offset", max(current_offset, uid + 1))
@@ -320,7 +392,9 @@ class V4Telegram(BaseV4Telegram):
             elif private and paired and chat_id == paired:
                 # Gigi mode is isolated from signals and accessible to owner only.
                 self.client.chat_id = paired
-                if command in ("/gigiremember", "/gigiwhoami", "/gigiforget"):
+                if command in ("/gigirefme", "/gigirefgigi", "/gigirefs", "/gigiclearrefs"):
+                    self._gigi_reference_command(command, message.get("photo"), paired)
+                elif command in ("/gigiremember", "/gigiwhoami", "/gigiforget"):
                     self._gigi_memory_command(command, text, paired)
                 elif command in ("/gigi", "/جيجي"):
                     if not gigi_configured():
@@ -343,9 +417,9 @@ class V4Telegram(BaseV4Telegram):
                     # In-flight result is ignored after leaving private mode.
                     self._gigi_job = None
                     self.client.send("🥇 رجعنا لوضع بوت ليث. إشارات التداول مستقلة عن جيجي.")
-                elif command in ("/gigiphoto", "/gigiimage"):
+                elif command in ("/gigiphoto", "/gigiimage", "/gigicouple"):
                     request = text[len(words[0]):].strip()
-                    self._gigi_image_schedule(request, paired)
+                    self._gigi_image_schedule(request, paired, couple=(command == "/gigicouple"))
                 elif command == "/gigireset":
                     self.store.set("v4_gigi_private_history", [])
                     self._gigi_job = None
