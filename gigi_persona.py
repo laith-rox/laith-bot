@@ -63,6 +63,36 @@ def extract_text(data):
     return output[:3400]
 
 
+def _raise_api_rejection(response):
+    """Classify provider rejection without recording the response body or API key."""
+    status = int(getattr(response, "status_code", 0) or 0)
+    code = ""
+    try:
+        payload = response.json()
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if isinstance(error, dict):
+            code = str(error.get("code") or error.get("type") or "").lower()[:80]
+    except (ValueError, TypeError, AttributeError):
+        pass
+    if status == 401:
+        category = "gigi_auth_invalid"
+    elif status == 403:
+        category = "gigi_permission_denied"
+    elif status == 429 and ("quota" in code or "billing" in code or "credit" in code):
+        category = "gigi_quota_exceeded"
+    elif status == 429:
+        category = "gigi_rate_limited"
+    elif status in (400, 404) and ("model" in code or status == 404):
+        category = "gigi_model_unavailable"
+    elif status == 400:
+        category = "gigi_bad_request"
+    elif status >= 500:
+        category = "gigi_provider_unavailable"
+    else:
+        category = "gigi_api_rejected"
+    raise RuntimeError(category)
+
+
 def generate(message, saved_history=(), post=None):
     """Perform only a bounded text chat request. Called by a separate worker."""
     key = os.getenv("GIGI_OPENAI_API_KEY", "").strip()
@@ -88,7 +118,9 @@ def generate(message, saved_history=(), post=None):
             timeout=(5, 25),
         )
         if response.status_code != 200:
-            raise RuntimeError("gigi_api_rejected")
+            _raise_api_rejection(response)
         return extract_text(response.json())
-    except (requests.RequestException, ValueError, TypeError) as exc:
-        raise RuntimeError("gigi_api_unavailable") from None
+    except requests.Timeout:
+        raise RuntimeError("gigi_network_timeout") from None
+    except (requests.RequestException, ValueError, TypeError):
+        raise RuntimeError("gigi_network_unavailable") from None
