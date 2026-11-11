@@ -17,6 +17,7 @@ import time
 
 from bot import entry_window
 from engine import make_trade, advance_trade
+from v4_schedule import next_official_cycle
 from market import Market, DataError, require_fresh
 from news import NewsGuard
 from storage import Store
@@ -363,7 +364,7 @@ def run(args):
         "starting independent V4 paper worker db=%s experiment=%s telegram=%s quick_interval=%ss",
         args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
     )
-    next_cycle = 0.0
+    next_cycle = next_official_cycle(time.time(), 300)
     next_quick = 0.0
     try:
         while True:
@@ -373,15 +374,19 @@ def run(args):
             except Exception:
                 LOG.exception("telegram_cycle_failed")
             if time.time() >= next_cycle:
+                cycle_interval = args.interval
                 try:
                     paper.cycle(now)
                     store.set("v4_last_error", None)
                 except DataError as exc:
                     store.set("v4_last_error", str(exc))
                     LOG.warning("cycle_data_error reason=%s", exc)
+                    if str(exc) == "market_closed_candles_stale":
+                        cycle_interval = 300
                 except Exception:
                     LOG.exception("cycle_failed")
-                next_cycle = time.time() + args.interval
+                next_cycle = next_official_cycle(time.time(), cycle_interval)
+                LOG.info("official_next_cycle at=%s", datetime.fromtimestamp(next_cycle, UTC).isoformat())
             if time.time() >= next_quick:
                 try:
                     paper.quick_cycle(datetime.now(UTC))
