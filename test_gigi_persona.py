@@ -177,6 +177,38 @@ class TestOwnerRouting(unittest.TestCase):
                 self.assertFalse(any("PHOTO" in msg for _,msg in self.bot.client.sent))
                 self.assertGreater(self.store.get("v4_gigi_last_image_time"), 0)
 
+    def test_daily_text_quota_does_not_change_trading_state(self):
+        with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test", "GIGI_DAILY_TEXT_LIMIT": "1"}, clear=True):
+            with patch("v4_group_telegram.gigi_generate", return_value="اهلا"):
+                self.bot.client.updates = [update(1, 123, "/gigi")]
+                self.bot.poll()
+                self.bot.client.updates = [update(2, 123, "مرحبا")]
+                self.bot.poll()
+                self.bot._gigi_job["future"].result(timeout=2)
+                self.bot.poll()
+                self.bot.client.updates = [update(3, 123, "كيفك")]
+                self.bot.poll()
+                self.assertIn("الحد اليومي", self.bot.client.sent[-1][1])
+                self.assertEqual(self.store.get("v4_gigi_daily_usage")["text"], 1)
+                self.assertNotIn("paused", self.store.data)
+
+    def test_daily_image_quota_prevents_second_generation(self):
+        with patch.dict(os.environ, {
+            "GIGI_OPENAI_API_KEY": "test",
+            "GIGI_IMAGES_ENABLED": "1",
+            "GIGI_DAILY_IMAGE_LIMIT": "1",
+        }, clear=True):
+            with patch("v4_group_telegram.gigi_image_generate_and_deliver", return_value=True) as generator:
+                self.bot.client.updates = [update(1, 123, "/gigiphoto")]
+                self.bot.poll()
+                self.bot._gigi_image_job["future"].result(timeout=2)
+                self.bot.poll()
+                self.store.set("v4_gigi_last_image_time", 0)
+                self.bot.client.updates = [update(2, 123, "/gigiphoto")]
+                self.bot.poll()
+                self.assertEqual(generator.call_count, 1)
+                self.assertIn("الحد اليومي", self.bot.client.sent[-1][1])
+
     def test_async_gigi_reply_escaped_and_history(self):
         with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test"}):
             with patch("v4_group_telegram.gigi_generate", return_value="هلا <حبيبي>") as mock:
