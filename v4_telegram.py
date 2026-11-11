@@ -155,11 +155,12 @@ def quick_message(trade):
     if trade.get("entry_action") == "ENTER_NOW":
         action = "🟢 ادخل الآن — بعد مطابقة سعر وسيطك"
     elif trade.get("entry_action") == "WATCH":
-        action = "👀 مراقبة فقط"
+        reasons = (trade.get("entry_policy") or {}).get("reasons") or []
+        action = "👀 فرصة تحت المراقبة" + (f" — {reasons[0]}" if reasons else "")
     elif trade.get("cautious_entry"):
         action = "🟡 ادخل بحذر — بعد مطابقة سعر وسيطك"
     else:
-        action = "👀 راقب"
+        action = "👀 مراقبة فقط"
     reference = "⚠️ السعر من إغلاق شمعة 5د، وليس سعرًا حيًا" if trade.get("delayed_reference") else "📡 السعر مرصود؛ طابقه مع وسيطك"
     return (
         "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
