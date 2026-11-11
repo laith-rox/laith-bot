@@ -1,9 +1,11 @@
-name: V4 Telegram message regression
+name: V4 decision and message regression
 on:
   pull_request:
     branches: [v4-main]
     paths:
       - 'v4_telegram.py'
+      - 'v4_intelligence.py'
+      - 'test_v4_intelligence.py'
       - 'test_v4_continuation_side.py'
       - '.github/workflows/v4-telegram-message-ci.yml'
   workflow_dispatch:
