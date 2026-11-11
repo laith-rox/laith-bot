@@ -6,6 +6,7 @@ from v4_free_news_calendar import fetch_verified_news
 from v4_verified_calendar import verified_news_calendar_available
 
 NOW = datetime.now(timezone.utc)
+RELEASE = (NOW + timedelta(hours=8)).isoformat()
 
 class Response(io.BytesIO):
     def __enter__(self): return self
@@ -19,7 +20,7 @@ def provider(data):
 def payload(**changes):
     result = {"server_time": NOW.timestamp(), "generated_at": NOW.isoformat(),
               "events": [{"id": "usd-cpi.1", "title": "CPI", "currency": "USD",
-                          "impact": "high", "time": "2026-11-11T13:30:00Z",
+                          "impact": "high", "time": RELEASE,
                           "status": "scheduled", "confidence": "official"}]}
     result.update(changes)
     return result
@@ -48,7 +49,7 @@ class FreeNewsTests(unittest.TestCase):
             fetch_verified_news(NOW, provider(bad))
     def test_naive_release_fails_closed(self):
         bad = payload()
-        bad["events"][0]["time"] = "2026-11-11T13:30:00"
+        bad["events"][0]["time"] = (NOW + timedelta(hours=8)).replace(tzinfo=None).isoformat()
         with self.assertRaisesRegex(ValueError, "naive_release_time"):
             fetch_verified_news(NOW, provider(bad))
     def test_count_mismatch_fails_closed(self):
@@ -61,7 +62,7 @@ class FreeNewsTests(unittest.TestCase):
             fetch_verified_news(NOW, provider(bad))
     def test_duplicate_ids_fail_before_publication(self):
         bad = payload()
-        duplicate = dict(bad["events"][0], title="Other USD release", time="2026-11-11T14:30:00Z")
+        duplicate = dict(bad["events"][0], title="Other USD release", time=(NOW + timedelta(hours=9)).isoformat())
         bad["events"].append(duplicate)
         with self.assertRaisesRegex(ValueError, "duplicate_or_invalid_calendar_event"):
             fetch_verified_news(NOW, provider(bad))
