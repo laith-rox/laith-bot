@@ -133,6 +133,14 @@ class TestOwnerRouting(unittest.TestCase):
         if ex:
             ex.shutdown(wait=True)
 
+    def test_menu_describes_private_gigi_commands(self):
+        self.bot.client.updates = [update(1, 123, "/menu")]
+        self.bot.poll()
+        menu = self.bot.client.sent[-1][1]
+        self.assertIn("/gigi", menu)
+        self.assertIn("/gigiphoto", menu)
+        self.assertIn("/laith", menu)
+
     def test_gigi_requires_api_key_and_does_not_switch(self):
         with patch.dict(os.environ, {}, clear=True):
             self.bot.client.updates = [update(1, 123, "/gigi")]
