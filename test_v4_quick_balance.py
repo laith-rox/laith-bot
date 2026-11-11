@@ -116,9 +116,9 @@ class V4QuickBalanceTests(unittest.TestCase):
             "correction_invalidation": 4294.0,
         }
         message = quick_message(trade)
-        self.assertIn("V4 سريع — 5د — SELL", message)
-        self.assertIn("🔵① القوة: <b>متوسطة</b> — 6/7", message)
-        self.assertIn("🔵⑥ الشروط: <b>بيع 6/7</b> | شراء 2/7", message)
+        self.assertIn("BLACK DIAMOND ROYAL", message)
+        self.assertIn("✦ القوة: <b>متوسطة</b> · <b>6/7</b>", message)
+        self.assertIn("⚖️ الشروط: بيع <b>6/7</b> · شراء <b>2/7</b>", message)
         self.assertIn("🟠⑦ التصحيح: <b>صعود</b> → 4304.00 / 4308.00 | إبطال 4294.00", message)
         self.assertNotIn("📊 تحقق الشروط:", message)
         self.assertNotIn("توقع التصحيح:", message)
