@@ -6,7 +6,10 @@ available for owner commands and as the fallback destination when no group is bo
 """
 import logging
 import html
+import os
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 
 from v4_free_chat import respond as free_chat_respond
@@ -29,6 +32,36 @@ LOG = logging.getLogger("laith.v4.telegram.group")
 
 
 class V4Telegram(BaseV4Telegram):
+    def _gigi_quota(self, kind, chat_id):
+        """Small owner-only per-day safety budget; never touches trading counters."""
+        defaults = {"text": 60, "image": 12}
+        if kind not in defaults:
+            return False
+        env_name = "GIGI_DAILY_TEXT_LIMIT" if kind == "text" else "GIGI_DAILY_IMAGE_LIMIT"
+        try:
+            limit = max(1, min(1000, int(os.getenv(env_name, defaults[kind]))))
+        except (ValueError, TypeError):
+            limit = defaults[kind]
+        today = datetime.now(ZoneInfo("Asia/Hebron")).date().isoformat()
+        usage = self.store.get("v4_gigi_daily_usage")
+        if not isinstance(usage, dict) or usage.get("date") != today:
+            usage = {"date": today, "text": 0, "image": 0}
+        try:
+            count = max(0, int(usage.get(kind, 0)))
+        except (ValueError, TypeError):
+            count = 0
+        if count >= limit:
+            self._send_to(
+                chat_id,
+                "⏳ وصلنا للحد اليومي لطلبات جيجي. بيبدأ عدّ جديد "
+                "بعد منتصف الليل بتوقيت فلسطين. بنقدر نضبط الحد من Railway.",
+                "gigi_daily_limit",
+            )
+            return False
+        usage[kind] = count + 1
+        self.store.set("v4_gigi_daily_usage", usage)
+        return True
+
     def _gigi_finish(self):
         """Deliver finished chat without blocking trading or polling on API I/O."""
         job = getattr(self, "_gigi_job", None)
@@ -80,6 +113,8 @@ class V4Telegram(BaseV4Telegram):
         if now - last < 600:
             self._send_to(chat_id, "⏱️ استوديو الصور يسمح بصورة واحدة كل عشر دقايق.", "gigi_image_cooldown")
             return
+        if not self._gigi_quota("image", chat_id):
+            return
         if not hasattr(self, "_gigi_executor"):
             self._gigi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gigi-chat")
         self.store.set("v4_gigi_last_image_time", now)
@@ -103,6 +138,10 @@ class V4Telegram(BaseV4Telegram):
         if not hasattr(self, "_gigi_executor"):
             self._gigi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gigi-chat")
         message = str(text).strip()[:1200]
+        if not message:
+            return
+        if not self._gigi_quota("text", chat_id):
+            return
         history = gigi_history_items(self.store.get("v4_gigi_private_history"))
         future = self._gigi_executor.submit(gigi_generate, message, history)
         self._gigi_job = {
