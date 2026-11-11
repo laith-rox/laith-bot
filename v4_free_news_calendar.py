@@ -32,7 +32,7 @@ def fetch_verified_news(now=None, opener=urlopen):
         if not isinstance(event, dict) or event.get("currency") != "USD" or event.get("impact") not in ("high", "medium"):
             raise ValueError("unexpected_calendar_event")
         if event.get("status") not in ("scheduled", "moved") or event.get("confidence") not in ("official", "sources_agree"):
-            raise ValueError("uncertain_calendar_event")
+            raise ValueError("uncertain_calendar_event status=%s confidence=%s" % (str(event.get("status"))[:32], str(event.get("confidence"))[:32]))
         if not event.get("id") or not event.get("title") or not event.get("time"):
             raise ValueError("missing_event_fields")
         if not isinstance(event["time"], str):
