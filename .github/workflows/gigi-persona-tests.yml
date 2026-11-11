@@ -1,0 +1,26 @@
+name: Gigi private persona tests
+
+on:
+  pull_request:
+    paths:
+      - 'gigi_persona.py'
+      - 'v4_group_telegram.py'
+      - 'test_gigi_persona.py'
+      - '.github/workflows/gigi-persona-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile modules
+        run: python -m py_compile gigi_persona.py v4_group_telegram.py test_gigi_persona.py
+      - name: Run Gigi unit tests
+        run: python -m unittest -v test_gigi_persona
