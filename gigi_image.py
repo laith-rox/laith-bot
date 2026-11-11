@@ -70,7 +70,7 @@ def send_private_photo(photo_bytes, chat_id, post=None):
     destination = str(chat_id or "").strip()
     if not token or not destination or not isinstance(photo_bytes, bytes):
         raise RuntimeError("gigi_photo_delivery_not_configured")
-    if len(photo_bytes) > MAX_BYTES or not photo_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+    if len(photo_bytes) > MAX_BYTES or not photo_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
         raise RuntimeError("gigi_photo_invalid")
     call = post or requests.post
     try:
