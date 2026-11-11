@@ -98,6 +98,28 @@ def _bar_quality(bars, now):
     }
 
 
+def _validated_correction(decision, correction):
+    """Expire an old impulse's correction beyond its own invalidation boundary.
+
+    A confirmed pivot may remain fixed while the trend extends. RSI and a
+    counter-candle must not reactivate that expired correction. Preserve the
+    map for audit; missing/nonfinite prices never relax the guard.
+    """
+    result = dict(correction or {})
+    price = _num(decision.get("price"))
+    invalidation = _num(result.get("invalidation"))
+    direction = result.get("direction")
+    invalidated = price is not None and invalidation is not None and (
+        (direction == "UP" and price < invalidation)
+        or (direction == "DOWN" and price > invalidation)
+    )
+    if invalidated:
+        result.update(triggered=False, invalidated=True, state="INVALIDATED",
+                      invalidation_reason="price_beyond_correction_invalidation",
+                      evaluated_price=price)
+    return result
+
+
 def _no_trade_zone(decision, research):
     price = _num(decision.get("price"))
     atr = _num(decision.get("atr"))
@@ -262,6 +284,8 @@ def enrich_decision(decision, bars, now):
     """
     result = deepcopy(decision)
     research = dict(result.get("v4") or {})
+    if research.get("correction"):
+        research["correction"] = _validated_correction(result, research["correction"])
     side = _side_hint(result)
     checks = _checks(result, side)
     quality = _bar_quality(bars, now)
@@ -295,7 +319,8 @@ def enrich_decision(decision, bars, now):
 
     correction = dict(research.get("correction") or {})
     if correction:
-        correction["state"] = "TRIGGERED" if correction.get("triggered") else "WATCH"
+        correction["state"] = ("INVALIDATED" if correction.get("invalidated") else
+                               "TRIGGERED" if correction.get("triggered") else "WATCH")
         t1, t2 = _num(correction.get("target1")), _num(correction.get("target2"))
         if t1 is not None or t2 is not None:
             correction["expected_range"] = [t1, t2]
