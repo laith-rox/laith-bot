@@ -57,7 +57,8 @@ class FreeChatTests(unittest.TestCase):
     def test_help_is_honest_about_api_and_trading(self):
         text = respond("جيجي، شو بتعملي؟", self.store)
         self.assertIn("/btcstatus", text)
-        self.assertIn("بدون ربط ChatGPT", text)
+        self.assertIn("محادثة منفصلة عبر API اختياري", text)
+        self.assertIn("/gigi", text)
         self.assertIn("ولا تفتح", text)
 
     def test_gold_status_answers_from_saved_data(self):
