@@ -87,7 +87,7 @@ class TestImageApi(unittest.TestCase):
                 generate_image("forest")
 
     def test_image_api_one_png(self):
-        png = b"\\x89PNG\\r\\n\\x1a\\n" + b"fake_png_data"
+        png = b"\x89PNG\r\n\x1a\n" + b"fake_png_data"
         captured = []
         def fake_post(url, **kwargs):
             captured.append(kwargs)
@@ -143,7 +143,7 @@ class TestOwnerRouting(unittest.TestCase):
             self.assertIn("اختياري", self.bot.client.sent[-1][1])
 
     def test_owner_only_image_queue(self):
-        png = b"\\x89PNG\\r\\n\\x1a\\n" + b"mockbytes"
+        png = b"\x89PNG\r\n\x1a\n" + b"mockbytes"
         with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test", "GIGI_IMAGES_ENABLED": "1"}, clear=True):
             with patch("v4_group_telegram.gigi_image_generate", return_value=png) as mock:
                 self.bot.client.updates = [update(1, 777, "/gigiphoto")]
