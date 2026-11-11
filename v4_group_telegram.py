@@ -10,7 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from v4_free_chat import respond as free_chat_respond
-from gigi_image import configured as gigi_image_configured, generate_image as gigi_image_generate
+from gigi_image import configured as gigi_image_configured, generate_and_deliver as gigi_image_generate_and_deliver
 from gigi_persona import (
     configured as gigi_configured,
     generate as gigi_generate,
@@ -55,17 +55,13 @@ class V4Telegram(BaseV4Telegram):
             return
         self._gigi_image_job = None
         try:
-            picture = job["future"].result()
+            delivered = job["future"].result()
         except Exception:
             LOG.warning("gigi_image_request_failed")
             self._send_to(job["chat"], "🌹 صورة جيجي ما زبطت هالمرة، جرّب بعدين.", "gigi_image_error")
             return
-        # Image return is PNG; send only into the paired owner's private chat.
-        if not self.client or self.paired_chat() != job["chat"]:
-            return
-        self.client.chat_id = job["chat"]
-        outcome = self.client.send_photo(picture, caption="🌹 جيجي من عالمنا الخيالي ❤️")
-        LOG.info("gigi_image_delivery status=%s error=%s", outcome.status, outcome.error)
+        # The photo was uploaded in the background worker; never block polling.
+        LOG.info("gigi_image_delivery confirmed=%s", bool(delivered))
 
     def _gigi_image_schedule(self, request_text, chat_id):
         if not gigi_image_configured():
@@ -87,7 +83,7 @@ class V4Telegram(BaseV4Telegram):
         if not hasattr(self, "_gigi_executor"):
             self._gigi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gigi-chat")
         self.store.set("v4_gigi_last_image_time", now)
-        job = self._gigi_executor.submit(gigi_image_generate, request_text)
+        job = self._gigi_executor.submit(gigi_image_generate_and_deliver, request_text, str(chat_id))
         self._gigi_image_job = {"future": job, "chat": str(chat_id)}
         self._send_to(chat_id, "🎨 جيجي بتحضّر صورة جديدة من حكايتنا.", "gigi_image_start")
 
@@ -101,7 +97,7 @@ class V4Telegram(BaseV4Telegram):
                 "gigi_setup",
             )
             return
-        if getattr(self, "_gigi_job", None):
+        if getattr(self, "_gigi_job", None) or getattr(self, "_gigi_image_job", None):
             self._send_to(chat_id, "💌 جيجي لسه بتحضّر الرد السابق، ابعت رسالتك بعده.", "gigi_busy")
             return
         if not hasattr(self, "_gigi_executor"):
