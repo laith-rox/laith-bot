@@ -80,6 +80,26 @@ class TestPersonaApi(unittest.TestCase):
         self.assertEqual(captured[0]["json"]["input"][-1]["content"], "صباح الخير")
 
 
+    def test_sanitized_provider_error_codes(self):
+        cases = (
+            (401, "invalid_api_key", "gigi_auth_invalid"),
+            (403, "insufficient_permissions", "gigi_permission_denied"),
+            (429, "insufficient_quota", "gigi_quota_exceeded"),
+            (429, "rate_limit_exceeded", "gigi_rate_limited"),
+            (404, "model_not_found", "gigi_model_unavailable"),
+            (400, "invalid_request_error", "gigi_bad_request"),
+            (502, "server_error", "gigi_provider_unavailable"),
+        )
+        for status, code, expected in cases:
+            def fake_post(url, **kwargs):
+                return SimpleNamespace(status_code=status, json=lambda: {
+                    "error": {"code": code, "message": "SHOULD_NOT_LEAK_SECRET"}
+                })
+            with self.subTest(status=status, code=code):
+                with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "mock"}):
+                    with self.assertRaisesRegex(RuntimeError, "^" + expected + "$"):
+                        generate("ping", post=fake_post)
+
 class TestImageApi(unittest.TestCase):
     def test_image_disabled_and_no_network(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -184,6 +204,24 @@ class TestOwnerRouting(unittest.TestCase):
                 mock.assert_called_once_with("على الشرفة", "123")
                 self.assertFalse(any("PHOTO" in msg for _,msg in self.bot.client.sent))
                 self.assertGreater(self.store.get("v4_gigi_last_image_time"), 0)
+
+    def test_private_chat_reports_permission_error_without_key(self):
+        with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test"}):
+            with patch("v4_group_telegram.gigi_generate",
+                       side_effect=RuntimeError("gigi_permission_denied")):
+                self.bot.client.updates = [update(1, 123, "/gigi")]
+                self.bot.poll()
+                self.bot.client.updates = [update(2, 123, "هلا جيجي")]
+                self.bot.poll()
+                # The completed future raises; polling delivers the sanitized notice.
+                future = self.bot._gigi_job["future"]
+                try:
+                    future.result(timeout=2)
+                except RuntimeError:
+                    pass
+                self.bot.poll()
+                self.assertIn("صلاحية", self.bot.client.sent[-1][1])
+                self.assertEqual(self.store.get("v4_gigi_last_api_error"), "gigi_permission_denied")
 
     def test_daily_text_quota_does_not_change_trading_state(self):
         with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test", "GIGI_DAILY_TEXT_LIMIT": "1"}, clear=True):
