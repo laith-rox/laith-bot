@@ -24,7 +24,11 @@ def fetch_verified_news(now=None, opener=urlopen):
     if generated_at.tzinfo is None or not (now - timedelta(minutes=30) <= generated_at <= now + timedelta(minutes=2)):
         raise ValueError("stale_calendar_snapshot")
     events = []
+    seen_ids = set()
+    seen_releases = set()
     for event in payload["events"]:
+        if not isinstance(event, dict):
+            raise ValueError("invalid_calendar_event")
         if not isinstance(event, dict) or event.get("currency") != "USD" or event.get("impact") not in ("high", "medium"):
             raise ValueError("unexpected_calendar_event")
         if event.get("status") not in ("scheduled", "moved") or event.get("confidence") not in ("official", "sources_agree"):
@@ -36,6 +40,14 @@ def fetch_verified_news(now=None, opener=urlopen):
         release = datetime.fromisoformat(event["time"].replace("Z", "+00:00"))
         if release.tzinfo is None:
             raise ValueError("naive_release_time")
+        if not isinstance(event["id"], str) or not isinstance(event["title"], str):
+            raise ValueError("invalid_event_identity")
+        normalized_id = event["id"].strip().casefold()
+        release_key = (event["title"].strip().casefold(), release.astimezone(timezone.utc))
+        if not normalized_id or not release_key[0] or normalized_id in seen_ids or release_key in seen_releases:
+            raise ValueError("duplicate_or_invalid_calendar_event")
+        seen_ids.add(normalized_id)
+        seen_releases.add(release_key)
         # Results are not used to generate an entry; schedule only.
         events.append({"id": event["id"], "title": event["title"], "release_at": event["time"],
                        "impact": event["impact"], "currency": "USD"})
