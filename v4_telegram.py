@@ -205,16 +205,17 @@ def continuation_message(snapshot):
 
 def paper_open_message(trade):
     research = trade.get("research_v4") or {}
+    side = trade.get("side")
+    side_label = "شراء 🟢⬆️" if side == "BUY" else "بيع 🔴⬇️" if side == "SELL" else "اتجاه غير متاح"
     return (
-        "✅ <b>صفقة V4 الرسمية — ورقية</b>\n"
-        f"🔵① القوة: <b>{trade.get('signal_strength', '—')}</b> — {trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}\n"
-        f"🟠② الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
-        f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
-        f"🟢④ الهدف 1: <b>{_fmt(trade.get('tp1'))}</b>\n"
-        f"🟢⑤ الهدف 2: <b>{_fmt(trade.get('tp2'))}</b>\n"
-        f"🔵⑥ الاتجاه: <b>{trade.get('side', '—')}</b> | الجلسة: {research.get('session', '—')}\n"
-        f"🟡⑦ الحالة: كسر {research.get('breakout_state', '—')} | ماكرو {research.get('macro_alignment', '—')}\n"
-        "📄 صفقة بحثية ورقية — ليست تنفيذًا حقيقيًا"
+        f"<b>V4 | {side_label} — صفقة رسمية</b>\n"
+        f"⭐ القوة: <b>{trade.get('signal_strength', '—')}</b> · {trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}\n"
+        f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🛑 الوقف: <b>{_fmt(trade.get('stop'))}</b>\n"
+        f"🎯 الأهداف: <b>{_fmt(trade.get('tp1'))}</b> | <b>{_fmt(trade.get('tp2'))}</b>\n"
+        f"🕒 الجلسة: {research.get('session', '—')}\n"
+        f"⚠️ كسر: {research.get('breakout_state', '—')} · ماكرو: {research.get('macro_alignment', '—')}\n"
+        "📄 صفقة ورقية بحثية — ليست تنفيذًا حقيقيًا"
     )
 
 
