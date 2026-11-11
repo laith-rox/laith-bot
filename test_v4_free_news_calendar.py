@@ -39,7 +39,7 @@ class FreeNewsTests(unittest.TestCase):
     def test_tentative_release_fails_closed(self):
         bad = payload()
         bad["events"][0]["status"] = "tentative"
-        with self.assertRaisesRegex(ValueError, "uncertain_calendar_event"):
+        with self.assertRaisesRegex(ValueError, "uncertain_calendar_event status=tentative confidence=official"):
             fetch_verified_news(NOW, provider(bad))
     def test_missing_confidence_fails_closed(self):
         bad = payload()
