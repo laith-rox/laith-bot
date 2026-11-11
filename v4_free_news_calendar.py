@@ -15,7 +15,7 @@ def fetch_verified_news(now=None, opener=urlopen):
     if payload.get("count") is not None and payload["count"] != len(payload["events"]):
         raise ValueError("calendar_count_mismatch")
     clock = payload.get("server_time")
-    if not isinstance(clock, (int, float)) or abs(clock - now.timestamp()) > 300:
+    if type(clock) not in (int, float) or abs(clock - now.timestamp()) > 300:
         raise ValueError("stale_calendar_clock")
     generated = payload.get("generated_at")
     if not isinstance(generated, str):
@@ -23,6 +23,9 @@ def fetch_verified_news(now=None, opener=urlopen):
     generated_at = datetime.fromisoformat(generated.replace("Z", "+00:00"))
     if generated_at.tzinfo is None or not (now - timedelta(minutes=30) <= generated_at <= now + timedelta(minutes=2)):
         raise ValueError("stale_calendar_snapshot")
+    # Cap untrusted payload size before parsing every event; oversized feeds cannot certify safety.
+    if len(payload["events"]) > 1000:
+        raise ValueError("calendar_too_many_events")
     events = []
     seen_ids = set()
     seen_releases = set()
@@ -37,7 +40,10 @@ def fetch_verified_news(now=None, opener=urlopen):
             raise ValueError("missing_event_fields")
         if not isinstance(event["time"], str):
             raise ValueError("invalid_release_time")
-        release = datetime.fromisoformat(event["time"].replace("Z", "+00:00"))
+        try:
+            release = datetime.fromisoformat(event["time"].replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("invalid_release_time") from exc
         if release.tzinfo is None:
             raise ValueError("naive_release_time")
         # A 3-day feed must not certify a calendar full of old/future releases.
