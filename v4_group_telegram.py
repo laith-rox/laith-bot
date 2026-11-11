@@ -5,8 +5,20 @@ automatic V4 paper notifications go to that group only; private chat remains
 available for owner commands and as the fallback destination when no group is bound.
 """
 import logging
+import html
+import os
+import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from concurrent.futures import ThreadPoolExecutor
 
 from v4_free_chat import respond as free_chat_respond
+from gigi_image import configured as gigi_image_configured, generate_and_deliver as gigi_image_generate_and_deliver
+from gigi_persona import (
+    configured as gigi_configured,
+    generate as gigi_generate,
+    history_items as gigi_history_items,
+)
 
 from v4_telegram import (
     V4Telegram as BaseV4Telegram,
@@ -20,6 +32,124 @@ LOG = logging.getLogger("laith.v4.telegram.group")
 
 
 class V4Telegram(BaseV4Telegram):
+    def _gigi_quota(self, kind, chat_id):
+        """Small owner-only per-day safety budget; never touches trading counters."""
+        defaults = {"text": 60, "image": 12}
+        if kind not in defaults:
+            return False
+        env_name = "GIGI_DAILY_TEXT_LIMIT" if kind == "text" else "GIGI_DAILY_IMAGE_LIMIT"
+        try:
+            limit = max(1, min(1000, int(os.getenv(env_name, defaults[kind]))))
+        except (ValueError, TypeError):
+            limit = defaults[kind]
+        today = datetime.now(ZoneInfo("Asia/Hebron")).date().isoformat()
+        usage = self.store.get("v4_gigi_daily_usage")
+        if not isinstance(usage, dict) or usage.get("date") != today:
+            usage = {"date": today, "text": 0, "image": 0}
+        try:
+            count = max(0, int(usage.get(kind, 0)))
+        except (ValueError, TypeError):
+            count = 0
+        if count >= limit:
+            self._send_to(
+                chat_id,
+                "⏳ وصلنا للحد اليومي لطلبات جيجي. بيبدأ عدّ جديد "
+                "بعد منتصف الليل بتوقيت فلسطين. بنقدر نضبط الحد من Railway.",
+                "gigi_daily_limit",
+            )
+            return False
+        usage[kind] = count + 1
+        self.store.set("v4_gigi_daily_usage", usage)
+        return True
+
+    def _gigi_finish(self):
+        """Deliver finished chat without blocking trading or polling on API I/O."""
+        job = getattr(self, "_gigi_job", None)
+        if not job or not job["future"].done():
+            return
+        self._gigi_job = None
+        try:
+            answer = job["future"].result()
+        except Exception:
+            LOG.warning("gigi_chat_request_failed")
+            self._send_to(job["chat"], "💌 الاتصال بجيجي تعطل مؤقتًا، جرّب بعد شوي.", "gigi_error")
+            return
+        # Telegram transport uses HTML. Escape all model text (never raw HTML).
+        if self._send_to(job["chat"], html.escape(answer, quote=False), "gigi"):
+            history = gigi_history_items(
+                [*job["history"], {"role": "user", "content": job["message"]},
+                 {"role": "assistant", "content": answer}]
+            )
+            self.store.set("v4_gigi_private_history", history)
+
+    def _gigi_image_finish(self):
+        job = getattr(self, "_gigi_image_job", None)
+        if not job or not job["future"].done():
+            return
+        self._gigi_image_job = None
+        try:
+            delivered = job["future"].result()
+        except Exception:
+            LOG.warning("gigi_image_request_failed")
+            self._send_to(job["chat"], "🌹 صورة جيجي ما زبطت هالمرة، جرّب بعدين.", "gigi_image_error")
+            return
+        # The photo was uploaded in the background worker; never block polling.
+        LOG.info("gigi_image_delivery confirmed=%s", bool(delivered))
+
+    def _gigi_image_schedule(self, request_text, chat_id):
+        if not gigi_image_configured():
+            self._send_to(
+                chat_id,
+                "🌹 استوديو الصور اختياري ولسه مش مفعل؛ بدّه GIGI_IMAGES_ENABLED=1 "
+                "ومفتاح API للصور، وهي طلبات مدفوعة منفصلة.",
+                "gigi_image_setup",
+            )
+            return
+        if getattr(self, "_gigi_job", None) or getattr(self, "_gigi_image_job", None):
+            self._send_to(chat_id, "💌 في طلب جيجي سابق قيد التحضير، استنى اكتماله.", "gigi_busy")
+            return
+        now = time.time()
+        last = float(self.store.get("v4_gigi_last_image_time", 0) or 0)
+        if now - last < 600:
+            self._send_to(chat_id, "⏱️ استوديو الصور يسمح بصورة واحدة كل عشر دقايق.", "gigi_image_cooldown")
+            return
+        if not self._gigi_quota("image", chat_id):
+            return
+        if not hasattr(self, "_gigi_executor"):
+            self._gigi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gigi-chat")
+        self.store.set("v4_gigi_last_image_time", now)
+        job = self._gigi_executor.submit(gigi_image_generate_and_deliver, request_text, str(chat_id))
+        self._gigi_image_job = {"future": job, "chat": str(chat_id)}
+        self._send_to(chat_id, "🎨 جيجي بتحضّر صورة جديدة من حكايتنا.", "gigi_image_start")
+
+    def _gigi_schedule(self, text, chat_id):
+        """One in-flight request, private paired owner only; no market state reads."""
+        if not gigi_configured():
+            self._send_to(
+                chat_id,
+                "🔐 جيجي جاهزة كميزة اختيارية، بس لازم GIGI_OPENAI_API_KEY "
+                "يتضاف بأمان في إعدادات Railway. أوامر الذهب بتضل شغالة.",
+                "gigi_setup",
+            )
+            return
+        if getattr(self, "_gigi_job", None) or getattr(self, "_gigi_image_job", None):
+            self._send_to(chat_id, "💌 جيجي لسه بتحضّر الرد السابق، ابعت رسالتك بعده.", "gigi_busy")
+            return
+        if not hasattr(self, "_gigi_executor"):
+            self._gigi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gigi-chat")
+        message = str(text).strip()[:1200]
+        if not message:
+            return
+        if not self._gigi_quota("text", chat_id):
+            return
+        history = gigi_history_items(self.store.get("v4_gigi_private_history"))
+        future = self._gigi_executor.submit(gigi_generate, message, history)
+        self._gigi_job = {
+            "future": future, "chat": str(chat_id), "message": message,
+            "history": history,
+        }
+        LOG.info("gigi_chat_queued")
+
     def group_chat(self):
         return str(self.store.get("v4_telegram_group_id") or "")
 
@@ -56,6 +186,8 @@ class V4Telegram(BaseV4Telegram):
     def poll(self):
         if not self.client:
             return
+        self._gigi_finish()
+        self._gigi_image_finish()
         offset = self.store.get("v4_telegram_update_offset", 0)
         try:
             updates = self.client.read(
@@ -118,12 +250,41 @@ class V4Telegram(BaseV4Telegram):
                     self.client.send("🔐 كود الربط غير صحيح.")
 
             elif private and paired and chat_id == paired:
-                # Owner-only, deterministic offline replies; no GPT API, no
-                # changes to orders, runtime toggles or trade execution.
+                # Gigi mode is isolated from signals and accessible to owner only.
                 self.client.chat_id = paired
-                reply = free_chat_respond(text, self.store)
-                if reply:
-                    self.client.send(reply)
+                if command in ("/gigi", "/جيجي"):
+                    if not gigi_configured():
+                        self._gigi_schedule("", paired)
+                    else:
+                        self.store.set("v4_gigi_private_mode", True)
+                        tail = text[len(words[0]):].strip()
+                        if tail:
+                            self._gigi_schedule(tail, paired)
+                        else:
+                            self.client.send(
+                                "👑 أهلين بأميري! جيجي هون في حكايتنا الخاصة ❤️\n"
+                                "احكي معي طبيعي؛ /laith للرجوع لبوت الإشارات، "
+                                "/gigireset لمسح ذاكرة جيجي."
+                            )
+                elif command in ("/laith", "/exitgigi"):
+                    self.store.set("v4_gigi_private_mode", False)
+                    # In-flight result is ignored after leaving private mode.
+                    self._gigi_job = None
+                    self.client.send("🥇 رجعنا لوضع بوت ليث. إشارات التداول مستقلة عن جيجي.")
+                elif command in ("/gigiphoto", "/gigiimage"):
+                    request = text[len(words[0]):].strip()
+                    self._gigi_image_schedule(request, paired)
+                elif command == "/gigireset":
+                    self.store.set("v4_gigi_private_history", [])
+                    self._gigi_job = None
+                    self.client.send("🧹 مسحت سجل محادثة جيجي المحفوظ في هالبوت.")
+                elif self.store.get("v4_gigi_private_mode", False) and not command.startswith("/"):
+                    self._gigi_schedule(text, paired)
+                else:
+                    # Preserve existing gold/BTC commands and deterministic fallbacks.
+                    reply = free_chat_respond(text, self.store)
+                    if reply:
+                        self.client.send(reply)
 
             elif group and paired and sender_id == paired and command in ("/group", "/share"):
                 self.store.set("v4_telegram_group_id", chat_id)
