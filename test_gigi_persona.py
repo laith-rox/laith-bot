@@ -188,7 +188,7 @@ class TestOwnerRouting(unittest.TestCase):
                 self.bot.poll()
                 self.bot.client.updates = [update(3, 123, "كيفك")]
                 self.bot.poll()
-                self.assertIn("الحد اليومي", self.bot.client.sent[-1][1])
+                self.assertIn("للحد اليومي", self.bot.client.sent[-1][1])
                 self.assertEqual(self.store.get("v4_gigi_daily_usage")["text"], 1)
                 self.assertNotIn("paused", self.store.data)
 
@@ -207,7 +207,7 @@ class TestOwnerRouting(unittest.TestCase):
                 self.bot.client.updates = [update(2, 123, "/gigiphoto")]
                 self.bot.poll()
                 self.assertEqual(generator.call_count, 1)
-                self.assertIn("الحد اليومي", self.bot.client.sent[-1][1])
+                self.assertIn("للحد اليومي", self.bot.client.sent[-1][1])
 
     def test_async_gigi_reply_escaped_and_history(self):
         with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test"}):
