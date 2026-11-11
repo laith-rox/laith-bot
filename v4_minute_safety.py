@@ -57,6 +57,19 @@ def flush(store, telegram, now=None):
     dispatch(store, telegram, now=epoch, only_kind=KIND, limit=10)
 
 
+def should_alert_unavailable(last_alert, now, cooldown=900):
+    """Send the first outage notice, then at most one reminder per cooldown."""
+    try:
+        return now - float(last_alert) >= cooldown
+    except (TypeError, ValueError):
+        return True
+
+
+def should_alert_recovery(previous):
+    """Only report recovery after a previously observed outage."""
+    return previous.get('ok') is False
+
+
 def run(args, stop, market_closed):
     store = Store(args.db)
     market = MinuteMarket(args.twelve_key)
@@ -75,16 +88,24 @@ def run(args, stop, market_closed):
                     next_fetch = time.time()+60
                     try:
                         bars = market.fetch(now, size=60)
+                        previous = store.get('v4_minute_safety_status') or {}
                         monitor(store, bars, datetime.now(UTC))
+                        if should_alert_recovery(previous):
+                            epoch = time.time()
+                            store.enqueue('v4rapid:recovered:'+str(int(epoch)), KIND,
+                                '✅ طوارئ V4: عادت بيانات الدقيقة. المراقبة مستمرة.',
+                                epoch, expires=epoch+180)
                         LOG.info('minute_safety_checked trades=%s source=%s',len(trades),bars[-1].end.isoformat())
                     except DataError as exc:
                         previous = store.get('v4_minute_safety_status') or {}
                         epoch = time.time()
                         store.set('v4_minute_safety_status', {'ok': False, 'checked': epoch, 'reason': str(exc)})
-                        if previous.get('ok', True):
+                        last_alert = store.get('v4_minute_safety_last_unavailable_alert')
+                        if should_alert_unavailable(last_alert, epoch):
                             store.enqueue('v4rapid:unavailable:'+str(int(epoch)), KIND,
                                 '⛔️ طوارئ V4: تعذّر تحديث بيانات الدقيقة.\nراقب وقفك عند الوسيط؛ التنبيه قد يتأخر.',
                                 epoch, expires=epoch+180)
+                            store.set('v4_minute_safety_last_unavailable_alert', epoch)
                         if str(exc) in ('minute_quota_reached', 'minute_daily_quota_reached'):
                             next_fetch = epoch + (86400 if str(exc) == 'minute_daily_quota_reached' else 900)
                         LOG.warning('minute_safety_unavailable reason=%s', str(exc))
