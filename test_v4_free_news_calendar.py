@@ -1,7 +1,7 @@
 import io
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from v4_free_news_calendar import fetch_verified_news
 from v4_verified_calendar import verified_news_calendar_available
 
@@ -73,6 +73,16 @@ class FreeNewsTests(unittest.TestCase):
     def test_null_event_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "invalid_calendar_event"):
             fetch_verified_news(NOW, provider(payload(events=[None])))
+    def test_old_release_fails_closed(self):
+        bad = payload()
+        bad["events"][0]["time"] = (NOW - timedelta(days=10)).isoformat()
+        with self.assertRaisesRegex(ValueError, "release_outside_calendar_window"):
+            fetch_verified_news(NOW, provider(bad))
+    def test_far_future_release_fails_closed(self):
+        bad = payload()
+        bad["events"][0]["time"] = (NOW + timedelta(days=10)).isoformat()
+        with self.assertRaisesRegex(ValueError, "release_outside_calendar_window"):
+            fetch_verified_news(NOW, provider(bad))
     def test_empty_verified_calendar_is_valid(self):
         raw = fetch_verified_news(NOW, provider(payload(events=[])))
         self.assertTrue(verified_news_calendar_available(raw))
