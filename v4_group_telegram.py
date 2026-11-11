@@ -18,6 +18,7 @@ from gigi_persona import (
     configured as gigi_configured,
     generate as gigi_generate,
     history_items as gigi_history_items,
+    memory_items as gigi_memory_items,
 )
 
 from v4_telegram import (
@@ -61,6 +62,52 @@ class V4Telegram(BaseV4Telegram):
         usage[kind] = count + 1
         self.store.set("v4_gigi_daily_usage", usage)
         return True
+
+    def _gigi_memory(self):
+        return gigi_memory_items(self.store.get("v4_gigi_owner_memories"))
+
+    def _gigi_memory_command(self, command, text, chat_id):
+        """Owner private chat only; these notes never alter trading state."""
+        if command == "/gigiremember":
+            note = text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else ""
+            if not note:
+                self._send_to(chat_id, "📝 اكتب /gigiremember وبعده معلومة تحب أتذكرها عنك.", "gigi_memory_help")
+                return
+            if len(note) > 220:
+                self._send_to(chat_id, "📝 المعلومة طويلة؛ اختصرها لـ 220 حرف.", "gigi_memory_long")
+                return
+            notes = self._gigi_memory()
+            if note in notes:
+                self._send_to(chat_id, "❤️ هاي المعلومة موجودة أصلًا بذاكرتي.", "gigi_memory_duplicate")
+                return
+            if len(notes) >= 10:
+                self._send_to(chat_id, "📝 الذاكرة مليانة (10 معلومات). امسحها بـ /gigiforget أو اختصر معلوماتك.", "gigi_memory_full")
+                return
+            self.store.set("v4_gigi_owner_memories", [*notes, note])
+            self._send_to(chat_id, "❤️ تذكّرت المعلومة، وراح أستخدمها لما نحكي.", "gigi_memory_saved")
+            return
+        if command == "/gigiforget":
+            self.store.set("v4_gigi_owner_memories", [])
+            self._send_to(chat_id,
+                "🧹 مسحت معلومات التعارف اللي حفظتها من أوامرك. "
+                "ملف التعارف الأساسي في Railway وسجل الرسائل ما تغيروا؛ "
+                "/gigireset لمسح سجل المحادثة.", "gigi_memory_cleared")
+            return
+        if command == "/gigiwhoami":
+            name = os.getenv("GIGI_OWNER_NAME", "").strip()[:60]
+            profile = os.getenv("GIGI_OWNER_PROFILE", "").strip()[:700]
+            notes = self._gigi_memory()
+            lines = ["❤️ بعرف عنك من ملف التعارف اللي اخترناه:"]
+            if name:
+                lines.append("اسمك: " + html.escape(name))
+            if profile:
+                lines.append(html.escape(profile))
+            if notes:
+                lines.append("📝 معلومات حفظتها إنت: " + "؛ ".join(html.escape(x) for x in notes))
+            if not (name or profile or notes):
+                lines.append("لسه ما ضفنا معلومات؛ احكيلي شو بتحب أتذكر.")
+            lines.append("تقدر تضيف بـ /gigiremember أو تمسح بـ /gigiforget.")
+            self._send_to(chat_id, "\n".join(lines), "gigi_memory_about")
 
     def _gigi_finish(self):
         """Deliver finished chat without blocking trading or polling on API I/O."""
@@ -163,7 +210,8 @@ class V4Telegram(BaseV4Telegram):
         if not self._gigi_quota("text", chat_id):
             return
         history = gigi_history_items(self.store.get("v4_gigi_private_history"))
-        future = self._gigi_executor.submit(gigi_generate, message, history)
+        future = self._gigi_executor.submit(
+            gigi_generate, message, history, None, self._gigi_memory())
         self._gigi_job = {
             "future": future, "chat": str(chat_id), "message": message,
             "history": history,
@@ -272,7 +320,9 @@ class V4Telegram(BaseV4Telegram):
             elif private and paired and chat_id == paired:
                 # Gigi mode is isolated from signals and accessible to owner only.
                 self.client.chat_id = paired
-                if command in ("/gigi", "/جيجي"):
+                if command in ("/gigiremember", "/gigiwhoami", "/gigiforget"):
+                    self._gigi_memory_command(command, text, paired)
+                elif command in ("/gigi", "/جيجي"):
                     if not gigi_configured():
                         self._gigi_schedule("", paired)
                     else:
@@ -282,9 +332,11 @@ class V4Telegram(BaseV4Telegram):
                             self._gigi_schedule(tail, paired)
                         else:
                             self.client.send(
-                                "👑 أهلين بأميري! جيجي هون في حكايتنا الخاصة ❤️\n"
-                                "احكي معي طبيعي؛ /laith للرجوع لبوت الإشارات، "
-                                "/gigireset لمسح ذاكرة جيجي."
+                                "👑 أهلين يا " + html.escape(
+                                    os.getenv("GIGI_OWNER_NAME", "").strip()[:60] or "أميري"
+                                ) + "! جيجي هون في حكايتنا الخاصة ❤️\n"
+                                "احكي معي طبيعي؛ /gigiwhoami للي بعرفه عنك، "
+                                "/laith للرجوع للإشارات."
                             )
                 elif command in ("/laith", "/exitgigi"):
                     self.store.set("v4_gigi_private_mode", False)
