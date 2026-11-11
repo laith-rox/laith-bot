@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from gigi_persona import configured, extract_text, generate, history_items, memory_items, owner_context
-from gigi_image import generate_image, send_private_photo
+from gigi_image import generate_image, send_private_photo, fetch_private_reference, build_prompt
 from v4_group_telegram import V4Telegram
 
 
@@ -152,6 +152,57 @@ class TestImageApi(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "not_configured"):
                 send_private_photo(bytes.fromhex("89504e470d0a1a0a"), "123")
 
+    def test_couple_prompt_and_both_reference_images(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"generated"
+        request = []
+        def fake_post(url, **kwargs):
+            request.append((url, kwargs))
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {"data": [{"b64_json": base64.b64encode(png).decode()}]},
+            )
+        with patch.dict(os.environ, {
+            "GIGI_IMAGES_ENABLED": "1",
+            "GIGI_OPENAI_API_KEY": "mock",
+            "GIGI_IMAGE_MODEL": "gpt-image-2.5-flare",
+        }, clear=True):
+            output = generate_image(
+                "ملابس كلاسيكية في الحديقة",
+                post=fake_post, couple=True,
+                references=[
+                    ("me", b"\xff\xd8\xff" + b"me", "image/jpeg"),
+                    ("gigi", b"\xff\xd8\xff" + b"gigi", "image/jpeg"),
+                ],
+            )
+        self.assertEqual(output, png)
+        self.assertEqual(request[0][0].split("/")[-1], "edits")
+        self.assertEqual(len(request[0][1]["files"]), 2)
+        prompt = request[0][1]["data"]["prompt"]
+        self.assertIn("Laith and Gigi together", prompt)
+        self.assertIn("reference 1", prompt)
+        self.assertIn("reference 2", prompt)
+        self.assertIn("ملابس كلاسيكية", prompt)
+        self.assertNotIn("Bearer mock", str(request[0][1]["data"]))
+        self.assertEqual(request[0][1]["data"]["quality"], "medium")
+
+    def test_fetch_reference_from_telegram_without_persisting(self):
+        posts = []
+        downloads = []
+        def fake_post(url, **kwargs):
+            posts.append((url, kwargs))
+            return SimpleNamespace(status_code=200, json=lambda: {
+                "ok": True, "result": {"file_path": "photos/file_4.jpg", "file_size": 5},
+            })
+        def fake_get(url, **kwargs):
+            downloads.append(url)
+            return SimpleNamespace(status_code=200, content=b"\xff\xd8\xff" + b"image")
+        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "mock"}, clear=True):
+            image, mime = fetch_private_reference("AAAAAAAABBBB", post=fake_post, get=fake_get)
+        self.assertEqual(mime, "image/jpeg")
+        self.assertEqual(image, b"\xff\xd8\xffimage")
+        self.assertEqual(posts[0][1]["data"]["file_id"], "AAAAAAAABBBB")
+        self.assertTrue(downloads[0].endswith("/photos/file_4.jpg"))
+
     def test_image_api_one_png(self):
         png = b"\x89PNG\r\n\x1a\n" + b"fake_png_data"
         captured = []
@@ -241,6 +292,43 @@ class TestOwnerRouting(unittest.TestCase):
             self.bot.poll()
             self.assertFalse(self.store.get("v4_gigi_private_mode", False))
 
+    def test_owner_only_reference_photos_and_couple_generation(self):
+        with patch.dict(os.environ, {
+            "GIGI_OPENAI_API_KEY": "test", "GIGI_IMAGES_ENABLED": "1",
+        }, clear=True):
+            photo_update = update(1, 777, "/gigirefme")
+            photo_update["message"].pop("text")
+            photo_update["message"]["caption"] = "/gigirefme"
+            photo_update["message"]["photo"] = [{"file_id": "AAAAAAAABBBB", "file_size": 100}]
+            self.bot.client.updates = [photo_update]
+            self.bot.poll()
+            self.assertFalse(self.store.get("v4_gigi_photo_refs"))
+            own_update = update(2, 123, "/gigirefme")
+            own_update["message"].pop("text")
+            own_update["message"]["caption"] = "/gigirefme"
+            own_update["message"]["photo"] = [{"file_id": "BBBBBBBBCCCC", "file_size": 100}]
+            self.bot.client.updates = [own_update]
+            self.bot.poll()
+            self.assertEqual(self.store.get("v4_gigi_photo_refs"), {"me": "BBBBBBBBCCCC"})
+            other_update = update(3, 123, "/gigirefgigi")
+            other_update["message"]["photo"] = [{"file_id": "CCCCCCCCDDDD", "file_size": 100}]
+            self.bot.client.updates = [other_update]
+            self.bot.poll()
+            self.assertEqual(self.store.get("v4_gigi_photo_refs")["gigi"], "CCCCCCCCDDDD")
+            with patch("v4_group_telegram.gigi_image_generate_and_deliver", return_value=True) as generator:
+                self.bot.client.updates = [update(4, 123, "/gigicouple وقفة جديدة")]
+                self.bot.poll()
+                self.bot._gigi_image_job["future"].result(timeout=2)
+                self.bot.poll()
+                generator.assert_called_once_with(
+                    "وقفة جديدة", "123", True,
+                    {"me": "BBBBBBBBCCCC", "gigi": "CCCCCCCCDDDD"},
+                )
+            self.bot.client.updates = [update(5, 123, "/gigiclearrefs")]
+            self.bot.poll()
+            self.assertEqual(self.store.get("v4_gigi_photo_refs"), {})
+            self.assertNotIn("orders", self.store.data)
+
     def test_images_not_enabled_by_default(self):
         with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test"}, clear=True):
             self.bot.client.updates = [update(1, 123, "/gigiphoto")]
@@ -259,7 +347,7 @@ class TestOwnerRouting(unittest.TestCase):
                 job = self.bot._gigi_image_job
                 job["future"].result(timeout=2)
                 self.bot.poll()
-                mock.assert_called_once_with("على الشرفة", "123")
+                mock.assert_called_once_with("على الشرفة", "123", False, {})
                 self.assertFalse(any("PHOTO" in msg for _,msg in self.bot.client.sent))
                 self.assertGreater(self.store.get("v4_gigi_last_image_time"), 0)
 
