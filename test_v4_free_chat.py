@@ -59,7 +59,7 @@ class FreeChatTests(unittest.TestCase):
         self.assertIn("/btcstatus", text)
         self.assertIn("محادثة منفصلة عبر API اختياري", text)
         self.assertIn("/gigi", text)
-        self.assertIn("ولا تفتح", text)
+        self.assertIn("ولا يفتح أي منهما صفقات", text)
 
     def test_gold_status_answers_from_saved_data(self):
         self.store.set("v4_last_analysis", {"side": "WAIT", "reason": "no_quote"})
