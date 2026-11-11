@@ -99,6 +99,68 @@ class V4IntelligenceTests(unittest.TestCase):
         self.assertIsNotNone(intel["invalidation"]["level"])
         self.assertIsNotNone(intel["wait_plan"]["buy_trigger"])
 
+    def test_expired_correction_does_not_veto_trend_continuation(self):
+        now = datetime(2026, 11, 11, 14, 45, tzinfo=UTC)
+        cases = [("SELL", "UP", 4013.0, 4045.0),
+                 ("BUY", "DOWN", 4080.0, 4048.0)]
+        for side, direction, price, invalidation in cases:
+            with self.subTest(side=side):
+                decision = self.decision(side=side, price=price)
+                decision["v4"]["breakout_state"] = "OPEN_SPACE"
+                decision["v4"]["correction"].update(
+                    direction=direction, strength="STRONG", triggered=True,
+                    invalidation=invalidation)
+                enriched = enrich_decision(decision, self.bars(now), now)
+                self.assertEqual(enriched["side"], side)
+                correction = enriched["v4"]["correction"]
+                self.assertFalse(correction["triggered"])
+                self.assertEqual(correction["state"], "INVALIDATED")
+                self.assertFalse(quick_hard_blocked(enriched))
+                self.assertTrue(decision["v4"]["correction"]["triggered"])
+
+    def test_valid_or_unverifiable_correction_still_blocks(self):
+        now = datetime(2026, 11, 11, 14, 45, tzinfo=UTC)
+        for side, direction, price, invalidation in [
+            ("SELL", "UP", 4047.0, 4045.0),
+            ("BUY", "DOWN", 4047.0, 4048.0),
+            ("SELL", "UP", 4045.0, 4045.0),
+            ("SELL", "UP", 4013.0, None),
+            ("SELL", "UP", 4013.0, float("nan")),
+            ("SELL", "UP", None, 4045.0),
+        ]:
+            with self.subTest(side=side, price=price, invalidation=invalidation):
+                decision = self.decision(side=side, price=price)
+                decision["v4"]["breakout_state"] = "OPEN_SPACE"
+                decision["v4"]["correction"].update(
+                    direction=direction, strength="STRONG", triggered=True,
+                    invalidation=invalidation)
+                enriched = enrich_decision(decision, self.bars(now), now)
+                self.assertEqual(enriched["side"], "WAIT")
+                self.assertIn("strong_adverse_correction",
+                              enriched["v4"]["intelligence"]["entry_gate"]["reasons"])
+
+    def test_expired_correction_preserves_other_safety_blocks(self):
+        now = datetime(2026, 11, 11, 14, 45, tzinfo=UTC)
+        for reason in ("failed_breakout", "stale_market_data",
+                       "opposing_structure_too_close"):
+            with self.subTest(reason=reason):
+                decision = self.decision(side="SELL", price=4013.0)
+                decision["v4"]["breakout_state"] = "OPEN_SPACE"
+                decision["v4"]["correction"].update(
+                    direction="UP", strength="STRONG", triggered=True,
+                    invalidation=4045.0)
+                bars = self.bars(now)
+                if reason == "failed_breakout":
+                    decision["v4"]["breakout_state"] = "FAILED_BREAK"
+                elif reason == "stale_market_data":
+                    bars = self.bars(now - timedelta(hours=1))
+                else:
+                    decision["v4"]["structural_risk"] = {
+                        "valid": False, "reason": reason}
+                enriched = enrich_decision(decision, bars, now)
+                self.assertEqual(enriched["side"], "WAIT")
+                self.assertIn(reason, enriched["v4"]["intelligence"]["entry_gate"]["reasons"])
+
     def test_failed_break_is_hard_block_for_quick_and_official(self):
         now = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
         decision = self.decision()
