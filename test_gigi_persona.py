@@ -1,10 +1,12 @@
 """Tests for Gigi's isolated private Telegram mode (no network calls)."""
 import os
+import base64
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from gigi_persona import configured, extract_text, generate, history_items
+from gigi_image import generate_image
 from v4_group_telegram import V4Telegram
 
 
@@ -31,6 +33,10 @@ class FakeClient:
 
     def send(self, message):
         self.sent.append((self.chat_id, message))
+        return SimpleNamespace(status="sent", message_id=len(self.sent), error=None)
+
+    def send_photo(self, photo_bytes, caption=None):
+        self.sent.append((self.chat_id, "PHOTO:" + str(len(photo_bytes))))
         return SimpleNamespace(status="sent", message_id=len(self.sent), error=None)
 
 
@@ -74,6 +80,29 @@ class TestPersonaApi(unittest.TestCase):
         self.assertEqual(captured[0]["json"]["input"][-1]["content"], "صباح الخير")
 
 
+class TestImageApi(unittest.TestCase):
+    def test_image_disabled_and_no_network(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "disabled"):
+                generate_image("forest")
+
+    def test_image_api_one_png(self):
+        png = b"\\x89PNG\\r\\n\\x1a\\n" + b"fake_png_data"
+        captured = []
+        def fake_post(url, **kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {"data": [{"b64_json": base64.b64encode(png).decode("ascii")}]}
+            )
+        with patch.dict(os.environ, {
+            "GIGI_OPENAI_API_KEY": "test-key", "GIGI_IMAGES_ENABLED": "1",
+        }):
+            result = generate_image("a seaside garden", post=fake_post)
+        self.assertEqual(result, png)
+        self.assertEqual(captured[0]["json"]["n"], 1)
+
+
 class TestOwnerRouting(unittest.TestCase):
     def setUp(self):
         self.store = FakeStore()
@@ -106,6 +135,28 @@ class TestOwnerRouting(unittest.TestCase):
             self.bot.client.updates = [update(4, 123, "/laith")]
             self.bot.poll()
             self.assertFalse(self.store.get("v4_gigi_private_mode", False))
+
+    def test_images_not_enabled_by_default(self):
+        with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test"}, clear=True):
+            self.bot.client.updates = [update(1, 123, "/gigiphoto")]
+            self.bot.poll()
+            self.assertIn("اختياري", self.bot.client.sent[-1][1])
+
+    def test_owner_only_image_queue(self):
+        png = b"\\x89PNG\\r\\n\\x1a\\n" + b"mockbytes"
+        with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test", "GIGI_IMAGES_ENABLED": "1"}, clear=True):
+            with patch("v4_group_telegram.gigi_image_generate", return_value=png) as mock:
+                self.bot.client.updates = [update(1, 777, "/gigiphoto")]
+                self.bot.poll()
+                self.assertFalse(self.bot.client.sent)
+                self.bot.client.updates = [update(2, 123, "/gigiphoto على الشرفة")]
+                self.bot.poll()
+                job = self.bot._gigi_image_job
+                job["future"].result(timeout=2)
+                self.bot.poll()
+                mock.assert_called_once_with("على الشرفة")
+                self.assertIn("PHOTO", self.bot.client.sent[-1][1])
+                self.assertGreater(self.store.get("v4_gigi_last_image_time"), 0)
 
     def test_async_gigi_reply_escaped_and_history(self):
         with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test"}):
