@@ -57,8 +57,8 @@ class FreeNewsTests(unittest.TestCase):
     def test_duplicate_events_do_not_verify(self):
         bad = payload()
         bad["events"] = [bad["events"][0], dict(bad["events"][0])]
-        raw = fetch_verified_news(NOW, provider(bad))
-        self.assertFalse(verified_news_calendar_available(raw))
+        with self.assertRaisesRegex(ValueError, "duplicate_or_invalid_calendar_event"):
+            fetch_verified_news(NOW, provider(bad))
     def test_duplicate_ids_fail_before_publication(self):
         bad = payload()
         duplicate = dict(bad["events"][0], title="Other USD release", time="2026-11-11T14:30:00Z")
