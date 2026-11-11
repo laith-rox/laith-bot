@@ -181,27 +181,7 @@ def quick_message(trade):
                 break
         lines.insert(insert_at, correction)
 
-    # Two-brain verdict is a compact annotation, not a second synthetic signal.
-    brain = trade.get("dual_brain") or {}
-    if brain:
-        market = brain.get("market") or {}
-        scenario = (market.get("market_scenarios") or {}).get("preferred", "WAIT")
-        strategy = (brain.get("strategy_comparison") or {}).get("current", "TREND")
-        decision = (brain.get("execution") or {}).get("action", "WATCH")
-        note = f"🧠 العقلين: سيناريو {scenario} | قرار {decision} | أسلوب {strategy}"
-        insert_at = next((i for i, line in enumerate(lines) if line.startswith("📡 المرجع:")), len(lines))
-        lines.insert(insert_at, note)
     transition = transition_message(trade.get("opportunity_transition"))
     if transition:
         lines.insert(next((i for i, line in enumerate(lines) if line.startswith("📡 المرجع:")), len(lines)), transition)
-    adaptive = trade.get("adaptive") or {}
-    market = trade.get("adaptive_market") or {}
-    if adaptive:
-        regime = (market.get("feature_11_regime") or {}).get("state", "UNAVAILABLE")
-        session = (market.get("feature_13_session") or {}).get("name", "OTHER")
-        validity = (adaptive.get("feature_17_validity") or {}).get("status", "UNKNOWN")
-        cost = (adaptive.get("feature_20_execution_cost") or {}).get("status", "SPREAD_UNKNOWN")
-        message = f"📊 السوق: {regime} | جلسة {session} | صلاحية {validity} | تكلفة {cost}"
-        idx = next((i for i, line in enumerate(lines) if line.startswith("📡 المرجع:")), len(lines))
-        lines.insert(idx, message)
     return "\n".join(lines)
