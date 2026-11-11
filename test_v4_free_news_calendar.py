@@ -84,6 +84,17 @@ class FreeNewsTests(unittest.TestCase):
         bad["events"][0]["time"] = (NOW + timedelta(days=10)).isoformat()
         with self.assertRaisesRegex(ValueError, "release_outside_calendar_window"):
             fetch_verified_news(NOW, provider(bad))
+    def test_boolean_server_clock_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "stale_calendar_clock"):
+            fetch_verified_news(NOW, provider(payload(server_time=True)))
+    def test_oversized_feed_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "calendar_too_many_events"):
+            fetch_verified_news(NOW, provider(payload(events=[{}] * 1001)))
+    def test_invalid_release_string_fails_closed(self):
+        bad = payload()
+        bad["events"][0]["time"] = "not-a-date"
+        with self.assertRaisesRegex(ValueError, "invalid_release_time"):
+            fetch_verified_news(NOW, provider(bad))
     def test_empty_verified_calendar_is_valid(self):
         raw = fetch_verified_news(NOW, provider(payload(events=[])))
         self.assertTrue(verified_news_calendar_available(raw))
