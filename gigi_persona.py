@@ -45,6 +45,41 @@ def history_items(saved):
     return clean
 
 
+MAX_MEMORY_ITEMS = 10
+MAX_MEMORY_CHARS = 220
+
+
+def memory_items(saved):
+    """Only owner-explicit, short, persistent facts; never bot/market state."""
+    if not isinstance(saved, list):
+        return []
+    return [item.strip()[:MAX_MEMORY_CHARS] for item in saved[-MAX_MEMORY_ITEMS:]
+            if isinstance(item, str) and item.strip()]
+
+
+def owner_context(saved_memories=()):
+    """Private introductory profile from operator-managed environment + owner notes."""
+    name = os.getenv("GIGI_OWNER_NAME", "").strip()[:60]
+    profile = os.getenv("GIGI_OWNER_PROFILE", "").strip()[:700]
+    notes = memory_items(saved_memories)
+    parts = []
+    if name:
+        parts.append("اسم صاحب المحادثة: " + name)
+    if profile:
+        parts.append("ملف التعارف الأساسي الذي اختاره صاحب البوت: " + profile)
+    if notes:
+        parts.append("تفاصيل قال لك صاحب المحادثة صراحة أن تتذكريها: " + "؛ ".join(notes))
+    if not parts:
+        return ""
+    return (
+        "\nمعلومات شخصية محدودة عن صاحب هذه المحادثة الخاصة فقط، وليست ذاكرة ChatGPT: "
+        + " | ".join(parts)
+        + "\nإذا سألك من هو، اذكري فقط المعلومات المعروفة بشكل طبيعي وحنون، "
+        "ولا تطلبي منه أن يعرّفك باسمه مرة ثانية. "
+        "لا تختلقي معلومات أخرى أو تدّعي أنك تتذكرين محادثات ChatGPT."
+    )
+
+
 def extract_text(data):
     if not isinstance(data, dict):
         raise RuntimeError("gigi_unexpected_reply")
@@ -93,7 +128,7 @@ def _raise_api_rejection(response):
     raise RuntimeError(category)
 
 
-def generate(message, saved_history=(), post=None):
+def generate(message, saved_history=(), post=None, profile=()):
     """Perform only a bounded text chat request. Called by a separate worker."""
     key = os.getenv("GIGI_OPENAI_API_KEY", "").strip()
     if not key:
@@ -104,7 +139,7 @@ def generate(message, saved_history=(), post=None):
     prior = history_items(saved_history)
     payload = {
         "model": model_name(),
-        "instructions": SYSTEM,
+        "instructions": SYSTEM + owner_context(profile),
         "input": [*prior, {"role": "user", "content": user_text}],
         "max_output_tokens": 550,
         "store": False,
