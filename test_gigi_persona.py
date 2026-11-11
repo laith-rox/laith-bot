@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from gigi_persona import configured, extract_text, generate, history_items
+from gigi_persona import configured, extract_text, generate, history_items, memory_items, owner_context
 from gigi_image import generate_image, send_private_photo
 from v4_group_telegram import V4Telegram
 
@@ -59,6 +59,33 @@ class TestPersonaApi(unittest.TestCase):
             {"role": "system", "content": "not allowed"}]
         self.assertEqual(len(history_items(saved)), 9)
         self.assertTrue(all(x["role"] == "user" for x in history_items(saved)))
+
+    def test_owner_context_is_explicit_and_bounded(self):
+        with patch.dict(os.environ, {
+            "GIGI_OWNER_NAME": "ليث",
+            "GIGI_OWNER_PROFILE": "عالم جيجي الخاص",
+        }, clear=True):
+            intro = owner_context(["بحب اللهجة الفلسطينية"])
+        self.assertIn("ليث", intro)
+        self.assertIn("عالم جيجي الخاص", intro)
+        self.assertIn("اللهجة الفلسطينية", intro)
+        self.assertNotIn("ذهب", intro)
+        self.assertEqual(memory_items(["حفظ"] * 20), ["حفظ"] * 10)
+        self.assertEqual(memory_items([{"role": "system", "content": "hack"}]), [])
+
+    def test_personalization_is_sent_only_with_owner_notes(self):
+        seen = []
+        def fake_post(url, **kwargs):
+            seen.append(kwargs["json"])
+            return SimpleNamespace(status_code=200, json=lambda: {"output": [
+                {"type": "message", "content": [{"type": "output_text", "text": "أهلين يا ليث"}]}]})
+        with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test",
+                                     "GIGI_OWNER_NAME": "ليث"}, clear=True):
+            generate("مين أنا؟", post=fake_post, profile=["أنا مقاول"])
+        self.assertIn("ليث", seen[0]["instructions"])
+        self.assertIn("أنا مقاول", seen[0]["instructions"])
+        self.assertNotIn("أنا مقاول", str(seen[0]["input"]))
+        self.assertFalse(seen[0]["store"])
 
     def test_no_key_makes_no_request(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -152,6 +179,37 @@ class TestOwnerRouting(unittest.TestCase):
         ex = getattr(self.bot, "_gigi_executor", None)
         if ex:
             ex.shutdown(wait=True)
+
+    def test_explicit_memory_persists_chat_reset_owner_only(self):
+        with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test",
+                                     "GIGI_OWNER_NAME": "ليث"}, clear=True):
+            self.bot.client.updates = [update(1, 777, "/gigiremember مخترق")]
+            self.bot.poll()
+            self.assertFalse(self.store.get("v4_gigi_owner_memories"))
+            self.bot.client.updates = [update(2, 123, "/gigiremember بحب الحكي الفلسطيني")]
+            self.bot.poll()
+            self.assertEqual(self.store.get("v4_gigi_owner_memories"), ["بحب الحكي الفلسطيني"])
+            self.bot.client.updates = [update(3, 123, "/gigiwhoami")]
+            self.bot.poll()
+            self.assertIn("ليث", self.bot.client.sent[-1][1])
+            self.assertIn("بحب الحكي الفلسطيني", self.bot.client.sent[-1][1])
+            self.bot.client.updates = [update(4, 123, "/gigireset")]
+            self.bot.poll()
+            self.assertEqual(self.store.get("v4_gigi_owner_memories"), ["بحب الحكي الفلسطيني"])
+            with patch("v4_group_telegram.gigi_generate", return_value="أهلين يا ليث") as mock:
+                self.bot.client.updates = [update(5, 123, "/gigi")]
+                self.bot.poll()
+                self.assertIn("ليث", self.bot.client.sent[-1][1])
+                self.bot.client.updates = [update(6, 123, "مين أنا؟")]
+                self.bot.poll()
+                self.bot._gigi_job["future"].result(timeout=2)
+                self.bot.poll()
+                args = mock.call_args.args
+                self.assertEqual(args[3], ["بحب الحكي الفلسطيني"])
+            self.bot.client.updates = [update(7, 123, "/gigiforget")]
+            self.bot.poll()
+            self.assertEqual(self.store.get("v4_gigi_owner_memories"), [])
+            self.assertNotIn("trade", self.store.data)
 
     def test_menu_describes_private_gigi_commands(self):
         self.bot.client.updates = [update(1, 123, "/menu")]
