@@ -144,32 +144,40 @@ def quick_stats_message(store):
 
 
 def quick_message(trade):
-    """Compact color-priority quick alert; strategy and trade logic are untouched."""
-    risk_level = trade.get("risk_level", "—")
-    risk_number = "⛔️⑤" if risk_level in ("مرتفعة", "متوسطة") else "🟢⑤"
+    """BLACK DIAMOND ROYAL Telegram text fallback; no trading logic changes."""
+    side = str(trade.get("side") or "—").upper()
+    direction = "🔻 SELL · بيع" if side == "SELL" else "🔺 BUY · شراء" if side == "BUY" else "◈ مراقبة"
+    risk_level = str(trade.get("risk_level") or "—")
     reasons = trade.get("risk_reasons") or []
-    reason_text = f" — {str(reasons[0])}" if reasons else ""
-    action = ("🟡 الحالة: <b>ادخل بحذر</b> — بعد مطابقة سعر وسيطك بالمرجع والوقف"
-              if trade.get("cautious_entry") else
-              "⏳ الحالة: مراقبة فقط — شروط الدخول الحذر غير مكتملة")
+    warning = ("⚠️ " + str(reasons[0])) if reasons else ""
+    buy_score = trade.get("buy_score", "—")
+    sell_score = trade.get("sell_score", "—")
     if trade.get("entry_action") == "ENTER_NOW":
-        action = "🟢 الحالة: <b>ادخل الآن</b> — وفق شروط النموذج وبعد مطابقة سعر وسيطك"
-    policy_reasons = (trade.get("entry_policy") or {}).get("reasons") or []
-    if trade.get("entry_action") == "WATCH" and policy_reasons:
-        action = "👀 الحالة: <b>فرصة تحت المراقبة</b> — " + policy_reasons[0]
-    reference = ("إغلاق شمعة 5د؛ ليس سعرًا حيًا"
-                 if trade.get("delayed_reference") else "سعر مرصود")
+        action = "🟢 ادخل الآن"
+    elif trade.get("entry_action") == "WATCH":
+        action = "👀 راقب"
+    elif trade.get("cautious_entry"):
+        action = "🟡 ادخل بحذر"
+    else:
+        action = "👀 راقب"
+    reference = "⚠️ السعر من إغلاق شمعة 5د، وليس سعرًا حيًا" if trade.get("delayed_reference") else "📡 السعر مرصود؛ طابقه مع وسيطك"
     return (
-        f"⚡ <b>V4 سريع — 5د — {trade.get('side', '—')}</b>\n"
-        f"🔵① القوة: <b>{trade.get('strength', '—')}</b> — {trade.get('score', '—')}/7\n"
-        f"🟠② الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
-        f"🔴③ وقف الخسارة: <b>{_fmt(trade.get('stop'))}</b>\n"
-        f"🟢④ الهدف: <b>{_fmt(trade.get('target'))}</b> | R:R 1:{float(trade.get('rr', 0)):.2f}\n"
-        f"{risk_number} المخاطرة: <b>{risk_level}</b>{reason_text}\n"
-        f"🔵⑥ الشروط: <b>{trade.get('score', '—')}/7</b>\n"
-        f"{action}\n"
-        f"📡 المرجع: {reference} | "
-        "📄 إشارة ورقية غير مضمونة | ⏱️ متابعة 20د، وليست صلاحية دخول"
+        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>{direction}</b>   ◈ M5\n"
+        f"✦ القوة: <b>{trade.get('strength', '—')}</b> · <b>{trade.get('score', '—')}/7</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔴 STOP  <b>{_fmt(trade.get('stop'))}</b>\n"
+        f"🔶 ENTRY  <b>{_fmt(trade.get('entry'))}</b>\n"
+        f"🟢 TARGET  <b>{_fmt(trade.get('target'))}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚖️ الشروط: بيع <b>{sell_score}/7</b> · شراء <b>{buy_score}/7</b>\n"
+        f"🛡️ المخاطرة: <b>{risk_level}</b>\n"
+        f"{warning + chr(10) if warning else ''}"
+        f"{reference}\n"
+        "📄 إشارة ورقية غير مضمونة\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"💎 <b>{action}</b>"
     )
 
 def continuation_message(snapshot):
