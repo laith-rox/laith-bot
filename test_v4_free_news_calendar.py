@@ -36,6 +36,29 @@ class FreeNewsTests(unittest.TestCase):
         bad["events"][0]["confidence"] = "sources_disagree"
         with self.assertRaises(ValueError):
             fetch_verified_news(NOW, provider(bad))
+    def test_tentative_release_fails_closed(self):
+        bad = payload()
+        bad["events"][0]["status"] = "tentative"
+        with self.assertRaisesRegex(ValueError, "uncertain_calendar_event"):
+            fetch_verified_news(NOW, provider(bad))
+    def test_missing_confidence_fails_closed(self):
+        bad = payload()
+        del bad["events"][0]["confidence"]
+        with self.assertRaisesRegex(ValueError, "uncertain_calendar_event"):
+            fetch_verified_news(NOW, provider(bad))
+    def test_naive_release_fails_closed(self):
+        bad = payload()
+        bad["events"][0]["time"] = "2026-11-11T13:30:00"
+        with self.assertRaisesRegex(ValueError, "naive_release_time"):
+            fetch_verified_news(NOW, provider(bad))
+    def test_count_mismatch_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "calendar_count_mismatch"):
+            fetch_verified_news(NOW, provider(payload(count=2)))
+    def test_duplicate_events_do_not_verify(self):
+        bad = payload()
+        bad["events"] = [bad["events"][0], dict(bad["events"][0])]
+        raw = fetch_verified_news(NOW, provider(bad))
+        self.assertFalse(verified_news_calendar_available(raw))
     def test_empty_verified_calendar_is_valid(self):
         raw = fetch_verified_news(NOW, provider(payload(events=[])))
         self.assertTrue(verified_news_calendar_available(raw))
