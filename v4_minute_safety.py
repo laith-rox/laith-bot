@@ -15,6 +15,11 @@ LOG = logging.getLogger('laith.v4.safety')
 KIND = 'v4_safety'
 
 
+def should_notify_unavailable(last_notice, now, cooldown=900):
+    """Throttle repeated data outages even when successful reads interleave."""
+    return now - float(last_notice or 0) >= cooldown
+
+
 def active_trades(store):
     trades = []
     official = store.get('v4_active')
@@ -85,7 +90,7 @@ def run(args, stop, market_closed):
                         # outage notification. Keep monitoring every minute, but
                         # throttle delivery independently of the health status.
                         last_notice = float(store.get('v4_minute_unavailable_notice_at') or 0)
-                        if epoch - last_notice >= 900:
+                        if should_notify_unavailable(last_notice, epoch):
                             store.enqueue('v4rapid:unavailable:'+str(int(epoch)), KIND,
                                 '⛔️ طوارئ V4: تعذّر تحديث بيانات الدقيقة.\nراقب وقفك عند الوسيط؛ التنبيه قد يتأخر.',
                                 epoch, expires=epoch+180)
