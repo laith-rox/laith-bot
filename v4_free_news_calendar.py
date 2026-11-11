@@ -40,6 +40,9 @@ def fetch_verified_news(now=None, opener=urlopen):
         release = datetime.fromisoformat(event["time"].replace("Z", "+00:00"))
         if release.tzinfo is None:
             raise ValueError("naive_release_time")
+        # A 3-day feed must not certify a calendar full of old/future releases.
+        if not (now - timedelta(days=2) <= release.astimezone(timezone.utc) <= now + timedelta(days=5)):
+            raise ValueError("release_outside_calendar_window")
         if not isinstance(event["id"], str) or not isinstance(event["title"], str):
             raise ValueError("invalid_event_identity")
         normalized_id = event["id"].strip().casefold()
