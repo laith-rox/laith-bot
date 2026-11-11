@@ -155,11 +155,11 @@ def quick_message(trade):
     if buy_score is not None and sell_score is not None:
         side = trade.get("side")
         if side == "SELL":
-            balance = f"🔵⑥ الشروط: <b>بيع {sell_score}/7</b> | شراء {buy_score}/7"
+            balance = f"⚖️ الشروط: بيع <b>{sell_score}/7</b> · شراء <b>{buy_score}/7</b>"
         else:
-            balance = f"🔵⑥ الشروط: <b>شراء {buy_score}/7</b> | بيع {sell_score}/7"
+            balance = f"⚖️ الشروط: شراء <b>{buy_score}/7</b> · بيع <b>{sell_score}/7</b>"
         for index, line in enumerate(lines):
-            if line.startswith("🔵⑥ الشروط:"):
+            if line.startswith("⚖️ الشروط:"):
                 lines[index] = balance
                 break
 
@@ -176,12 +176,12 @@ def quick_message(trade):
             correction += f" | إبطال {_fmt_price(invalidation)}"
         insert_at = len(lines)
         for index, line in enumerate(lines):
-            if line.startswith("📄 "):
+            if line.startswith("━━━━━━━━━━━━━━━━━━━━") and index > 5:
                 insert_at = index
                 break
         lines.insert(insert_at, correction)
 
     transition = transition_message(trade.get("opportunity_transition"))
     if transition:
-        lines.insert(next((i for i, line in enumerate(lines) if line.startswith("📡 المرجع:")), len(lines)), transition)
+        lines.insert(next((i for i, line in enumerate(lines) if line.startswith("📡 ") or line.startswith("⚠️ السعر")), len(lines) - 2), transition)
     return "\n".join(lines)

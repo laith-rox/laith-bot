@@ -153,11 +153,11 @@ def quick_message(trade):
     buy_score = trade.get("buy_score", "—")
     sell_score = trade.get("sell_score", "—")
     if trade.get("entry_action") == "ENTER_NOW":
-        action = "🟢 ادخل الآن"
+        action = "🟢 ادخل الآن — بعد مطابقة سعر وسيطك"
     elif trade.get("entry_action") == "WATCH":
-        action = "👀 راقب"
+        action = "👀 مراقبة فقط"
     elif trade.get("cautious_entry"):
-        action = "🟡 ادخل بحذر"
+        action = "🟡 ادخل بحذر — بعد مطابقة سعر وسيطك"
     else:
         action = "👀 راقب"
     reference = "⚠️ السعر من إغلاق شمعة 5د، وليس سعرًا حيًا" if trade.get("delayed_reference") else "📡 السعر مرصود؛ طابقه مع وسيطك"
@@ -177,7 +177,7 @@ def quick_message(trade):
         f"{reference}\n"
         "📄 إشارة ورقية غير مضمونة\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"💎 <b>{action}</b>"
+        f"💎 الحالة: <b>{action}</b>"
     )
 
 def continuation_message(snapshot):
