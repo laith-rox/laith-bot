@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from gigi_persona import configured, extract_text, generate, history_items
-from gigi_image import generate_image
+from gigi_image import generate_image, send_private_photo
 from v4_group_telegram import V4Telegram
 
 
@@ -86,6 +86,25 @@ class TestImageApi(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "disabled"):
                 generate_image("forest")
 
+    def test_private_upload_uses_independent_transport(self):
+        png = bytes.fromhex("89504e470d0a1a0a") + b"mock"
+        called = []
+        def fake_post(url, **kwargs):
+            called.append((url, kwargs))
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {"ok": True, "result": {"chat": {"id": 123}}},
+            )
+        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "mock"}, clear=True):
+            self.assertTrue(send_private_photo(png, "123", post=fake_post))
+        self.assertTrue(called[0][0].endswith("/sendPhoto"))
+        self.assertEqual(called[0][1]["data"]["chat_id"], "123")
+
+    def test_private_upload_cannot_go_without_token(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "not_configured"):
+                send_private_photo(bytes.fromhex("89504e470d0a1a0a"), "123")
+
     def test_image_api_one_png(self):
         png = b"\x89PNG\r\n\x1a\n" + b"fake_png_data"
         captured = []
@@ -145,7 +164,7 @@ class TestOwnerRouting(unittest.TestCase):
     def test_owner_only_image_queue(self):
         png = b"\x89PNG\r\n\x1a\n" + b"mockbytes"
         with patch.dict(os.environ, {"GIGI_OPENAI_API_KEY": "test", "GIGI_IMAGES_ENABLED": "1"}, clear=True):
-            with patch("v4_group_telegram.gigi_image_generate", return_value=png) as mock:
+            with patch("v4_group_telegram.gigi_image_generate_and_deliver", return_value=True) as mock:
                 self.bot.client.updates = [update(1, 777, "/gigiphoto")]
                 self.bot.poll()
                 self.assertFalse(self.bot.client.sent)
@@ -154,8 +173,8 @@ class TestOwnerRouting(unittest.TestCase):
                 job = self.bot._gigi_image_job
                 job["future"].result(timeout=2)
                 self.bot.poll()
-                mock.assert_called_once_with("على الشرفة")
-                self.assertIn("PHOTO", self.bot.client.sent[-1][1])
+                mock.assert_called_once_with("على الشرفة", "123")
+                self.assertFalse(any("PHOTO" in msg for _,msg in self.bot.client.sent))
                 self.assertGreater(self.store.get("v4_gigi_last_image_time"), 0)
 
     def test_async_gigi_reply_escaped_and_history(self):
