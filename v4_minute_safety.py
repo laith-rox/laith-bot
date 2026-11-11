@@ -81,10 +81,15 @@ def run(args, stop, market_closed):
                         previous = store.get('v4_minute_safety_status') or {}
                         epoch = time.time()
                         store.set('v4_minute_safety_status', {'ok': False, 'checked': epoch, 'reason': str(exc)})
-                        if previous.get('ok', True):
+                        # A one-minute successful fetch must not re-arm an identical
+                        # outage notification. Keep monitoring every minute, but
+                        # throttle delivery independently of the health status.
+                        last_notice = float(store.get('v4_minute_unavailable_notice_at') or 0)
+                        if epoch - last_notice >= 900:
                             store.enqueue('v4rapid:unavailable:'+str(int(epoch)), KIND,
                                 '⛔️ طوارئ V4: تعذّر تحديث بيانات الدقيقة.\nراقب وقفك عند الوسيط؛ التنبيه قد يتأخر.',
                                 epoch, expires=epoch+180)
+                            store.set('v4_minute_unavailable_notice_at', epoch)
                         if str(exc) in ('minute_quota_reached', 'minute_daily_quota_reached'):
                             next_fetch = epoch + (86400 if str(exc) == 'minute_daily_quota_reached' else 900)
                         LOG.warning('minute_safety_unavailable reason=%s', str(exc))
