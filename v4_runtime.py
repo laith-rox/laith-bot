@@ -16,6 +16,7 @@ from v4_dual_brain import execution_brain, audit_watch_decisions
 from v4_adaptive_11_20 import adaptive_entry_review, signal_change_review, signal_change_message
 from v4_opportunity_followthrough import remember_watch, record_opportunity
 from engine import advance_trade
+from v4_schedule import next_official_cycle
 from market import DataError, require_fresh
 from news import NewsGuard
 from storage import Store
@@ -427,7 +428,7 @@ def run(args):
         args.db, paper.experiment["id"], bool(args.telegram_token), args.quick_interval,
     )
     safety_stop = start_minute_safety(args, trading_guard_closed)
-    next_cycle = 0.0
+    next_cycle = next_official_cycle(time.time(), 300)
     next_quick = 0.0
     try:
         while True:
@@ -444,21 +445,25 @@ def run(args):
                 store.set("v4_last_error", None)
                 store.set("v4_quick_last_error", None)
                 store.set("v4_weekend_education_error", None)
-                next_cycle = time.time() + args.interval
+                next_cycle = next_official_cycle(time.time(), args.interval)
                 next_quick = time.time() + args.quick_interval
                 time.sleep(max(1, min(args.telegram_poll, args.quick_interval, args.interval)))
                 continue
             store.set("v4_market_status", "OPEN")
             if time.time() >= next_cycle:
+                cycle_interval = args.interval
                 try:
                     paper.cycle(now)
                     store.set("v4_last_error", None)
                 except DataError as exc:
                     store.set("v4_last_error", str(exc))
                     LOG.warning("cycle_data_error reason=%s", exc)
+                    if str(exc) == "market_closed_candles_stale":
+                        cycle_interval = 300
                 except Exception:
                     LOG.exception("cycle_failed")
-                next_cycle = time.time() + args.interval
+                next_cycle = next_official_cycle(time.time(), cycle_interval)
+                LOG.info("official_next_cycle at=%s", datetime.fromtimestamp(next_cycle, UTC).isoformat())
             if time.time() >= next_quick:
                 try:
                     paper.quick_cycle(datetime.now(UTC))
