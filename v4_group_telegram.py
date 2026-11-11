@@ -70,12 +70,32 @@ class V4Telegram(BaseV4Telegram):
         self._gigi_job = None
         try:
             answer = job["future"].result()
-        except Exception:
-            LOG.warning("gigi_chat_request_failed")
-            self._send_to(job["chat"], "💌 الاتصال بجيجي تعطل مؤقتًا، جرّب بعد شوي.", "gigi_error")
+        except Exception as exc:
+            # Log only a fixed error identifier; never log key, request, or provider body.
+            codes = {
+                "gigi_auth_invalid": "🔐 مفتاح OpenAI غير مقبول. افحص المفتاح في Railway.",
+                "gigi_permission_denied": "🔒 مفتاح جيجي ما عنده صلاحية طلب ردود OpenAI. راجع Permissions في المنصّة.",
+                "gigi_quota_exceeded": "💳 رصيد أو حد صرف OpenAI API ما بسمح بالرد. افحص Billing في منصة OpenAI.",
+                "gigi_rate_limited": "⏱️ وصلنا لحد الطلبات المؤقت لـ OpenAI. جرّب بعد شوي.",
+                "gigi_model_unavailable": "🤖 النموذج المختار لجيجي مش متاح لهذا المفتاح. بدنا نراجع GIGI_MODEL.",
+                "gigi_bad_request": "⚙️ طلب جيجي إلى OpenAI غير مقبول. بدنا نراجع إعدادات النموذج.",
+                "gigi_provider_unavailable": "💌 خدمة OpenAI غير متاحة مؤقتًا. جرّب بعد شوي.",
+                "gigi_network_timeout": "⏱️ اتصال جيجي بـ OpenAI انتهت مهلته. جرّب بعد شوي.",
+                "gigi_network_unavailable": "🌐 تعذر الاتصال بخدمة OpenAI من Railway. جرّب بعد شوي.",
+            }
+            reason = str(exc)
+            category = reason if reason in codes else "gigi_unknown_error"
+            LOG.warning("gigi_chat_request_failed category=%s", category)
+            self.store.set("v4_gigi_last_api_error", category)
+            self._send_to(
+                job["chat"],
+                codes.get(category, "💌 صار خطأ غير متوقع عند اتصال جيجي؛ راجع سجلات البوت."),
+                "gigi_error",
+            )
             return
         # Telegram transport uses HTML. Escape all model text (never raw HTML).
         if self._send_to(job["chat"], html.escape(answer, quote=False), "gigi"):
+            self.store.set("v4_gigi_last_api_error", "")
             history = gigi_history_items(
                 [*job["history"], {"role": "user", "content": job["message"]},
                  {"role": "assistant", "content": answer}]
