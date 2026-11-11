@@ -98,6 +98,17 @@ class FreeNewsTests(unittest.TestCase):
     def test_empty_verified_calendar_is_valid(self):
         raw = fetch_verified_news(NOW, provider(payload(events=[])))
         self.assertTrue(verified_news_calendar_available(raw))
+    def test_invalid_generation_timestamp_fails_closed(self):
+        with self.assertRaises(ValueError):
+            fetch_verified_news(NOW, provider(payload(generated_at="not-a-date")))
+    def test_stale_generation_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "stale_calendar_snapshot"):
+            fetch_verified_news(NOW, provider(payload(generated_at=(NOW - timedelta(hours=2)).isoformat())))
+    def test_missing_event_id_fails_closed(self):
+        bad = payload()
+        bad["events"][0].pop("id")
+        with self.assertRaisesRegex(ValueError, "missing_event_fields"):
+            fetch_verified_news(NOW, provider(bad))
     def test_malformed_fails_closed(self):
         with self.assertRaises(ValueError):
             fetch_verified_news(NOW, provider(payload(events="bad")))
