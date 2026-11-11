@@ -163,25 +163,7 @@ def quick_message(trade):
                 lines[index] = balance
                 break
 
-    direction = trade.get("correction_direction")
-    target1 = trade.get("correction_target1")
-    target2 = trade.get("correction_target2")
-    if direction and (target1 is not None or target2 is not None):
-        correction = (
-            f"🟠⑦ التصحيح: <b>{_direction_ar(direction)}</b> → "
-            f"{_fmt_price(target1)} / {_fmt_price(target2)}"
-        )
-        invalidation = trade.get("correction_invalidation")
-        if invalidation is not None:
-            correction += f" | إبطال {_fmt_price(invalidation)}"
-        insert_at = len(lines)
-        for index, line in enumerate(lines):
-            if line.startswith("📄 "):
-                insert_at = index
-                break
-        lines.insert(insert_at, correction)
-
-    transition = transition_message(trade.get("opportunity_transition"))
-    if transition:
-        lines.insert(next((i for i, line in enumerate(lines) if line.startswith("📡 المرجع:")), len(lines)), transition)
+    # Display only the actionable card through its status line. The underlying
+    # trade, safety gates, corrections and transitions remain unchanged.
+    lines = [line for line in lines if not line.startswith("📡 المرجع:")]
     return "\n".join(lines)

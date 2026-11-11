@@ -19,7 +19,8 @@ class CompactTelegramCardTests(unittest.TestCase):
         message = quick_message(trade)
         for visible in ("SELL", "3986.79", "3988.79", "3983.79", "إغلاق شمعة 5د"):
             self.assertIn(visible, message)
-        for hidden in ("العقلين:", "جلسة NEW_YORK", "SPREAD_UNKNOWN", "صلاحية VALID", "أسلوب TREND"):
+        self.assertTrue(message.splitlines()[-1].startswith("🟡 الحالة:"))
+        for hidden in ("العقلين:", "جلسة NEW_YORK", "SPREAD_UNKNOWN", "صلاحية VALID", "أسلوب TREND", "تحديث الفرصة:", "📡 المرجع:", "⑦ التصحيح:"):
             self.assertNotIn(hidden, message)
 
 
