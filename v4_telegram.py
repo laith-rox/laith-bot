@@ -191,15 +191,15 @@ def continuation_message(snapshot):
     warning = ("\n⚠️ " + " — ".join(notes[:2])) if notes else ""
     tp1_text = "✅" if snapshot.get("tp1_hit") else "⏳"
     return (
-        f"🔄 <b>تحديث 5د — صفقة V4 {side_label}</b>\n"
-        f"🔴① الوقف الحالي: <b>{_fmt(snapshot.get('stop'))}</b>\n"
-        f"🔵② الاستمرارية: <b>{state}</b> {marker} — {snapshot.get('score', '—')}/7\n"
-        f"🟠③ السعر / الدخول: {_fmt(snapshot.get('price'))} / {_fmt(snapshot.get('entry'))}\n"
-        f"🟢④ TP1: {_fmt(snapshot.get('tp1'))} {tp1_text}\n"
-        f"🟢⑤ TP2: {_fmt(snapshot.get('tp2'))}\n"
-        f"🟡⑥ التصحيح: {correction_label(snapshot.get('correction_direction'))} / {correction_label(snapshot.get('correction_strength'))}"
+        f"🔄 <b>V4 | {side_label}</b>\n"
+        "⏱ تحديث 5 دقائق · متابعة ورقية\n"
+        f"💰 السعر: <b>{_fmt(snapshot.get('price'))}</b> | الدخول: {_fmt(snapshot.get('entry'))}\n"
+        f"🛑 الوقف: <b>{_fmt(snapshot.get('stop'))}</b>\n"
+        f"🎯 الأهداف: {_fmt(snapshot.get('tp1'))} {tp1_text} | {_fmt(snapshot.get('tp2'))}\n"
+        f"{marker} الاستمرارية: <b>{state}</b> · {snapshot.get('score', '—')}/7\n"
+        f"↗️ التصحيح: {correction_label(snapshot.get('correction_direction'))} / {correction_label(snapshot.get('correction_strength'))}"
         f"{warning}\n"
-        "📄 تحديث متابعة ورقي — بدون ضمان"
+        "📄 متابعة فقط — ليست إشارة دخول جديدة"
     )
 
 
