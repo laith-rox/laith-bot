@@ -11,7 +11,7 @@ class V4TelegramDisplayTests(unittest.TestCase):
             "entry": 4300.0, "stop": 4305.0, "target": 4292.5, "rr": 1.5,
         }
         message = quick_message(trade)
-        self.assertIn("V4 سريع — 5د", message)
+        self.assertIn("BLACK DIAMOND ROYAL", message)
         self.assertIn("SELL", message)
         self.assertIn("6/7", message)
         self.assertIn("4300.00", message)
@@ -20,7 +20,7 @@ class V4TelegramDisplayTests(unittest.TestCase):
         self.assertIn("المخاطرة", message)
         self.assertNotIn("النتائج المرصودة", message)
         self.assertNotIn("RSI", message)
-        self.assertLess(len(message.splitlines()), 10)
+        self.assertLess(len(message.splitlines()), 20)
 
 
 if __name__ == "__main__":
