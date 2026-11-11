@@ -5,6 +5,10 @@ on:
     paths:
       - 'v4_telegram.py'
       - 'v4_intelligence.py'
+      - 'v4_schedule.py'
+      - 'test_v4_schedule.py'
+      - 'v4_service.py'
+      - 'v4_runtime.py'
       - 'test_v4_intelligence.py'
       - 'test_v4_continuation_side.py'
       - '.github/workflows/v4-telegram-message-ci.yml'
