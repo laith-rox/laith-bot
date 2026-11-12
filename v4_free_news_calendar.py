@@ -1,5 +1,6 @@
 """Free economic calendar adapter. Never authorizes an entry on missing/stale data."""
 import json
+import math
 from datetime import datetime, timezone, timedelta
 from urllib.request import Request, urlopen
 
@@ -15,7 +16,7 @@ def fetch_verified_news(now=None, opener=urlopen):
     if payload.get("count") is not None and payload["count"] != len(payload["events"]):
         raise ValueError("calendar_count_mismatch")
     clock = payload.get("server_time")
-    if type(clock) not in (int, float) or abs(clock - now.timestamp()) > 300:
+    if type(clock) not in (int, float) or not math.isfinite(clock) or abs(clock - now.timestamp()) > 300:
         raise ValueError("stale_calendar_clock")
     generated = payload.get("generated_at")
     if not isinstance(generated, str):
