@@ -221,7 +221,7 @@ def paper_open_message(trade):
     return (
         "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>{side_label} — صفقة رسمية</b>\n"
+        f"<b>V4 | {side_label} — صفقة رسمية</b>\n"
         f"⭐ القوة: <b>{trade.get('signal_strength', '—')}</b> · {trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}\n"
         f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🛑 الوقف: <b>{_fmt(trade.get('stop'))}</b>\n"
