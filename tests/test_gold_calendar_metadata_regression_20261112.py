@@ -40,6 +40,13 @@ class CalendarMetadataRegression(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stale_calendar_clock"):
             self.fetch()
 
+    def test_nonfinite_server_clocks_fail_closed(self):
+        for clock in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(clock=repr(clock)):
+                self.payload["server_time"] = clock
+                with self.assertRaisesRegex(ValueError, "stale_calendar_clock"):
+                    self.fetch()
+
     def test_snapshot_from_future_fails_closed(self):
         self.payload["generated_at"] = (self.now + timedelta(minutes=3)).isoformat()
         with self.assertRaisesRegex(ValueError, "stale_calendar_snapshot"):
