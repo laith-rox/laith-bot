@@ -1,5 +1,8 @@
 name: V4 safety modules
 on:
+  push:
+    branches:
+      - feature-v4-clear-entry-now-status
   pull_request:
     paths:
       - 'v4_opportunity_plan.py'
