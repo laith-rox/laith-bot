@@ -37,7 +37,7 @@ class ExperimentalEntrypointTests(unittest.TestCase):
             self.assertEqual(os.environ["V4_DB_PATH"], "/data/laith.db")
             self.assertEqual(os.environ["V4_BTC_SIGNALS_ENABLED"], "1")
 
-    def test_gold_launcher_does_not_modify_legacy_db_path_or_send_orders(self):
+    def test_gold_launcher_uses_isolated_db_without_mt5_credentials(self):
         env = {"TELEGRAM_BOT_TOKEN": "demo-token", "TELEGRAM_CHAT_ID": "123",
                "TWELVE_DATA_API_KEY": "demo-key"}
         with patch.dict(os.environ, env, clear=True):
