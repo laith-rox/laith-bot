@@ -11,8 +11,8 @@ class V4TelegramDisplayTests(unittest.TestCase):
             "entry": 4300.0, "stop": 4305.0, "target": 4292.5, "rr": 1.5,
         }
         message = quick_message(trade)
-        self.assertIn("BLACK DIAMOND ROYAL", message)
-        self.assertIn("SELL", message)
+        self.assertIn("بوت ليث | الذهب", message)
+        self.assertIn("بيع", message)
         self.assertIn("6/7", message)
         self.assertIn("4300.00", message)
         self.assertIn("4305.00", message)
@@ -43,16 +43,16 @@ class V4TelegramDisplayTests(unittest.TestCase):
             continuation_message(snapshot),
             paper_close_message(closed, {"net_r": 1.429}),
         ):
-            self.assertIn("BLACK DIAMOND ROYAL", message)
-            self.assertIn("━━━━━━━━", message)
+            self.assertIn("بوت ليث | الذهب", message)
+            self.assertIn("━━━━━━", message)
             self.assertIn("ورقي", message)
         self.assertIn("3960.58", paper_open_message(trade))
         self.assertIn("3970.41", continuation_message(snapshot))
-        self.assertIn("🎯 TP1:", continuation_message(snapshot))
-        self.assertIn("🎯 TP2:", paper_open_message(trade))
+        self.assertIn("🎯 الهدف الأول:", continuation_message(snapshot))
+        self.assertIn("🎯 الهدف الثاني:", paper_open_message(trade))
         self.assertIn("💰 الدخول:", paper_open_message(trade))
         self.assertIn("🛑 الوقف:", paper_open_message(trade))
-        self.assertNotIn("━━━━━━━━━━━━━━━━━━━━", paper_open_message(trade))
+        self.assertNotIn("BLACK DIAMOND ROYAL", paper_open_message(trade))
         self.assertIn("تصحيح قوي عكس الصفقة", continuation_message(snapshot))
         self.assertIn("1.857", paper_close_message(closed, {"net_r": 1.429}))
 
