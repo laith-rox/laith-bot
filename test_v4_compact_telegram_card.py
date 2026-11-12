@@ -17,7 +17,7 @@ class CompactTelegramCardTests(unittest.TestCase):
             "delayed_reference": True,
         }
         message = quick_message(trade)
-        for visible in ("SELL", "3986.79", "3988.79", "3983.79", "إغلاق شمعة 5د"):
+        for visible in ("بيع", "3986.79", "3988.79", "3983.79", "إغلاق شمعة 5د"):
             self.assertIn(visible, message)
         for hidden in ("العقلين:", "جلسة NEW_YORK", "SPREAD_UNKNOWN", "صلاحية VALID", "أسلوب TREND"):
             self.assertNotIn(hidden, message)

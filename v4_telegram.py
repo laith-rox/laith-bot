@@ -143,10 +143,14 @@ def quick_stats_message(store):
     )
 
 
+def _arabic_side(value):
+    return {"BUY": "شراء", "SELL": "بيع", "WAIT": "انتظار"}.get(str(value or "").upper(), str(value or "—"))
+
+
 def quick_message(trade):
-    """BLACK DIAMOND ROYAL Telegram text fallback; no trading logic changes."""
+    """Arabic Telegram text layout; no trading logic changes."""
     side = str(trade.get("side") or "—").upper()
-    direction = "🔻 SELL · بيع" if side == "SELL" else "🔺 BUY · شراء" if side == "BUY" else "◈ مراقبة"
+    direction = "🔴 بيع ⬇️" if side == "SELL" else "🟢 شراء ⬆️" if side == "BUY" else "◈ مراقبة"
     risk_level = str(trade.get("risk_level") or "—")
     reasons = trade.get("risk_reasons") or []
     warning = ("⚠️ " + str(reasons[0])) if reasons else ""
@@ -163,21 +167,21 @@ def quick_message(trade):
         action = "👀 مراقبة فقط"
     reference = "⚠️ السعر من إغلاق شمعة 5د، وليس سعرًا حيًا" if trade.get("delayed_reference") else "📡 السعر مرصود؛ طابقه مع وسيطك"
     return (
-        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
-        f"<b>{direction}</b> | M5 · XAUUSD GOLD\n"
+        "💎 <b>بوت ليث | الذهب</b>\n"
+        "━━━━━━\n"
+        f"<b>{direction}</b> | M5\n"
         f"✦ القوة: <b>{trade.get('strength', '—')}</b> · <b>{trade.get('score', '—')}/7</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
+        "━━━━━━\n"
         f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🛑 الوقف: <b>{_fmt(trade.get('stop'))}</b>\n"
         f"🎯 الهدف: <b>{_fmt(trade.get('target'))}</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
+        "━━━━━━\n"
         f"⚖️ الشروط: بيع <b>{sell_score}/7</b> · شراء <b>{buy_score}/7</b>\n"
         f"🛡️ المخاطرة: <b>{risk_level}</b>\n"
         f"{warning + chr(10) if warning else ''}"
         f"{reference}\n"
         "📄 إشارة ورقية غير مضمونة\n"
-        "━━━━━━━━━━━━━━━━\n"
+        "━━━━━━\n"
         f"💎 الحالة: <b>{action}</b>"
     )
 
@@ -200,15 +204,15 @@ def continuation_message(snapshot):
     warning = ("\n⚠️ " + " — ".join(notes[:2])) if notes else ""
     tp1_text = "✅" if snapshot.get("tp1_hit") else "⏳"
     return (
-        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
-        f"🔄 <b>متابعة | {side_label}</b> · XAUUSD GOLD\n"
+        "💎 <b>بوت ليث | الذهب</b>\n"
+        "━━━━━━\n"
+        f"🔄 <b>متابعة | {side_label}</b>\n"
         "⏱ تحديث 5 دقائق · متابعة ورقية\n"
         f"📡 السعر الحالي: <b>{_fmt(snapshot.get('price'))}</b>\n"
         f"💰 الدخول: <b>{_fmt(snapshot.get('entry'))}</b>\n"
         f"🛑 الوقف: <b>{_fmt(snapshot.get('stop'))}</b>\n"
-        f"🎯 TP1: <b>{_fmt(snapshot.get('tp1'))}</b> {tp1_text}\n"
-        f"🎯 TP2: <b>{_fmt(snapshot.get('tp2'))}</b>\n"
+        f"🎯 الهدف الأول: <b>{_fmt(snapshot.get('tp1'))}</b> {tp1_text}\n"
+        f"🎯 الهدف الثاني: <b>{_fmt(snapshot.get('tp2'))}</b>\n"
         f"{marker} الاستمرارية: <b>{state}</b> · {snapshot.get('score', '—')}/7\n"
         f"↗️ التصحيح: {correction_label(snapshot.get('correction_direction'))} / {correction_label(snapshot.get('correction_strength'))}"
         f"{warning}\n"
@@ -221,14 +225,14 @@ def paper_open_message(trade):
     side = trade.get("side")
     side_label = "شراء 🟢⬆️" if side == "BUY" else "بيع 🔴⬇️" if side == "SELL" else "اتجاه غير متاح"
     return (
-        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
-        f"<b>V4 | {side_label} — صفقة رسمية</b> · XAUUSD GOLD\n"
+        "💎 <b>بوت ليث | الذهب</b>\n"
+        "━━━━━━\n"
+        f"<b>{side_label} — صفقة رسمية</b>\n"
         f"⭐ القوة: <b>{trade.get('signal_strength', '—')}</b> · {trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}\n"
         f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
         f"🛑 الوقف: <b>{_fmt(trade.get('stop'))}</b>\n"
-        f"🎯 TP1: <b>{_fmt(trade.get('tp1'))}</b>\n"
-        f"🎯 TP2: <b>{_fmt(trade.get('tp2'))}</b>\n"
+        f"🎯 الهدف الأول: <b>{_fmt(trade.get('tp1'))}</b>\n"
+        f"🎯 الهدف الثاني: <b>{_fmt(trade.get('tp2'))}</b>\n"
         f"🕒 الجلسة: {research.get('session', '—')}\n"
         f"⚠️ كسر: {research.get('breakout_state', '—')} · ماكرو: {research.get('macro_alignment', '—')}\n"
         "📄 صفقة ورقية بحثية — ليست تنفيذًا حقيقيًا"
@@ -239,11 +243,11 @@ def paper_close_message(trade, stats):
     outcome = trade.get("outcome", "—")
     outcome_marker = "🟢" if outcome == "TP2" else "🔴" if outcome in ("STOP", "PROTECTED_STOP") else "🟡"
     return (
-        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "🏁 <b>إغلاق صفقة V4</b>\n"
+        "💎 <b>بوت ليث | الذهب</b>\n"
+        "━━━━━━\n"
+        "🏁 <b>إغلاق صفقة الذهب</b>\n"
         f"{outcome_marker}① النتيجة: <b>{outcome}</b>\n"
-        f"🔵② الاتجاه: {trade.get('side', '—')}\n"
+        f"🔵② الاتجاه: {_arabic_side(trade.get('side'))}\n"
         f"🔵③ R للصفقة: {trade.get('r', '—')}\n"
         f"🔵④ صافي R: {stats.get('net_r', 0.0):.3f}\n"
         "📄 نتيجة ورقية/تجريبية"
