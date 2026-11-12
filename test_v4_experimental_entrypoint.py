@@ -22,9 +22,9 @@ class ExperimentalEntrypointTests(unittest.TestCase):
                 self.assertEqual(os.environ["V4_TELEGRAM_CHAT_ID"], "123")
                 self.assertEqual(os.environ["V4_TWELVE_DATA_API_KEY"], "demo-key")
                 self.assertEqual(os.environ["V4_DB_PATH"], "/data/laith_v4_experiment.db")
-                self.assertEqual(os.environ["V4_BTC_SIGNALS_ENABLED"], "1")  # Telegram-only, no orders
-                self.assertEqual(os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"], "1")
-                self.assertEqual(os.environ["V4_BTC_M5_QUICK_ENABLED"], "1")  # 19:00–23:00, Telegram only
+                self.assertEqual(os.environ["V4_BTC_SIGNALS_ENABLED"], "0")  # BTC disabled by default on gold experiment
+                self.assertEqual(os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"], "0")
+                self.assertEqual(os.environ["V4_BTC_M5_QUICK_ENABLED"], "0")  # no BTC quick signals by default
 
 
 if __name__ == "__main__":
