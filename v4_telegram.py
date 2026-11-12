@@ -148,7 +148,7 @@ def _arabic_side(value):
 
 
 def quick_message(trade):
-    """BLACK DIAMOND ROYAL Telegram text fallback; no trading logic changes."""
+    """Arabic Telegram text layout; no trading logic changes."""
     side = str(trade.get("side") or "—").upper()
     direction = "🔴 بيع ⬇️" if side == "SELL" else "🟢 شراء ⬆️" if side == "BUY" else "◈ مراقبة"
     risk_level = str(trade.get("risk_level") or "—")
@@ -241,7 +241,7 @@ def paper_open_message(trade):
 
 def paper_close_message(trade, stats):
     outcome = trade.get("outcome", "—")
-    outcome_marker = "🟢" if outcome == "TP2" else "🔴" if outcome in ("وقف الخسارة", "وقف محمي") else "🟡"
+    outcome_marker = "🟢" if outcome == "TP2" else "🔴" if outcome in ("STOP", "PROTECTED_STOP") else "🟡"
     return (
         "💎 <b>بوت ليث | الذهب</b>\n"
         "━━━━━━\n"
