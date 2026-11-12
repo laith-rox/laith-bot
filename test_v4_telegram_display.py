@@ -1,6 +1,6 @@
 import unittest
 
-from v4_telegram import quick_message
+from v4_telegram import quick_message, continuation_message, paper_open_message, paper_close_message
 
 
 class V4TelegramDisplayTests(unittest.TestCase):
@@ -22,6 +22,31 @@ class V4TelegramDisplayTests(unittest.TestCase):
         self.assertNotIn("RSI", message)
         self.assertLess(len(message.splitlines()), 20)
 
+
+    def test_royal_style_covers_paper_open_continuation_and_close(self):
+        trade = {
+            "side": "SELL", "entry": 3960.58, "stop": 3970.41,
+            "tp1": 3947.93, "tp2": 3942.31, "signal_score": 5,
+            "signal_strength": "متوسطة", "research_v4": {"session": "LONDON"},
+        }
+        snapshot = {
+            "side": "SELL", "entry": 3960.58, "stop": 3970.41,
+            "tp1": 3947.93, "tp2": 3942.31, "price": 3950.0,
+            "score": 5, "state": "متوسطة", "adverse_correction": True,
+        }
+        closed = {"side": "SELL", "outcome": "TP2", "r": 1.857}
+        for message in (
+            paper_open_message(trade),
+            continuation_message(snapshot),
+            paper_close_message(closed, {"net_r": 1.429}),
+        ):
+            self.assertIn("BLACK DIAMOND ROYAL", message)
+            self.assertIn("━━━━━━━━", message)
+            self.assertIn("ورقي", message)
+        self.assertIn("3960.58", paper_open_message(trade))
+        self.assertIn("3970.41", continuation_message(snapshot))
+        self.assertIn("تصحيح قوي عكس الصفقة", continuation_message(snapshot))
+        self.assertIn("1.857", paper_close_message(closed, {"net_r": 1.429}))
 
 if __name__ == "__main__":
     unittest.main()

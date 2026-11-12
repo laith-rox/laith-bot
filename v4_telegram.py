@@ -200,7 +200,9 @@ def continuation_message(snapshot):
     warning = ("\n⚠️ " + " — ".join(notes[:2])) if notes else ""
     tp1_text = "✅" if snapshot.get("tp1_hit") else "⏳"
     return (
-        f"🔄 <b>V4 | {side_label}</b>\n"
+        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔄 <b>متابعة | {side_label}</b>\n"
         "⏱ تحديث 5 دقائق · متابعة ورقية\n"
         f"💰 السعر: <b>{_fmt(snapshot.get('price'))}</b> | الدخول: {_fmt(snapshot.get('entry'))}\n"
         f"🛑 الوقف: <b>{_fmt(snapshot.get('stop'))}</b>\n"
@@ -217,6 +219,8 @@ def paper_open_message(trade):
     side = trade.get("side")
     side_label = "شراء 🟢⬆️" if side == "BUY" else "بيع 🔴⬇️" if side == "SELL" else "اتجاه غير متاح"
     return (
+        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>V4 | {side_label} — صفقة رسمية</b>\n"
         f"⭐ القوة: <b>{trade.get('signal_strength', '—')}</b> · {trade.get('signal_score', '—')}/{trade.get('signal_total', 7)}\n"
         f"💰 الدخول: <b>{_fmt(trade.get('entry'))}</b>\n"
@@ -232,6 +236,8 @@ def paper_close_message(trade, stats):
     outcome = trade.get("outcome", "—")
     outcome_marker = "🟢" if outcome == "TP2" else "🔴" if outcome in ("STOP", "PROTECTED_STOP") else "🟡"
     return (
+        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
         "🏁 <b>إغلاق صفقة V4</b>\n"
         f"{outcome_marker}① النتيجة: <b>{outcome}</b>\n"
         f"🔵② الاتجاه: {trade.get('side', '—')}\n"
