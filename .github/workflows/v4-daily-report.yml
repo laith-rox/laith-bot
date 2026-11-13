@@ -1,0 +1,22 @@
+name: V4 daily report
+on:
+  pull_request:
+    paths:
+      - 'v4_daily_report.py'
+      - 'v4_daily_report_message.py'
+      - 'test_v4_daily_report*.py'
+      - 'v4_runtime.py'
+      - '.github/workflows/v4-daily-report.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test daily report
+        run: python -m unittest -v test_v4_daily_report.py test_v4_daily_report_message.py
+      - name: Syntax-check runtime
+        run: python -m py_compile v4_runtime.py v4_daily_report.py v4_daily_report_message.py
