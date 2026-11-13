@@ -9,7 +9,7 @@ def diagnose_wait(decision):
     for side in ("BUY", "SELL"):
         raw = checks.get(side)
         if isinstance(raw, (list, tuple)) and len(raw) == 7:
-            scores[side] = sum(value is True for value in raw)
+            scores[side] = sum(bool(value) for value in raw)
             missing[side] = False
         else:
             scores[side] = None
