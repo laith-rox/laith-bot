@@ -9,6 +9,7 @@ from v4_intelligence import enrich_decision
 from v4_dual_brain import market_brain
 from v4_adaptive_11_20 import market_adaptation
 from v4_quick import strength_label
+from v4_opportunity_diagnostic import diagnose_wait
 
 
 def _expose_directional_candidate(result):
@@ -88,4 +89,6 @@ def analyze_v4(bars, now, macro=None):
     enriched = enrich_decision(result, bars, now)
     enriched["v4"]["dual_brain_market"] = market_brain(enriched, bars, now)
     enriched["v4"]["adaptive"] = market_adaptation(enriched, bars, now)
+    # Observability only: do not promote WAIT or alter trading/risk gates.
+    enriched["v4"]["opportunity_diagnostic"] = diagnose_wait(enriched)
     return enriched
