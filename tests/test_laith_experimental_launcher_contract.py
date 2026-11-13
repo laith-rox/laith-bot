@@ -30,7 +30,9 @@ class ExperimentalLauncherContractTests(unittest.TestCase):
                 self.assertEqual(os.environ["V4_TELEGRAM_BOT_TOKEN"], fake["TELEGRAM_BOT_TOKEN"])
                 self.assertEqual(os.environ["V4_TELEGRAM_CHAT_ID"], fake["TELEGRAM_CHAT_ID"])
                 self.assertEqual(os.environ["V4_DB_PATH"], "/data/laith_v4_experiment.db")
-                self.assertEqual(os.environ["V4_BTC_SIGNALS_ENABLED"], "1")
+                self.assertEqual(os.environ["V4_BTC_SIGNALS_ENABLED"], "0")
+                self.assertEqual(os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"], "0")
+                self.assertEqual(os.environ["V4_BTC_M5_QUICK_ENABLED"], "0")
                 self.assertNotIn("V4_VERIFIED_BROKER_SESSIONS", os.environ)
                 self.assertNotIn("V4_VERIFIED_NEWS_EVENTS", os.environ)
 
