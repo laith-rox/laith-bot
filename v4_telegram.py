@@ -153,7 +153,8 @@ def quick_message(trade):
     direction = "🔴 بيع ⬇️" if side == "SELL" else "🟢 شراء ⬆️" if side == "BUY" else "◈ مراقبة"
     risk_level = str(trade.get("risk_level") or "—")
     reasons = trade.get("risk_reasons") or []
-    warning = ("⚠️ " + str(reasons[0])) if reasons else ""
+    warning_reasons = [str(reason) for reason in reasons if not (trade.get("delayed_reference") and "مرجع الدخول آخر شمعة 5د" in str(reason))]
+    warning = ("⚠️ " + warning_reasons[0]) if warning_reasons else ""
     buy_score = trade.get("buy_score", "—")
     sell_score = trade.get("sell_score", "—")
     if trade.get("entry_action") == "ENTER_NOW":
@@ -165,7 +166,7 @@ def quick_message(trade):
         action = "🟡 ادخل بحذر — بعد مطابقة سعر وسيطك"
     else:
         action = "👀 مراقبة فقط"
-    reference = "⚠️ السعر من إغلاق شمعة 5د، وليس سعرًا حيًا" if trade.get("delayed_reference") else "📡 السعر مرصود؛ طابقه مع وسيطك"
+    reference = "⚠️ دخول مرجعي M5 — بانتظار تأكيد السعر الحي" if trade.get("delayed_reference") else "📡 السعر مرصود؛ طابقه مع وسيطك"
     return (
         "💎 <b>بوت ليث | الذهب</b>\n"
         "━━━━━━\n"
