@@ -14,6 +14,12 @@ def diagnose_wait(decision):
         else:
             scores[side] = None
             missing[side] = True
+    buy, sell = scores["BUY"], scores["SELL"]
+    dominant = (
+        "BUY" if buy is not None and sell is not None and buy > sell
+        else "SELL" if buy is not None and sell is not None and sell > buy
+        else None
+    )
     research = decision.get("v4") or {}
     zone = research.get("no_trade_zone") or {}
     entry_gate = (research.get("intelligence") or {}).get("entry_gate") or {}
@@ -21,6 +27,7 @@ def diagnose_wait(decision):
         "decision": decision.get("side", "WAIT"),
         "reason": decision.get("reason"),
         "buy_score": scores["BUY"],
+        "dominant_side": dominant,
         "sell_score": scores["SELL"],
         "buy_checks_missing": missing["BUY"],
         "sell_checks_missing": missing["SELL"],
@@ -28,6 +35,7 @@ def diagnose_wait(decision):
         "entry_gate_reasons": list(entry_gate.get("reasons") or []),
         "eligible_for_review": (
             decision.get("side") == "WAIT"
-            and any(score is not None and score >= 5 for score in scores.values())
+            and dominant is not None
+            and scores[dominant] >= 5
         ),
     }
