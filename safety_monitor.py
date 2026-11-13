@@ -73,21 +73,19 @@ def warning_message(trade,event):
             'reversal':'🚨 خطر انعكاس ' + movement + ': كسر قصير وزخم معاكس',
             'stop':'🚨 رُصد تجاوز الوقف في بيانات المصدر'}
     side='شراء' if trade['side']=='BUY' else 'بيع'
-    action=('تصحيح محتمل؛ استمرار الحركة غير مؤكد، وليس إشارة دخول عكسية.' if event['kind']=='correction' else
-            'راجع سعر وسيطك والوقف فورًا؛ لا تدخل عكسًا تلقائيًا.')
-    evidence = ''
     checks = event.get('pressure_checks')
-    if event['kind'] in ('correction','reversal'):
-        if isinstance(checks,list) and len(checks)==4 and all(type(x) is bool for x in checks):
-            count=sum(checks)
-            evidence=(f'📊 تحقق مؤشرات الضغط المعاكس: <b>{count}/4 = {count*25}%</b>\n'
-                      'نسبة شروط مرصودة؛ ليست احتمال استمرار التصحيح، حتى عند 100%.\n')
-        else:
-            evidence='📊 نسبة تحقق المؤشرات: غير متاحة\n'
-    return (f"<b>{labels[event['kind']]}</b>\n{side}\n"
-            f"إغلاق الدقيقة: <b>{event['price']:.2f}</b> | {local_time(event['stamp'])} فلسطين\n"
-            f"الوقف المقترح: <b>{trade['stop']:.2f}</b>\n{evidence}{action}\n"
-            'Twelve Data؛ ليس سعر وسيطك الحي. تحذير احتمالي، لا إغلاق آلي.')
+    if isinstance(checks, list) and len(checks) == 4 and all(type(x) is bool for x in checks):
+        pressure = f"{sum(checks)}/4 — {sum(checks)*25}%"
+    else:
+        pressure = "غير متاح"
+    correction = ('⬇️ هبوط محتمل' if trade['side'] == 'BUY'
+                  else '⬆️ صعود محتمل')
+    return (f"<b>🚨 V4 | طوارئ الدقيقة</b>\\n"
+            f"{observed if event['kind'] == 'correction' else labels[event['kind']]}\\n"
+            f"إغلاق الدقيقة: <b>{event['price']:.2f}</b> | {local_time(event['stamp'])} فلسطين\\n"
+            f"🛑 الوقف المقترح: <b>{trade['stop']:.2f}</b>\\n"
+            f"📊 الضغط المعاكس: <b>{pressure}</b>\\n"
+            f"🟠 التصحيح: {correction}")
 
 
 def monitor(store,bars,now):
