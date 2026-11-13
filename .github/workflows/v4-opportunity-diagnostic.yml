@@ -1,0 +1,25 @@
+name: V4 opportunity diagnostic tests
+on:
+  pull_request:
+    paths:
+      - 'v4_opportunity_diagnostic.py'
+      - 'v4_research.py'
+      - 'test_v4_opportunity_diagnostic.py'
+      - '.github/workflows/v4-opportunity-diagnostic.yml'
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install V4 test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile changed Python modules
+        run: python -m py_compile v4_opportunity_diagnostic.py v4_research.py test_v4_opportunity_diagnostic.py
+      - name: Run V4 diagnostic regression tests
+        run: python -m unittest -v test_v4_opportunity_diagnostic
