@@ -27,6 +27,20 @@ class ExperimentalEntrypointTests(unittest.TestCase):
                 self.assertEqual(os.environ["V4_BTC_M5_QUICK_ENABLED"], "0")  # no BTC quick signals by default
 
 
+    def test_gold_launcher_overrides_stale_bitcoin_opt_ins(self):
+        env = {"TELEGRAM_BOT_TOKEN": "demo-token", "TELEGRAM_CHAT_ID": "123",
+               "TWELVE_DATA_API_KEY": "demo-key",
+               "V4_BTC_SIGNALS_ENABLED": "1",
+               "V4_BTC_QUARTERLY_REPORTS_ENABLED": "1",
+               "V4_BTC_M5_QUICK_ENABLED": "1"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch("v4_runtime.run"), patch("v4_runtime.parser"):
+                laith_experimental_v4.main()
+                for name in ("V4_BTC_SIGNALS_ENABLED",
+                             "V4_BTC_QUARTERLY_REPORTS_ENABLED",
+                             "V4_BTC_M5_QUICK_ENABLED"):
+                    self.assertEqual(os.environ[name], "0")
+
     def test_preserves_legacy_database_and_blocks_unverified_startup(self):
         # Missing a market credential must not rewrite any existing V4 settings.
         env = {"TELEGRAM_BOT_TOKEN": "demo-token", "TELEGRAM_CHAT_ID": "123",
