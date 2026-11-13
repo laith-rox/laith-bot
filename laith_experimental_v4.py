@@ -16,12 +16,11 @@ def main():
     os.environ["V4_TELEGRAM_CHAT_ID"] = chat
     os.environ["V4_TWELVE_DATA_API_KEY"] = key
     os.environ["V4_DB_PATH"] = "/data/laith_v4_experiment.db"
-    # Gold-only experimental target: never force-enable legacy BTC streams.
-    # Explicit environment opt-in remains possible for isolated research, but
-    # defaults must not silently publish Bitcoin on the gold Telegram bot.
-    os.environ.setdefault("V4_BTC_SIGNALS_ENABLED", "0")
-    os.environ.setdefault("V4_BTC_QUARTERLY_REPORTS_ENABLED", "0")
-    os.environ.setdefault("V4_BTC_M5_QUICK_ENABLED", "0")
+    # This Telegram bot is gold-only: stale environment opt-ins must not
+    # reactivate legacy Bitcoin streams when the launcher is deployed.
+    os.environ["V4_BTC_SIGNALS_ENABLED"] = "0"
+    os.environ["V4_BTC_QUARTERLY_REPORTS_ENABLED"] = "0"
+    os.environ["V4_BTC_M5_QUICK_ENABLED"] = "0"
     # No verified broker calendar is fabricated. V4 must fail closed until supplied.
     import v4_group_runtime
     import v4_runtime
