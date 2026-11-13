@@ -22,6 +22,23 @@ class OpportunityDiagnosticTests(unittest.TestCase):
             "BUY": [True] * 4 + [False] * 3, "SELL": [False] * 7}})
         self.assertFalse(result["eligible_for_review"])
 
+    def test_analysis_attaches_diagnostic_without_changing_side(self):
+        from unittest.mock import patch
+        from v4_research import analyze_v4
+        base = {"side": "WAIT", "reason": "v3_no_trade_zone", "checks": {
+            "BUY": [True] * 5 + [False] * 2,
+            "SELL": [False] * 7}}
+        with patch("v4_research.analyze_v3", return_value=base.copy()), \\
+             patch("v4_research.enrich_decision", side_effect=lambda d, bars, now: d), \\
+             patch("v4_research.market_brain", return_value={}), \\
+             patch("v4_research.market_adaptation", return_value={}):
+            # Baseline exposes a directional candidate; diagnostics must not change it.
+            base["price"], base["atr"] = 100.0, 1.0
+            result = analyze_v4([], None)
+        self.assertEqual(result["side"], "BUY")
+        self.assertIn("opportunity_diagnostic", result["v4"])
+        self.assertEqual(result["v4"]["opportunity_diagnostic"]["buy_score"], 5)
+
     def test_zone_and_gate_reasons_preserved(self):
         result = diagnose_wait({"side": "WAIT", "v4": {
             "no_trade_zone": {"reasons": ["failed_breakout"]},
