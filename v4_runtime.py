@@ -6,6 +6,8 @@ entry price. If the history endpoint briefly fails, one-slot recent cached bars
 may still be used only when the live quote itself is current and aligned.
 """
 from datetime import datetime
+from v4_daily_report import daily_trade_counts, should_send_report, LOCAL
+from v4_daily_report_message import daily_report_message
 from zoneinfo import ZoneInfo
 import logging
 import math
@@ -437,6 +439,19 @@ def run(args):
                 telegram.poll()
             except Exception:
                 LOG.exception("telegram_cycle_failed")
+            # Daily local-day paper report is independent of market opening hours.
+            if should_send_report(now, store.get("v4_daily_report_sent_day")):
+                local_day = now.astimezone(LOCAL).date()
+                try:
+                    counts = daily_trade_counts(paper._paper_rows(), paper._quick_rows(), local_day)
+                    if telegram.send(daily_report_message(local_day, counts)):
+                        store.set("v4_daily_report_sent_day", local_day.isoformat())
+                        LOG.info("v4_daily_report_sent day=%s wins=%s losses=%s",
+                                 local_day, counts["total"]["wins"], counts["total"]["losses"])
+                    else:
+                        LOG.warning("v4_daily_report_delivery_not_confirmed day=%s", local_day)
+                except Exception:
+                    LOG.exception("v4_daily_report_failed")
             if trading_guard_closed(now):
                 # Keep Telegram polling alive while all market-driven V4 activity is paused.
                 # No automatic educational lessons are published; teaching happens only on request.
