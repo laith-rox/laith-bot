@@ -23,6 +23,19 @@ class OpportunityDiagnosticTests(unittest.TestCase):
         self.assertEqual(result["buy_score"], 5)
         self.assertTrue(result["eligible_for_review"])
 
+    def test_tied_strong_directions_are_not_false_missed_opportunity(self):
+        result = diagnose_wait({"side": "WAIT", "checks": {
+            "BUY": [True] * 5 + [False] * 2,
+            "SELL": [True] * 5 + [False] * 2}})
+        self.assertIsNone(result["dominant_side"])
+        self.assertFalse(result["eligible_for_review"])
+
+    def test_missing_opposite_checks_are_not_assumed_weak(self):
+        result = diagnose_wait({"side": "WAIT", "checks": {
+            "BUY": [True] * 6 + [False]}})
+        self.assertIsNone(result["dominant_side"])
+        self.assertFalse(result["eligible_for_review"])
+
     def test_below_threshold_does_not_flag(self):
         result = diagnose_wait({"side": "WAIT", "checks": {
             "BUY": [True] * 4 + [False] * 3, "SELL": [False] * 7}})
