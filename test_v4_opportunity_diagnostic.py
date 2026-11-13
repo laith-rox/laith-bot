@@ -47,12 +47,12 @@ class OpportunityDiagnosticTests(unittest.TestCase):
         base = {"side": "WAIT", "reason": "v3_no_trade_zone", "checks": {
             "BUY": [True] * 5 + [False] * 2,
             "SELL": [False] * 7}}
+        base["price"], base["atr"] = 100.0, 1.0
         with patch("v4_research.analyze_v3", return_value=base.copy()), \
              patch("v4_research.enrich_decision", side_effect=lambda d, bars, now: d), \
              patch("v4_research.market_brain", return_value={}), \
              patch("v4_research.market_adaptation", return_value={}):
             # Baseline exposes a directional candidate; diagnostics must not change it.
-            base["price"], base["atr"] = 100.0, 1.0
             result = analyze_v4([], None)
         self.assertEqual(result["side"], "BUY")
         self.assertIn("opportunity_diagnostic", result["v4"])
