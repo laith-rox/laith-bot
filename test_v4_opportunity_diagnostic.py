@@ -17,6 +17,12 @@ class OpportunityDiagnosticTests(unittest.TestCase):
         self.assertTrue(result["eligible_for_review"])
         self.assertEqual(decision["side"], "WAIT")
 
+    def test_truthy_check_values_match_v4_scoring(self):
+        result = diagnose_wait({"side": "WAIT", "checks": {
+            "BUY": [1, 1, 1, 1, 1, 0, 0], "SELL": [0] * 7}})
+        self.assertEqual(result["buy_score"], 5)
+        self.assertTrue(result["eligible_for_review"])
+
     def test_below_threshold_does_not_flag(self):
         result = diagnose_wait({"side": "WAIT", "checks": {
             "BUY": [True] * 4 + [False] * 3, "SELL": [False] * 7}})
