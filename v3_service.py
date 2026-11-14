@@ -230,4 +230,7 @@ def parser():
 
 
 if __name__ == "__main__":
+    if os.getenv("V3_PAPER_ENABLED", "1") == "0":
+        print("V3 paper worker paused by owner; paper database preserved", flush=True)
+        raise SystemExit(0)
     run(parser().parse_args())
