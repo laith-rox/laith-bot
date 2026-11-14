@@ -10,7 +10,7 @@ def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat = os.getenv("TELEGRAM_CHAT_ID")
     key = os.getenv("TWELVE_DATA_API_KEY")
-    if not token or not chat or not key:
+    if not all(value and value.strip() for value in (token, chat, key)):
         raise RuntimeError("experimental_laith_missing_credentials")
     os.environ["V4_TELEGRAM_BOT_TOKEN"] = token
     os.environ["V4_TELEGRAM_CHAT_ID"] = chat
