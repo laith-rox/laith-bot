@@ -57,7 +57,7 @@ class Telegram:
             data = response.json()
             if not isinstance(data, dict) or response.status_code != 200 or data.get("ok") is not True:
                 # Diagnose poll conflicts without exposing response bodies or secrets.
-                code = response.status_code if response.status_code != 200 else data.get("error_code", 200)
+                code = response.status_code if response.status_code != 200 else (data.get("error_code", 200) if isinstance(data, dict) else 200)
                 if code == 409:
                     raise RuntimeError("telegram_poll_conflict_or_webhook")
                 if code in (401, 403):
