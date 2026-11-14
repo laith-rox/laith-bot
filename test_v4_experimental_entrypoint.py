@@ -11,6 +11,17 @@ class ExperimentalEntrypointTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "experimental_laith_missing_credentials"):
                 laith_experimental_v4.main()
 
+    def test_whitespace_only_credentials_fail_closed(self):
+        for invalid_name in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TWELVE_DATA_API_KEY"):
+            with self.subTest(invalid_name=invalid_name):
+                env = {"TELEGRAM_BOT_TOKEN": "demo-token", "TELEGRAM_CHAT_ID": "123",
+                       "TWELVE_DATA_API_KEY": "demo-key"}
+                env[invalid_name] = "   "
+                with patch.dict(os.environ, env, clear=True):
+                    with self.assertRaisesRegex(RuntimeError, "experimental_laith_missing_credentials"):
+                        laith_experimental_v4.main()
+                    self.assertNotIn("V4_DB_PATH", os.environ)
+
     def test_uses_experimental_credentials_and_separate_db(self):
         env = {"TELEGRAM_BOT_TOKEN": "demo-token", "TELEGRAM_CHAT_ID": "123",
                "TWELVE_DATA_API_KEY": "demo-key"}
