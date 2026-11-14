@@ -38,9 +38,9 @@ class ExperimentalEntrypointFlagsTests(unittest.TestCase):
         self.assertEqual(db, "/data/laith_v4_experiment.db")
         self.assertEqual(len(calls), 1)
 
-    def test_explicit_btc_opt_in_is_not_overwritten(self):
+    def test_explicit_btc_opt_in_is_overridden_for_gold_only(self):
         flags, _, _ = self._run({"V4_BTC_SIGNALS_ENABLED": "1"})
-        self.assertEqual(flags["V4_BTC_SIGNALS_ENABLED"], "1")
+        self.assertEqual(flags["V4_BTC_SIGNALS_ENABLED"], "0")
         self.assertEqual(flags["V4_BTC_QUARTERLY_REPORTS_ENABLED"], "0")
 
 
