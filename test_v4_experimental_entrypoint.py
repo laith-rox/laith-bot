@@ -6,6 +6,22 @@ import laith_experimental_v4
 
 
 class ExperimentalEntrypointTests(unittest.TestCase):
+    def test_non_gold_symbol_fails_closed_before_runtime(self):
+        env = {"TELEGRAM_BOT_TOKEN": "demo-token", "TELEGRAM_CHAT_ID": "123",
+               "TWELVE_DATA_API_KEY": "demo-key", "SYMBOL": "BTCUSD"}
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "experimental_laith_non_gold_symbol"):
+                laith_experimental_v4.main()
+            self.assertNotIn("V4_DB_PATH", os.environ)
+
+    def test_gold_symbol_normalized(self):
+        env = {"TELEGRAM_BOT_TOKEN": "demo-token", "TELEGRAM_CHAT_ID": "123",
+               "TWELVE_DATA_API_KEY": "demo-key", "SYMBOL": " xau/usd "}
+        with patch.dict(os.environ, env, clear=True):
+            with patch("v4_runtime.run"), patch("v4_runtime.parser"):
+                laith_experimental_v4.main()
+            self.assertEqual(os.environ["SYMBOL"], "XAUUSD")
+
     def test_missing_credentials_fail_closed(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "experimental_laith_missing_credentials"):
