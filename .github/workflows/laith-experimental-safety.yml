@@ -1,0 +1,21 @@
+name: Laith experimental gold safety
+on:
+  push:
+    branches: [feature-v4-clear-entry-now-status]
+  pull_request:
+    branches: ['**']
+  workflow_dispatch:
+jobs:
+  launcher-safety:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile isolated launcher
+        run: python -m py_compile laith_experimental_v4.py
+      - name: Verify launcher safety without live credentials or Telegram sends
+        run: python -m unittest discover -s tests -p 'test_laith_gold_deployment_safety.py' -v
