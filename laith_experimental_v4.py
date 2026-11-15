@@ -12,7 +12,12 @@ def main():
     key = os.getenv("TWELVE_DATA_API_KEY")
     if not all(value and value.strip() for value in (token, chat, key)):
         raise RuntimeError("experimental_laith_missing_credentials")
-    # Never start the gold-only experimental bot with a BTC/other symbol.\n    symbol = os.getenv("SYMBOL", "XAUUSD").strip().upper()\n    if symbol not in ("XAUUSD", "XAU/USD"):\n        raise RuntimeError("experimental_laith_non_gold_symbol")\n    os.environ["SYMBOL"] = "XAUUSD"\n    os.environ["V4_TELEGRAM_BOT_TOKEN"] = token
+    # Never start the gold-only experimental bot with a BTC/other symbol.
+    symbol = os.getenv("SYMBOL", "XAUUSD").strip().upper()
+    if symbol not in ("XAUUSD", "XAU/USD"):
+        raise RuntimeError("experimental_laith_non_gold_symbol")
+    os.environ["SYMBOL"] = "XAUUSD"
+    os.environ["V4_TELEGRAM_BOT_TOKEN"] = token
     os.environ["V4_TELEGRAM_CHAT_ID"] = chat
     os.environ["V4_TWELVE_DATA_API_KEY"] = key
     os.environ["V4_DB_PATH"] = "/data/laith_v4_experiment.db"
