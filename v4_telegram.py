@@ -169,7 +169,7 @@ def quick_message(trade):
     else:
         reference = "📡 السعر مرصود — طابقه مع وسيطك"
     return (
-        "💎 <b>LAITH V4 · BLACK DIAMOND ROYAL</b>\n"
+        "💎 <b>بوت ليث | الذهب</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>{direction} ◇ M5</b>\n"
         f"✦ القوة: <b>{trade.get('strength', '—')}</b> · <b>{trade.get('score', '—')}/7</b>\n"
