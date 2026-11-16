@@ -13,7 +13,7 @@ class RoyalQuickCardTests(unittest.TestCase):
 
     def test_royal_layout_and_prices(self):
         text = quick_message(self.sample())
-        self.assertIn("BLACK DIAMOND ROYAL", text)
+        self.assertIn("بوت ليث | الذهب", text)
         self.assertLess(text.index("STOP"), text.index("ENTRY"))
         self.assertLess(text.index("ENTRY"), text.index("TARGET"))
         self.assertIn("3875.94", text)
