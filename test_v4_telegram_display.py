@@ -11,7 +11,7 @@ class V4TelegramDisplayTests(unittest.TestCase):
             "entry": 4300.0, "stop": 4305.0, "target": 4292.5, "rr": 1.5,
         }
         message = quick_message(trade)
-        self.assertIn("LAITH V4 · BLACK DIAMOND ROYAL", message)
+        self.assertIn("بوت ليث | الذهب", message)
         self.assertIn("بيع", message)
         self.assertIn("6/7", message)
         self.assertIn("4300.00", message)
